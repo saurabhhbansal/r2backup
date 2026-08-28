@@ -180,15 +180,19 @@ func TestMoveDetectionIsOffByDefault(t *testing.T) {
 }
 
 func TestAmbiguousMatchesUploadRatherThanGuess(t *testing.T) {
-	// Two vanished files and two new files all share a fingerprint. Pairing
-	// them is a coin flip, and copying the wrong bytes to the wrong key is an
-	// error a backup may never make.
+	// Two files vanish and two appear inside the SAME directory, all sharing
+	// one fingerprint. The directory detector cannot help -- the folder did
+	// not move, and its contents no longer match -- so this falls to
+	// fingerprint pairing, where it is a coin flip.
+	//
+	// Copying the wrong bytes to the wrong key is an error a backup may never
+	// make, so it uploads instead. That is merely slower.
 	p := build(t, result(
-		file("new/one.bin", 1<<20, base),
-		file("new/two.bin", 1<<20, base),
+		file("data/gamma.bin", 1<<20, base),
+		file("data/delta.bin", 1<<20, base),
 	), mapPrior{
-		"old/one.bin": prior("old/one.bin", 1<<20, base),
-		"old/two.bin": prior("old/two.bin", 1<<20, base),
+		"data/alpha.bin": prior("data/alpha.bin", 1<<20, base),
+		"data/beta.bin":  prior("data/beta.bin", 1<<20, base),
 	}, Options{DetectMoves: true})
 
 	if len(p.Moves) != 0 {
@@ -202,14 +206,83 @@ func TestAmbiguousMatchesUploadRatherThanGuess(t *testing.T) {
 	}
 }
 
-func TestTinyFilesAreNotMoveCandidates(t *testing.T) {
-	// Below MinMoveSize a copy costs the same as an upload, so there is
-	// nothing to win and a wrong guess would be silently wrong.
+func TestTinyFilesAreNotFingerprintMatched(t *testing.T) {
+	// Fingerprint matching pairs files by (size, mtime) alone. Below
+	// MinMoveSize that is weak evidence -- a directory of generated stubs
+	// holds hundreds of identical ones -- and a copy costs the same as an
+	// upload, so there is nothing to win by guessing.
+	//
+	// The directory detector is a separate case: matching on the whole
+	// contents of a folder is strong evidence regardless of file size, so it
+	// deliberately has no size floor. The shape here (two files leave, one
+	// arrives) cannot be a directory rename, which isolates the fingerprint
+	// path.
 	p := build(t, result(file("new/stub.txt", 64, base)), mapPrior{
-		"old/stub.txt": prior("old/stub.txt", 64, base),
+		"old/stub.txt":  prior("old/stub.txt", 64, base),
+		"old/other.txt": prior("old/other.txt", 64, base),
 	}, Options{DetectMoves: true})
 	if len(p.Moves) != 0 {
-		t.Fatalf("a 64-byte file should not be move-matched, got %v", p.Moves)
+		t.Fatalf("a 64-byte file should not be fingerprint-matched, got %v", p.Moves)
+	}
+}
+
+func TestDirectoryMovesCoverSmallFilesToo(t *testing.T) {
+	// Renaming a folder full of tiny files is exactly the node_modules case.
+	// The bytes are already in the bucket; re-uploading them because each one
+	// is small would be the waste this detection exists to prevent.
+	p := build(t, result(
+		file("packages/a.js", 200, base),
+		file("packages/b.js", 300, base),
+		file("packages/c.js", 400, base),
+	), mapPrior{
+		"pkg/a.js": prior("pkg/a.js", 200, base),
+		"pkg/b.js": prior("pkg/b.js", 300, base),
+		"pkg/c.js": prior("pkg/c.js", 400, base),
+	}, Options{DetectMoves: true})
+
+	if len(p.Moves) != 3 {
+		t.Fatalf("Moves = %v, want all three -- the folder plainly moved", p.Moves)
+	}
+	if len(p.Uploads) != 0 || p.UploadBytes != 0 {
+		t.Errorf("a directory rename re-uploaded %d files (%d bytes)", len(p.Uploads), p.UploadBytes)
+	}
+	if len(p.Deletes) != 0 {
+		t.Errorf("the move sources must not also be deleted: %v", p.Deletes)
+	}
+}
+
+func TestDirectoryMoveNeedsAnExactContentMatch(t *testing.T) {
+	// One file differs in size, so this is not the same folder somewhere else.
+	// Failing closed here means an upload, which is merely slower; failing
+	// open would mean copying the wrong bytes to the wrong key.
+	p := build(t, result(
+		file("packages/a.js", 200, base),
+		file("packages/b.js", 999, base),
+	), mapPrior{
+		"pkg/a.js": prior("pkg/a.js", 200, base),
+		"pkg/b.js": prior("pkg/b.js", 300, base),
+	}, Options{DetectMoves: true})
+
+	if len(p.Moves) != 0 {
+		t.Fatalf("an imperfect directory match must not be treated as a move, got %v", p.Moves)
+	}
+}
+
+func TestTwoFilesNormalizingToOneKeyAreReportedNotDropped(t *testing.T) {
+	// Linux holds "résumé.txt" precomposed and decomposed as two files; both
+	// normalize to one object key and only one can be stored. Quietly keeping
+	// one is the sort of silent incompleteness this tool must be incapable of.
+	dup := file("unicode/résumé.txt", 10, base)
+	p := build(t, result(dup, dup), nil, Options{})
+
+	if len(p.Collisions) != 1 {
+		t.Fatalf("Collisions = %v, want the clash reported", p.Collisions)
+	}
+	if len(p.Uploads) != 1 {
+		t.Errorf("Uploads = %d, want 1 -- only one file can occupy the key", len(p.Uploads))
+	}
+	if p.Collisions[0].Key != "unicode/résumé.txt" {
+		t.Errorf("Collision key = %q", p.Collisions[0].Key)
 	}
 }
 

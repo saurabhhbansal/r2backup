@@ -15,6 +15,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/retry"
+	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
@@ -121,6 +122,18 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 	}
 
 	s3Client := s3.NewFromConfig(awsCfg, func(o *s3.Options) {
+		// Sign requests with UNSIGNED-PAYLOAD instead of a SHA256 of the body.
+		//
+		// Two reasons, one correctness and one performance. Computing the hash
+		// requires the SDK to read the body to the end and then seek back to
+		// the start -- so a body that is not seekable, which is exactly what a
+		// progress-counting wrapper around a file produces, fails outright with
+		// "request stream is not seekable". And even when it succeeds it means
+		// reading every file off disk twice: once to hash, once to send. Over a
+		// 60,000-file backup that is double the disk I/O for no benefit, since
+		// the connection is already TLS-protected and S3 accepts unsigned
+		// payloads over HTTPS.
+		o.APIOptions = append(o.APIOptions, v4.SwapComputePayloadSHA256ForUnsignedPayloadMiddleware)
 		o.BaseEndpoint = aws.String(endpoint)
 		// R2 and the MinIO server the tests run against only serve
 		// path-style requests (bucket-in-path). Virtual-hosted-style would

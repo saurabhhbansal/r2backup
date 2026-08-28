@@ -10,6 +10,7 @@ package plan
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/saurabhhbansal/r2backup/internal/scan"
@@ -49,6 +50,20 @@ type PriorEntry struct {
 	Target  string
 }
 
+// Collision is two or more different files on disk that produce the same
+// object key.
+//
+// It happens because keys are Unicode-normalized to NFC: a Linux filesystem
+// will happily hold "résumé.txt" spelled both precomposed and decomposed, and
+// both become the same key. Only one can be stored. Silently keeping one and
+// dropping the other is exactly the kind of quiet incompleteness this tool is
+// supposed to be incapable of, so the loser is reported rather than lost.
+type Collision struct {
+	Key  string
+	Kept string   // the path that will be uploaded
+	Lost []string // the paths that cannot be, spelled as they are on disk
+}
+
 // Move is a file that appeared at a new key with contents we already hold, so
 // the object can be copied server-side instead of uploaded again.
 type Move struct {
@@ -72,6 +87,11 @@ type Plan struct {
 	// UploadBytes is the exact byte total of Uploads. This is the ETA's
 	// denominator and must never change once the plan is built.
 	UploadBytes int64
+
+	// Collisions are files that cannot be stored because another file
+	// normalizes to the same key. Never empty silently: the caller must
+	// report these.
+	Collisions []Collision
 
 	// overwrites counts uploads that replace an existing object, which is what
 	// trash has to copy aside first.
@@ -128,9 +148,17 @@ func Build(scanned *scan.Result, prior Prior, opts Options) (*Plan, error) {
 
 	p := &Plan{}
 	seen := make(map[string]struct{}, len(scanned.Entries))
+	collided := map[string][]string{}
 	var candidates []scan.Entry // new keys, possible move destinations
 
 	for _, e := range scanned.Entries {
+		if _, dup := seen[e.Key]; dup {
+			// A second file normalizing onto a key already claimed. Record it
+			// and move on; the first one wins, deterministically, because the
+			// scan is sorted.
+			collided[e.Key] = append(collided[e.Key], e.Key)
+			continue
+		}
 		seen[e.Key] = struct{}{}
 		old, known := priorByKey[e.Key]
 		switch {
@@ -158,6 +186,11 @@ func Build(scanned *scan.Result, prior Prior, opts Options) (*Plan, error) {
 	matched := map[string]bool{} // vanished keys consumed by a move
 	if opts.DetectMoves {
 		p.Moves, matched = detectMoves(candidates, vanished, tol)
+		dirMoves, dirMatched := detectDirectoryMoves(candidates, vanished, matched, p.Moves, tol)
+		p.Moves = append(p.Moves, dirMoves...)
+		for k := range dirMatched {
+			matched[k] = true
+		}
 	}
 
 	movedTo := map[string]bool{}
@@ -188,6 +221,11 @@ func Build(scanned *scan.Result, prior Prior, opts Options) (*Plan, error) {
 	})
 	sort.Strings(p.Deletes)
 	sort.Slice(p.Moves, func(i, j int) bool { return p.Moves[i].To < p.Moves[j].To })
+
+	for key, lost := range collided {
+		p.Collisions = append(p.Collisions, Collision{Key: key, Kept: key, Lost: lost})
+	}
+	sort.Slice(p.Collisions, func(i, j int) bool { return p.Collisions[i].Key < p.Collisions[j].Key })
 	return p, nil
 }
 
@@ -251,6 +289,100 @@ func detectMoves(candidates []scan.Entry, vanished []PriorEntry, tol time.Durati
 		}
 		moves = append(moves, Move{From: olds[0].Key, To: news[0].Key, Size: news[0].Size})
 		matched[olds[0].Key] = true
+	}
+	return moves, matched
+}
+
+// detectDirectoryMoves catches the case per-file fingerprinting cannot: a
+// renamed folder whose files are indistinguishable from each other.
+//
+// Twenty generated files of identical size written in the same second share
+// one fingerprint, so pairing them individually is a coin flip and detectMoves
+// correctly refuses. But renaming their folder is the single most common way a
+// backup sees a "move", and re-uploading a gigabyte because a directory was
+// renamed is the outcome worth avoiding.
+//
+// Structure disambiguates where content cannot. Two directories are matched
+// only when the set of names directly inside them is identical AND every one
+// of those names agrees on size and modification time. That is a far stronger
+// signal than any single file's fingerprint, and it fails closed: an imperfect
+// match falls back to uploading.
+func detectDirectoryMoves(candidates []scan.Entry, vanished []PriorEntry, alreadyMatched map[string]bool, existing []Move, tol time.Duration) ([]Move, map[string]bool) {
+	type member struct {
+		key  string
+		size int64
+		mod  time.Time
+	}
+
+	movedTo := map[string]bool{}
+	for _, m := range existing {
+		movedTo[m.To] = true
+	}
+
+	dirOf := func(key string) (string, string) {
+		i := strings.LastIndex(key, "/")
+		if i < 0 {
+			return "", key
+		}
+		return key[:i], key[i+1:]
+	}
+
+	gone := map[string][]member{}
+	for _, e := range vanished {
+		if e.Kind != scan.KindFile || alreadyMatched[e.Key] {
+			continue
+		}
+		d, base := dirOf(e.Key)
+		if d == "" {
+			continue // a rename at the root is not a directory move
+		}
+		gone[d] = append(gone[d], member{key: base, size: e.Size, mod: e.ModTime})
+	}
+	fresh := map[string][]member{}
+	for _, e := range candidates {
+		if e.Kind != scan.KindFile || movedTo[e.Key] {
+			continue
+		}
+		d, base := dirOf(e.Key)
+		if d == "" {
+			continue
+		}
+		fresh[d] = append(fresh[d], member{key: base, size: e.Size, mod: e.ModTime})
+	}
+
+	// A signature naming every file in a directory, its size and its rounded
+	// mtime. Two directories with the same signature hold the same contents.
+	sign := func(ms []member) string {
+		parts := make([]string, len(ms))
+		for i, m := range ms {
+			parts[i] = fmt.Sprintf("%s|%d|%d", m.key, m.size, m.mod.Unix()/int64(tol/time.Second))
+		}
+		sort.Strings(parts)
+		return strings.Join(parts, "\x00")
+	}
+
+	bySig := map[string][]string{}
+	for d, ms := range gone {
+		bySig[sign(ms)] = append(bySig[sign(ms)], d)
+	}
+
+	var moves []Move
+	matched := map[string]bool{}
+	for newDir, ms := range fresh {
+		olds := bySig[sign(ms)]
+		if len(olds) != 1 {
+			continue // ambiguous, or nothing like it vanished
+		}
+		oldDir := olds[0]
+		if oldDir == newDir {
+			continue
+		}
+		for _, m := range ms {
+			from := oldDir + "/" + m.key
+			moves = append(moves, Move{From: from, To: newDir + "/" + m.key, Size: m.size})
+			matched[from] = true
+		}
+		delete(bySig, sign(ms)) // one destination per source directory
 	}
 	return moves, matched
 }
