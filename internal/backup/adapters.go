@@ -9,6 +9,7 @@ import (
 	"github.com/saurabhhbansal/r2backup/internal/progress"
 	"github.com/saurabhhbansal/r2backup/internal/remote"
 	"github.com/saurabhhbansal/r2backup/internal/scan"
+	"github.com/saurabhhbansal/r2backup/internal/trash"
 )
 
 // The engine depends on interfaces it declares itself rather than on the R2
@@ -93,3 +94,24 @@ func isThrottle(err error) bool {
 
 var _ engine.Uploader = uploader{}
 var _ engine.Reporter = reporter{}
+
+// trashAdapter narrows the trash package to the single call a run makes, so
+// backup does not carry retention policy around with it.
+type trashAdapter struct {
+	t             *trash.Trash
+	retentionDays int
+}
+
+func (a trashAdapter) Move(ctx context.Context, prefix string, keys []string) error {
+	_, err := a.t.Move(ctx, prefix, keys, a.retentionDays)
+	return err
+}
+
+// NewTrash builds the Trash a run should use, or nil when the set keeps no
+// history. A set that is pure build output does not need thirty days of it.
+func NewTrash(client *remote.Client, retentionDays int) Trash {
+	if retentionDays <= 0 {
+		return nil
+	}
+	return trashAdapter{t: trash.New(client, trash.Clock{}), retentionDays: retentionDays}
+}
