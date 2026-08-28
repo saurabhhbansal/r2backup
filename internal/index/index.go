@@ -1,0 +1,421 @@
+// Package index is the local cache of what has already been uploaded for a
+// set. A run consults it to decide what changed without asking the bucket
+// anything -- the predecessor to this tool hashed 60,000 files to find that 3
+// had changed, and that took two hours and forty-three minutes. Everything
+// here exists to make that check a bbolt lookup instead.
+package index
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+
+	"go.etcd.io/bbolt"
+)
+
+// Kind mirrors scan.Kind. It is redeclared here, rather than imported, so
+// this package's on-disk format does not silently shift if scan's enum ever
+// does; the two are kept in step by callers translating at the boundary.
+type Kind uint8
+
+const (
+	KindFile Kind = iota
+	KindSymlink
+	KindEmptyDir
+)
+
+// Record is what the index remembers about one object already uploaded for a
+// set.
+type Record struct {
+	Key string `json:"key"` // relative, forward-slashed, NFC -- see scan.Key.
+	// Size and ModTime are what Changed compares a freshly scanned file
+	// against. ModTime is Unix nanoseconds, not time.Time: a time.Time
+	// carries a monotonic reading and a *Location that JSON round-trips
+	// unreliably, and an int64 is what makes the JSON encoding of a Record
+	// stable across Go versions and platforms.
+	Size       int64  `json:"size"`
+	ModTime    int64  `json:"mod_time"`
+	ETag       string `json:"etag"`
+	UploadedAt int64  `json:"uploaded_at"` // Unix nanoseconds.
+	Kind       Kind   `json:"kind"`
+	Target     string `json:"target,omitempty"` // symlink target; empty otherwise.
+}
+
+// ModTimeTolerance is how far a stored modtime and a freshly observed one may
+// differ before Changed calls it a change. FAT and exFAT store timestamps at
+// 2-second granularity while NTFS uses 100ns, so a file that has not been
+// touched can still read back with an mtime shifted by up to 2s after being
+// copied onto, or read from, one of those filesystems. Without this
+// tolerance every file on such a volume looks changed on every single run,
+// forever.
+const ModTimeTolerance = 2 * time.Second
+
+// FreeTierOpsPerMonth is Cloudflare R2's free allowance of Class A
+// operations per calendar month.
+const FreeTierOpsPerMonth = 1_000_000
+
+// ErrNotFound is returned by Get when the set or the key inside it does not
+// exist, so callers can tell "never uploaded" apart from a real failure
+// instead of getting a zero-value Record back either way.
+var ErrNotFound = errors.New("index: record not found")
+
+// Changed reports whether a file needs re-uploading, given the record last
+// stored for it and what a fresh stat just observed.
+func Changed(rec Record, size int64, modTime time.Time) bool {
+	if rec.Size != size {
+		return true
+	}
+	diff := modTime.Sub(time.Unix(0, rec.ModTime))
+	if diff < 0 {
+		diff = -diff
+	}
+	return diff > ModTimeTolerance
+}
+
+var (
+	setsBucketName = []byte("sets")
+	metaBucketName = []byte("meta")
+	opsKey         = []byte("ops")
+)
+
+// DB is a bbolt-backed store, isolated per set, safe for concurrent use from
+// multiple goroutines the way bbolt itself is: one writer at a time, any
+// number of concurrent readers.
+type DB struct {
+	bolt *bbolt.DB
+
+	// Now stands in for time.Now so the op-counter's month rollover can be
+	// tested without waiting for a real month to turn over. Set it (if at
+	// all) once, before any concurrent use begins; it is read but never
+	// written by DB's own methods.
+	Now func() time.Time
+}
+
+// Open opens (creating if necessary) the index at path, along with any
+// missing parent directories.
+func Open(path string) (*DB, error) {
+	if dir := filepath.Dir(path); dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return nil, fmt.Errorf("open index at %q: %w", path, err)
+		}
+	}
+	b, err := bbolt.Open(path, 0o600, &bbolt.Options{Timeout: 5 * time.Second})
+	if err != nil {
+		return nil, fmt.Errorf("open index at %q: %w", path, err)
+	}
+	err = b.Update(func(tx *bbolt.Tx) error {
+		if _, err := tx.CreateBucketIfNotExists(setsBucketName); err != nil {
+			return err
+		}
+		_, err := tx.CreateBucketIfNotExists(metaBucketName)
+		return err
+	})
+	if err != nil {
+		b.Close()
+		return nil, fmt.Errorf("open index at %q: %w", path, err)
+	}
+	return &DB{bolt: b, Now: time.Now}, nil
+}
+
+// Close closes the underlying bbolt file.
+func (db *DB) Close() error {
+	if err := db.bolt.Close(); err != nil {
+		return fmt.Errorf("close index: %w", err)
+	}
+	return nil
+}
+
+func (db *DB) now() time.Time {
+	if db.Now != nil {
+		return db.Now()
+	}
+	return time.Now()
+}
+
+// setBucket resolves the nested bucket that holds set's records. With
+// create false it is a read-only lookup (nil, nil when the set has never
+// been written); with create true it must run inside an Update transaction.
+func setBucket(tx *bbolt.Tx, set string, create bool) (*bbolt.Bucket, error) {
+	sets := tx.Bucket(setsBucketName)
+	if sets == nil {
+		return nil, errors.New("index: sets bucket missing (index not opened via Open)")
+	}
+	if create {
+		return sets.CreateBucketIfNotExists([]byte(set))
+	}
+	return sets.Bucket([]byte(set)), nil
+}
+
+// Put stores one record for a set, replacing any existing record at the
+// same key.
+func (db *DB) Put(set string, rec Record) error {
+	data, err := json.Marshal(rec)
+	if err != nil {
+		return fmt.Errorf("encode record %q for set %q: %w", rec.Key, set, err)
+	}
+	err = db.bolt.Update(func(tx *bbolt.Tx) error {
+		b, err := setBucket(tx, set, true)
+		if err != nil {
+			return err
+		}
+		return b.Put([]byte(rec.Key), data)
+	})
+	if err != nil {
+		return fmt.Errorf("put %q in set %q: %w", rec.Key, set, err)
+	}
+	return nil
+}
+
+// PutMany stores every record in one write transaction. This is the batch
+// path: committing 60,000 records one transaction at a time is unusably
+// slow, since bbolt fsyncs on every commit.
+func (db *DB) PutMany(set string, recs []Record) error {
+	if len(recs) == 0 {
+		return nil
+	}
+	err := db.bolt.Update(func(tx *bbolt.Tx) error {
+		b, err := setBucket(tx, set, true)
+		if err != nil {
+			return err
+		}
+		for _, rec := range recs {
+			data, err := json.Marshal(rec)
+			if err != nil {
+				return fmt.Errorf("encode record %q: %w", rec.Key, err)
+			}
+			if err := b.Put([]byte(rec.Key), data); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("put %d records in set %q: %w", len(recs), set, err)
+	}
+	return nil
+}
+
+// Get returns the record stored for key in set, or ErrNotFound if the set or
+// the key does not exist.
+func (db *DB) Get(set, key string) (Record, error) {
+	var rec Record
+	err := db.bolt.View(func(tx *bbolt.Tx) error {
+		b, err := setBucket(tx, set, false)
+		if err != nil {
+			return err
+		}
+		if b == nil {
+			return ErrNotFound
+		}
+		data := b.Get([]byte(key))
+		if data == nil {
+			return ErrNotFound
+		}
+		return json.Unmarshal(data, &rec)
+	})
+	if err != nil {
+		if errors.Is(err, ErrNotFound) {
+			return Record{}, ErrNotFound
+		}
+		return Record{}, fmt.Errorf("get %q from set %q: %w", key, set, err)
+	}
+	return rec, nil
+}
+
+// Delete removes key from set. Deleting a key that is not there, or from a
+// set that has never been written, is not an error.
+func (db *DB) Delete(set, key string) error {
+	err := db.bolt.Update(func(tx *bbolt.Tx) error {
+		b, err := setBucket(tx, set, false)
+		if err != nil {
+			return err
+		}
+		if b == nil {
+			return nil
+		}
+		return b.Delete([]byte(key))
+	})
+	if err != nil {
+		return fmt.Errorf("delete %q from set %q: %w", key, set, err)
+	}
+	return nil
+}
+
+// DeleteMany removes every key in one write transaction.
+func (db *DB) DeleteMany(set string, keys []string) error {
+	if len(keys) == 0 {
+		return nil
+	}
+	err := db.bolt.Update(func(tx *bbolt.Tx) error {
+		b, err := setBucket(tx, set, false)
+		if err != nil {
+			return err
+		}
+		if b == nil {
+			return nil
+		}
+		for _, k := range keys {
+			if err := b.Delete([]byte(k)); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("delete %d keys from set %q: %w", len(keys), set, err)
+	}
+	return nil
+}
+
+// All returns every record stored for set, in bbolt's key order. A set that
+// has never been written returns an empty slice, not an error.
+func (db *DB) All(set string) ([]Record, error) {
+	var recs []Record
+	err := db.bolt.View(func(tx *bbolt.Tx) error {
+		b, err := setBucket(tx, set, false)
+		if err != nil {
+			return err
+		}
+		if b == nil {
+			return nil
+		}
+		return b.ForEach(func(k, v []byte) error {
+			var rec Record
+			if err := json.Unmarshal(v, &rec); err != nil {
+				return fmt.Errorf("decode record %q: %w", k, err)
+			}
+			recs = append(recs, rec)
+			return nil
+		})
+	})
+	if err != nil {
+		return nil, fmt.Errorf("iterate set %q: %w", set, err)
+	}
+	return recs, nil
+}
+
+// Count returns the number of records stored for set.
+func (db *DB) Count(set string) (int, error) {
+	var n int
+	err := db.bolt.View(func(tx *bbolt.Tx) error {
+		b, err := setBucket(tx, set, false)
+		if err != nil {
+			return err
+		}
+		if b != nil {
+			n = b.Stats().KeyN
+		}
+		return nil
+	})
+	if err != nil {
+		return 0, fmt.Errorf("count set %q: %w", set, err)
+	}
+	return n, nil
+}
+
+// DropSet deletes every record for set. Dropping a set that was never
+// written is not an error.
+func (db *DB) DropSet(set string) error {
+	err := db.bolt.Update(func(tx *bbolt.Tx) error {
+		sets := tx.Bucket(setsBucketName)
+		if sets == nil {
+			return nil
+		}
+		err := sets.DeleteBucket([]byte(set))
+		if err != nil && !errors.Is(err, bbolt.ErrBucketNotFound) {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("drop set %q: %w", set, err)
+	}
+	return nil
+}
+
+// opsState is the persisted shape of the operation counter: the calendar
+// month it is counting for, and how many operations have landed in it.
+type opsState struct {
+	Month string `json:"month"` // "2006-01", UTC.
+	Used  int64  `json:"used"`
+}
+
+func monthKey(t time.Time) string {
+	return t.UTC().Format("2006-01")
+}
+
+func startOfNextMonth(t time.Time) time.Time {
+	t = t.UTC()
+	y, m, _ := t.Date()
+	return time.Date(y, m+1, 1, 0, 0, 0, 0, time.UTC)
+}
+
+// AddOps records n more R2 operations against the current calendar month.
+// r2backup performs every operation against R2 itself -- there is no billing
+// API to poll -- so this local tally is the only way it can warn a user
+// before they run past the free tier. If the stored counter belongs to an
+// earlier month, it is zeroed first: the count is "operations this month",
+// not a running total since install.
+//
+// This deviates from a bare `AddOps(n int)` signature: swallowing a bbolt
+// write failure here would let the counter silently fall behind actual
+// usage, defeating the point of tracking it, and returning an error is the
+// only alternative to a panic.
+func (db *DB) AddOps(n int) error {
+	if n == 0 {
+		return nil
+	}
+	cur := monthKey(db.now())
+	err := db.bolt.Update(func(tx *bbolt.Tx) error {
+		meta := tx.Bucket(metaBucketName)
+		var st opsState
+		if data := meta.Get(opsKey); data != nil {
+			if err := json.Unmarshal(data, &st); err != nil {
+				return fmt.Errorf("decode ops counter: %w", err)
+			}
+		}
+		if st.Month != cur {
+			st.Month = cur
+			st.Used = 0
+		}
+		st.Used += int64(n)
+		data, err := json.Marshal(st)
+		if err != nil {
+			return err
+		}
+		return meta.Put(opsKey, data)
+	})
+	if err != nil {
+		return fmt.Errorf("add %d ops: %w", n, err)
+	}
+	return nil
+}
+
+// OpsThisMonth returns operations counted so far in the current calendar
+// month and when that count will next reset. It computes the rollover from
+// the current time rather than trusting the stored month, so a query made
+// after the month has turned -- with no AddOps call in between to trigger
+// the reset itself -- still reports 0 rather than a stale total.
+func (db *DB) OpsThisMonth() (used int, resetAt time.Time, err error) {
+	now := db.now()
+	cur := monthKey(now)
+	var st opsState
+	txErr := db.bolt.View(func(tx *bbolt.Tx) error {
+		meta := tx.Bucket(metaBucketName)
+		data := meta.Get(opsKey)
+		if data == nil {
+			return nil
+		}
+		return json.Unmarshal(data, &st)
+	})
+	if txErr != nil {
+		return 0, time.Time{}, fmt.Errorf("read ops counter: %w", txErr)
+	}
+	if st.Month != cur {
+		return 0, startOfNextMonth(now), nil
+	}
+	return int(st.Used), startOfNextMonth(now), nil
+}
