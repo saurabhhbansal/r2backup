@@ -1,0 +1,19 @@
+# Build output
+/dist/
+/r2backup
+/r2backup.exe
+*.old
+
+# Test artifacts
+*.test
+*.out
+coverage.*
+
+# Local secrets. Never committed; the real ones live outside this tree.
+.env
+*.local.env
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/
