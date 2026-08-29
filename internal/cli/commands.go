@@ -633,6 +633,26 @@ func newRestoreCmd(opts *Options) *cobra.Command {
 				}
 				return err
 			}
+			// A restore that found nothing must not read as a restore that
+			// worked. `--machine typo-pc` used to print "0 restored" and exit
+			// 0, which is the worst possible answer to "is my data there?" --
+			// the same reason `--deleted` on an unknown path already fails
+			// rather than succeeding quietly. ListedFiles counts what the
+			// LIST returned, before --only narrows it, so these two cases
+			// stay distinguishable.
+			if rep.ListedFiles == 0 {
+				if machine != "" {
+					return fmt.Errorf("nothing is stored for %q under machine %q, so nothing was restored. "+
+						"Check the name with `r2backup account devices`", s.Name, machine)
+				}
+				return fmt.Errorf("nothing is stored for %q yet, so nothing was restored", s.Name)
+			}
+			if only != "" && rep.Downloaded == 0 && rep.SkippedExisting == 0 && len(rep.Failures) == 0 {
+				return fmt.Errorf("--only %q matched none of the %s objects stored for %q, so nothing was restored. "+
+					"A bare name restores everything under it (--only docs), and \"*\" does not cross a \"/\" "+
+					"(use --only 'docs/**')",
+					only, progress.FormatCount(rep.ListedFiles), s.Name)
+			}
 			fmt.Fprintf(opts.Out, "%s: %s restored (%s) into %s in %s\n",
 				rep.Set, progress.FormatCount(int64(rep.Downloaded)),
 				progress.FormatBytes(rep.Bytes), rep.Target, rep.Elapsed.Round(time.Second))
@@ -666,7 +686,8 @@ func newRestoreCmd(opts *Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&to, "to", "", "restore into this directory instead")
-	cmd.Flags().StringVar(&only, "only", "", "restore only paths matching this glob")
+	cmd.Flags().StringVar(&only, "only", "",
+		`restore only matching paths: a bare name takes everything under it ("docs"), or glob it ("docs/**", "*.pdf") -- "*" does not cross a "/"`)
 	cmd.Flags().StringVar(&machine, "machine", "", "restore from another computer's backup")
 	cmd.Flags().StringVar(&deleted, "deleted", "", "recover a deleted file from trash")
 	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "replace files that already exist")

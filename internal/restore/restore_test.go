@@ -216,3 +216,72 @@ func TestRestoreFromAnotherMachinesPrefix(t *testing.T) {
 		t.Fatalf("cross-machine restore did not round-trip: %v", diffs)
 	}
 }
+
+// TestRestoringFromAPrefixThatHoldsNothingReportsZeroListed pins the signal
+// the CLI uses to tell "there is nothing there" apart from "there was nothing
+// to do". `restore --machine typo-pc` used to print "0 restored" and exit 0,
+// which is the worst possible answer to "is my data there?" -- and the only
+// thing that distinguishes it from a re-restore over files that already exist
+// is that the LIST came back empty. ListedFiles is counted before --only
+// narrows anything, so it stays that signal even when a pattern is in play.
+func TestRestoringFromAPrefixThatHoldsNothingReportsZeroListed(t *testing.T) {
+	client, cleanup := tminio.Start(t)
+	t.Cleanup(cleanup)
+
+	original := t.TempDir()
+	if _, err := fixtures.Build(original, fixtures.Spec{SmallFiles: 6, SmallFileSize: 128, Seed: 31}); err != nil {
+		t.Fatal(err)
+	}
+	db, err := index.Open(filepath.Join(t.TempDir(), "index.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+
+	set := sets.Set{Name: "Notes", Prefix: "machines/pc-1/Notes", Root: original, Machine: "pc-1"}
+	if _, err := backup.Run(context.Background(), backup.Options{Set: set, Index: db, Client: client}); err != nil {
+		t.Fatalf("backup.Run: %v", err)
+	}
+
+	// The set's own machine has objects.
+	own, err := restore.Run(context.Background(), restore.Options{
+		Set: set, Client: client, Target: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("restore.Run: %v", err)
+	}
+	if own.ListedFiles == 0 {
+		t.Fatal("ListedFiles = 0 for a set that was just backed up")
+	}
+
+	// A machine that never backed this set up has none, and that has to be
+	// visible in the report rather than looking like a completed restore.
+	other, err := restore.Run(context.Background(), restore.Options{
+		Set: set, Client: client, Target: t.TempDir(), SourceMachine: "never-seen-pc",
+	})
+	if err != nil {
+		t.Fatalf("restore.Run from an unknown machine returned an error rather than an empty report: %v", err)
+	}
+	if other.ListedFiles != 0 {
+		t.Errorf("ListedFiles = %d for a machine with nothing stored, want 0", other.ListedFiles)
+	}
+	if other.Downloaded != 0 {
+		t.Errorf("Downloaded = %d from a machine with nothing stored, want 0", other.Downloaded)
+	}
+
+	// And --only matching nothing is the other case: objects exist, none was
+	// wanted. ListedFiles still counts them, which is what lets the two be
+	// told apart and reported differently.
+	none, err := restore.Run(context.Background(), restore.Options{
+		Set: set, Client: client, Target: t.TempDir(), Only: "*.no-such-extension",
+	})
+	if err != nil {
+		t.Fatalf("restore.Run: %v", err)
+	}
+	if none.ListedFiles == 0 {
+		t.Error("ListedFiles = 0 when --only matched nothing; it must count what was listed, not what was wanted")
+	}
+	if none.Downloaded != 0 {
+		t.Errorf("Downloaded = %d when --only matched nothing, want 0", none.Downloaded)
+	}
+}
