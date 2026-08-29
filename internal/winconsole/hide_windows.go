@@ -2,7 +2,11 @@
 
 package winconsole
 
-import "golang.org/x/sys/windows"
+import (
+	"unsafe"
+
+	"golang.org/x/sys/windows"
+)
 
 // swHide is ShowWindow's nCmdShow for "hide the window and activate another".
 const swHide = 0
@@ -50,6 +54,11 @@ func Hide() bool {
 // still returns the true count when the buffer is too small to hold every pid.
 func ownsConsole() bool {
 	var pids [2]uint32
-	n, _, _ := procGetConsoleProcList.Call(uintptr(unsafePtr(&pids[0])), uintptr(len(pids)))
+	// uintptr(unsafe.Pointer(...)) is written out inside the call arguments
+	// on purpose. That exact spelling is the pattern the compiler recognizes
+	// for a syscall argument, and it is what keeps pids alive and unmoved for
+	// the duration of the call; hiding the conversion behind a helper would
+	// look tidier and quietly lose that guarantee.
+	n, _, _ := procGetConsoleProcList.Call(uintptr(unsafe.Pointer(&pids[0])), uintptr(len(pids)))
 	return n == 1
 }
