@@ -45,7 +45,13 @@ jobs:
           if [ -n "$unformatted" ]; then
             echo "not gofmt'd:"; echo "$unformatted"; exit 1
           fi
-      - run: go test ./... -race -count=1
+      # -timeout is explicit because Go's default is 600s PER PACKAGE, and
+      # test/e2e on Windows under -race sits right on that line:
+      # TestTwentyThousandFileTree alone is ~485s there. A release was blocked
+      # by it after CI had passed on the same commit minutes earlier, which is
+      # what an implicit limit sitting a few seconds away from the truth looks
+      # like. 20m is well inside every job's timeout-minutes.
+      - run: go test ./... -race -count=1 -timeout 20m
 
   # main and PRs into it get all three platforms.
   matrix:
@@ -55,7 +61,11 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    # Raised from 25. The Windows leg runs ~9-13 minutes and the e2e package
+    # alone can approach 12 of them under -race; the old margin was set to
+    # conserve private-repo minutes, and the repo is public now, so Actions
+    # are free. A budget that tight buys nothing and costs a blocked release.
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -71,8 +81,14 @@ jobs:
             echo "not gofmt'd:"; echo "$unformatted"; exit 1
           fi
       # A skipped test is a failed build. Nothing quietly does-not-run.
+      # -timeout is explicit because Go's default is 600s PER PACKAGE, and
+      # test/e2e on Windows under -race sits right on that line:
+      # TestTwentyThousandFileTree alone is ~485s there. A release was blocked
+      # by it after CI had passed on the same commit minutes earlier, which is
+      # what an implicit limit sitting a few seconds away from the truth looks
+      # like. 20m is well inside every job's timeout-minutes.
       - name: Test
-        run: go test ./... -race -count=1 -v
+        run: go test ./... -race -count=1 -v -timeout 20m
 
   # Proves the binaries every platform ships actually compile, from one runner.
   cross-compile:
