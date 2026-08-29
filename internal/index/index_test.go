@@ -16,6 +16,15 @@ func openTestDB(t *testing.T) *DB {
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}
+	// bbolt fsyncs on every commit, and nothing in this package's tests
+	// survives the process to care. On a Windows CI runner that fsync costs
+	// ~40ms against ~2ms here, which is what put TestConcurrentAccess's 4,000
+	// serialised write transactions past the 10-minute test timeout while the
+	// same test finished in 8s on Linux. Turning it off removes the disk, not
+	// the contention: the same transactions, locks and page writes still
+	// happen, so what the tests actually assert -- and what -race sees -- is
+	// unchanged.
+	db.bolt.NoSync = true
 	t.Cleanup(func() {
 		if err := db.Close(); err != nil {
 			t.Errorf("Close: %v", err)
