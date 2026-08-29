@@ -35,8 +35,40 @@ jobs:
       - run: go vet ./...
       - run: go test ./... -race -count=1
 
+  # The expensive, credential-gated one. MinIO and real R2 disagree about
+  # multipart limits and error shapes, which is exactly what a release is the
+  # last chance to catch -- so this runs before publishing and never on a
+  # commit. It needs four repository secrets; without them it says so and the
+  # release still goes out, because blocking every release on credentials
+  # nobody has set is worse than a loud skip.
+  realr2:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+          cache: true
+      - name: Real R2 suite
+        env:
+          R2BACKUP_TEST_ACCOUNT_ID: ${{ secrets.R2BACKUP_TEST_ACCOUNT_ID }}
+          R2BACKUP_TEST_ACCESS_KEY_ID: ${{ secrets.R2BACKUP_TEST_ACCESS_KEY_ID }}
+          R2BACKUP_TEST_SECRET_ACCESS_KEY: ${{ secrets.R2BACKUP_TEST_SECRET_ACCESS_KEY }}
+          R2BACKUP_TEST_BUCKET: ${{ secrets.R2BACKUP_TEST_BUCKET }}
+        run: |
+          if [ -z "$R2BACKUP_TEST_BUCKET" ]; then
+            echo "::warning title=Real R2 suite skipped::Set the R2BACKUP_TEST_* repository secrets to run this before a release."
+            exit 0
+          fi
+          go test -tags realr2 ./test/r2/... -count=1 -v -timeout 25m
+
   release:
-    needs: verify
+    # realr2 as well as verify: with the secrets unset it succeeds with a
+    # warning and the release goes out, but if it actually runs and fails,
+    # nothing gets published. A tag must not ship a build that real R2
+    # rejected.
+    needs: [verify, realr2]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
