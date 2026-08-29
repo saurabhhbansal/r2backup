@@ -82,9 +82,13 @@ func Cleanup() error {
 	}
 }
 
+// githubAPI is the API root Latest asks. A variable only so a test can point
+// it at an httptest server; nothing in the product ever changes it.
+var githubAPI = "https://api.github.com"
+
 // Latest asks GitHub for the newest release.
 func Latest(ctx context.Context, repo string) (*Release, error) {
-	url := "https://api.github.com/repos/" + repo + "/releases/latest"
+	url := githubAPI + "/repos/" + repo + "/releases/latest"
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
@@ -96,7 +100,12 @@ func Latest(ctx context.Context, repo string) (*Release, error) {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
-		return nil, fmt.Errorf("no releases published for %s yet", repo)
+		// GitHub answers 404 both for a repository with no releases and for
+		// one this caller cannot see, and nothing in the response tells the
+		// two apart. Claiming the first is a guess, and it is the wrong one
+		// whenever the repository is private -- which is the case where a
+		// user is staring at a release page that plainly exists. Say both.
+		return nil, fmt.Errorf("no release found for %s: either none has been published, or the repository is private and this build has no credentials to see it", repo)
 	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("check for updates: github returned %s", resp.Status)

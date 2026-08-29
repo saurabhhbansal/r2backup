@@ -2,8 +2,11 @@ package selfupdate
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -165,5 +168,33 @@ func TestCleanupIsSafeWhenThereIsNothingToClean(t *testing.T) {
 	// Called at the start of every run, including the very first one.
 	if err := Cleanup(); err != nil {
 		t.Fatalf("Cleanup on a fresh install should do nothing quietly: %v", err)
+	}
+}
+
+// TestLatestDoesNotClaimThereAreNoReleasesWhenItCannotSee reproduces what a
+// private repository actually returns. GitHub answers 404 for "this repo has
+// no releases" and for "you cannot see this repo" identically, so the message
+// must not pick one. r2backup's own repository is private and has a published
+// release, which is exactly the case the old message got backwards -- it told
+// the user no release existed while its release page listed one.
+func TestLatestDoesNotClaimThereAreNoReleasesWhenItCannotSee(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, `{"message":"Not Found"}`, http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	restore := githubAPI
+	githubAPI = srv.URL
+	defer func() { githubAPI = restore }()
+
+	_, err := Latest(context.Background(), "someone/private")
+	if err == nil {
+		t.Fatal("Latest returned no error for a 404")
+	}
+	msg := err.Error()
+	for _, want := range []string{"none has been published", "private"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error does not mention %q, so it states one cause as if it were certain: %s", want, msg)
+		}
 	}
 }
