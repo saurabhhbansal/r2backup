@@ -9,6 +9,8 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/saurabhhbansal/r2backup/internal/scan"
+
 	"github.com/saurabhhbansal/r2backup/internal/progress"
 )
 
@@ -16,12 +18,27 @@ import (
 // behind it. Every screen in this package can be driven against it, which is
 // the point of Backend being an interface at all.
 type fakeBackend struct {
-	sets    []SetView
-	ov      Overview
-	trash   []TrashRow
-	removed []string
-	sched   []bool
-	backups []string
+	sets  []SetView
+	ov    Overview
+	acct  AccountView
+	trash []TrashRow
+
+	removed   []string
+	sched     []bool
+	backups   []string
+	added     []AddRequest
+	excludes  map[string][]string
+	renamed   [][2]string
+	relinked  [][2]string
+	restores  []RestoreRequest
+	keys      []Keys
+	emails    []string
+	codes     [][2]string
+	vaultPw   []string
+	signedOut bool
+
+	scanErr    error
+	restoreErr error
 }
 
 func (f *fakeBackend) Load(context.Context) ([]SetView, Overview, error) {
@@ -32,6 +49,46 @@ func (f *fakeBackend) Backup(_ context.Context, name string, phase func(string),
 	f.backups = append(f.backups, name)
 	phase("scanning " + name)
 	snap(progress.Snapshot{BytesDone: 5, BytesTotal: 10, FilesDone: 1, FilesTotal: 2})
+	return nil
+}
+
+func (f *fakeBackend) Scan(_ context.Context, root string) (*scan.Result, error) {
+	if f.scanErr != nil {
+		return nil, f.scanErr
+	}
+	return newResult(map[string]int64{"a.txt": 1, "sub/b.txt": 2}), nil
+}
+
+func (f *fakeBackend) Add(_ context.Context, req AddRequest) error {
+	f.added = append(f.added, req)
+	return nil
+}
+
+func (f *fakeBackend) SetExcludes(_ context.Context, name string, ex []string) error {
+	if f.excludes == nil {
+		f.excludes = map[string][]string{}
+	}
+	f.excludes[name] = ex
+	return nil
+}
+
+func (f *fakeBackend) Restore(_ context.Context, req RestoreRequest, phase func(string), snap func(progress.Snapshot)) (RestoreResult, error) {
+	f.restores = append(f.restores, req)
+	if f.restoreErr != nil {
+		return RestoreResult{}, f.restoreErr
+	}
+	phase("listing")
+	snap(progress.Snapshot{BytesDone: 1, BytesTotal: 2})
+	return RestoreResult{Files: 3, Bytes: 300, Target: req.To}, nil
+}
+
+func (f *fakeBackend) Rename(_ context.Context, from, to string) error {
+	f.renamed = append(f.renamed, [2]string{from, to})
+	return nil
+}
+
+func (f *fakeBackend) Relink(_ context.Context, name, root string) error {
+	f.relinked = append(f.relinked, [2]string{name, root})
 	return nil
 }
 
@@ -46,6 +103,39 @@ func (f *fakeBackend) Schedule(_ context.Context, _ int, off bool) error {
 	f.sched = append(f.sched, !off)
 	return nil
 }
+
+func (f *fakeBackend) Account(context.Context) (AccountView, error) { return f.acct, nil }
+
+func (f *fakeBackend) SignInStart(_ context.Context, email string) error {
+	f.emails = append(f.emails, email)
+	return nil
+}
+
+func (f *fakeBackend) SignInVerify(_ context.Context, email, code string) error {
+	f.codes = append(f.codes, [2]string{email, code})
+	f.acct.SignedIn, f.acct.Email = true, email
+	return nil
+}
+
+func (f *fakeBackend) SignOut(context.Context) error { f.signedOut = true; return nil }
+
+func (f *fakeBackend) UnlockVault(_ context.Context, pw string) error {
+	f.vaultPw = append(f.vaultPw, pw)
+	return nil
+}
+
+func (f *fakeBackend) StoreVault(_ context.Context, pw string) error {
+	f.vaultPw = append(f.vaultPw, pw)
+	return nil
+}
+
+func (f *fakeBackend) SaveKeys(_ context.Context, k Keys) error {
+	f.keys = append(f.keys, k)
+	return nil
+}
+
+func (f *fakeBackend) CheckUpdate(context.Context) (string, error) { return "v9.9.9", nil }
+func (f *fakeBackend) ApplyUpdate(context.Context) (string, error) { return "v9.9.9", nil }
 
 func twoSets() *fakeBackend {
 	return &fakeBackend{
@@ -62,9 +152,10 @@ func twoSets() *fakeBackend {
 			},
 		},
 		ov: Overview{
-			Machine: "pc", Bucket: "backups",
+			Machine: "pc", Bucket: "backups", Configured: true,
 			OpsUsed: 42, OpsLimit: 1000000,
 			Scheduled: true, Interval: 30 * time.Minute,
+			SchedulerAvailable: true,
 		},
 	}
 }
@@ -74,22 +165,49 @@ func twoSets() *fakeBackend {
 func sized(b Backend, w, h int) *Model {
 	m := New(context.Background(), b)
 	m.Update(tea.WindowSizeMsg{Width: w, Height: h})
-	m.Update(loadedMsg{sets: b.(*fakeBackend).sets, ov: b.(*fakeBackend).ov})
+	f := b.(*fakeBackend)
+	m.Update(loadedMsg{sets: f.sets, ov: f.ov})
 	return m
 }
 
-func press(m *Model, s string) {
+func press(m *Model, s string) tea.Cmd {
+	var cmd tea.Cmd
 	if len(s) == 1 {
-		m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)})
-		return
+		_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)})
+		return cmd
 	}
 	switch s {
 	case "enter":
-		m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+		_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
 	case "esc":
-		m.Update(tea.KeyMsg{Type: tea.KeyEsc})
+		_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	case "down":
-		m.Update(tea.KeyMsg{Type: tea.KeyDown})
+		_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyDown})
+	case "tab":
+		_, cmd = m.Update(tea.KeyMsg{Type: tea.KeyTab})
+	}
+	return cmd
+}
+
+// apply runs one command and feeds what it produces back into the model, the
+// way the bubbletea runtime would.
+//
+// It gives up after a moment rather than blocking: some of this model's
+// commands are meant to block -- the one-second tick, and the reader waiting
+// on the worker channel -- and a test that ran those would simply hang.
+func apply(t *testing.T, m *Model, cmd tea.Cmd) {
+	t.Helper()
+	if cmd == nil {
+		return
+	}
+	done := make(chan tea.Msg, 1)
+	go func() { done <- cmd() }()
+	select {
+	case msg := <-done:
+		if msg != nil {
+			m.Update(msg)
+		}
+	case <-time.After(2 * time.Second):
 	}
 }
 
@@ -129,29 +247,39 @@ func TestTheBannerGivesWayOnANarrowTerminal(t *testing.T) {
 func TestNoScreenOverflowsTheTerminal(t *testing.T) {
 	for _, size := range [][2]int{{80, 24}, {100, 30}, {150, 45}, {60, 20}} {
 		b := twoSets()
+		b.trash = []TrashRow{{Key: "notes.txt", Size: 12, Deleted: time.Now(), Expires: time.Now().Add(720 * time.Hour)}}
 		m := sized(b, size[0], size[1])
-		for _, screen := range []string{"home", "detail", "trash", "help", "confirm"} {
-			switch screen {
-			case "detail":
-				press(m, "enter")
-			case "trash":
-				m.Update(trashMsg{set: "Documents", rows: []TrashRow{
-					{Key: "notes.txt", Size: 12, Deleted: time.Now(), Expires: time.Now().Add(720 * time.Hour)},
-				}})
-			case "help":
-				press(m, "?")
-			case "confirm":
-				m.screen = screenHome
-				press(m, "x")
-			}
+
+		check := func(what string) {
 			for i, line := range strings.Split(m.View(), "\n") {
 				if w := lipglossWidth(line); w > size[0] {
 					t.Errorf("%dx%d %s: line %d is %d columns wide\n%s",
-						size[0], size[1], screen, i, w, line)
+						size[0], size[1], what, i, w, line)
 				}
 			}
-			m.screen = screenHome
 		}
+		// Every tab.
+		for t2 := tab(0); t2 < numTabs; t2++ {
+			m.tab, m.overlay = t2, overlayNone
+			m.layout()
+			check(t2.String())
+		}
+		// And every overlay.
+		m.tab, m.overlay = tabFolders, overlayNone
+		press(m, "enter")
+		check("detail")
+		m.overlay = overlayNone
+		press(m, "?")
+		check("help")
+		m.overlay = overlayNone
+		press(m, "x")
+		check("confirm")
+		m.overlay = overlayNone
+		press(m, "r")
+		check("restore form")
+		m.overlay = overlayNone
+		m.Update(trashMsg{set: "Documents", rows: b.trash})
+		check("trash")
 	}
 }
 
@@ -162,8 +290,8 @@ func TestBackingUpFromTheListRunsTheSelectedSet(t *testing.T) {
 	if !m.running {
 		t.Fatal("pressing b should start a backup")
 	}
-	if m.screen != screenRunning {
-		t.Errorf("screen = %v, want the running screen", m.screen)
+	if m.overlay != overlayRunning {
+		t.Errorf("overlay = %v, want the running screen", m.overlay)
 	}
 	// The goroutine posts onto the events channel; drain what it sends.
 	deadline := time.After(2 * time.Second)
@@ -191,7 +319,7 @@ func TestRemovingAsksFirst(t *testing.T) {
 	b := twoSets()
 	m := sized(b, 120, 40)
 	press(m, "x")
-	if m.screen != screenConfirm {
+	if m.overlay != overlayConfirm {
 		t.Fatal("x should ask before removing anything")
 	}
 	if len(b.removed) != 0 {
@@ -201,7 +329,7 @@ func TestRemovingAsksFirst(t *testing.T) {
 	if len(b.removed) != 0 {
 		t.Fatal("answering no still removed the set")
 	}
-	if m.screen != screenHome {
+	if m.overlay != overlayNone {
 		t.Error("answering should close the question")
 	}
 }
@@ -211,9 +339,9 @@ func TestRemovingAsksFirst(t *testing.T) {
 func TestFilterTextIsNotTakenAsCommands(t *testing.T) {
 	b := twoSets()
 	m := sized(b, 120, 40)
-	press(m, "/")
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("/")})
 	if !m.list.SettingFilter() {
-		t.Skip("this list build does not open a filter on /")
+		t.Fatal("/ should open the list filter")
 	}
 	press(m, "b")
 	if m.running {
@@ -250,25 +378,20 @@ func TestTheFrameFitsTheTerminalExactly(t *testing.T) {
 // buffer and blocks forever, so the run stops silently and partway. `edit`
 // also ends by running a backup of its own, which would then contend for the
 // same bbolt writer lock.
-func TestYouCannotWalkOutOnARunningBackup(t *testing.T) {
+func TestASecondJobCannotStartOnTopOfARunningOne(t *testing.T) {
 	b := twoSets()
 	m := sized(b, 120, 40)
 	press(m, "b")
 	if !m.running {
 		t.Fatal("b should have started a backup")
 	}
-	for _, k := range []string{"a", "e", "r"} {
-		m.screen = screenHome
-		press(m, k)
-		if m.quit {
-			t.Fatalf("%q left the interface while a backup was running", k)
-		}
-		if m.Action().Kind != ActionNone {
-			t.Fatalf("%q queued %v while a backup was running", k, m.Action().Kind)
-		}
+	press(m, "esc")
+	press(m, "r")
+	if m.overlay == overlayForm {
+		t.Fatal("a second job was started on top of a running one")
 	}
-	if !strings.Contains(m.status, "backup is running") {
-		t.Errorf("the user should be told why nothing happened, got %q", m.status)
+	if !strings.Contains(m.notice, "already running") {
+		t.Errorf("the user should be told why nothing happened, got %q", m.notice)
 	}
 }
 
@@ -328,12 +451,17 @@ func TestBackingUpEverythingNamesEachSetAsItGoes(t *testing.T) {
 			}
 			if s, ok := msg.(runSetMsg); ok {
 				seen[string(s)] = true
-				if m.runSet != string(s) {
-					t.Errorf("runSet = %q, want %q", m.runSet, string(s))
+				if m.runWhat != string(s) {
+					t.Errorf("runSet = %q, want %q", m.runWhat, string(s))
 				}
 			}
 		case <-deadline:
 			t.Fatal("the batch never finished")
 		}
 	}
+}
+
+// mustScan is the tree the fake hands back for any folder.
+func (f *fakeBackend) mustScan() *scan.Result {
+	return newResult(map[string]int64{"a.txt": 1, "sub/b.txt": 2})
 }

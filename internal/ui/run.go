@@ -9,21 +9,18 @@ import (
 
 // Run opens the interface and blocks until the user leaves it.
 //
-// The returned Action is a job the interface deliberately does not do itself
-// -- adding a folder, changing what one includes, restoring one -- because
-// each needs either the folder picker (a second full-screen program) or a
-// line of typed input. The caller performs it and calls Run again. See the
-// comment on Action.
-func Run(ctx context.Context, b Backend) (Action, error) {
+// It returns nothing but an error now. The first version handed jobs back to
+// the command line -- adding a folder, changing what one includes, restoring
+// one -- because each needed the folder picker or a line of typed input, and
+// it closed itself to let a command do them. That was the interface telling
+// the user to go and use the thing it exists to replace. The picker is a
+// child model here and the typed input is a form, so there is nothing left to
+// hand back.
+func Run(ctx context.Context, b Backend) error {
 	m := New(ctx, b)
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx))
-	final, err := p.Run()
-	if err != nil {
-		return Action{}, fmt.Errorf("ui: %w", err)
+	if _, err := p.Run(); err != nil {
+		return fmt.Errorf("ui: %w", err)
 	}
-	fm, ok := final.(*Model)
-	if !ok {
-		return Action{}, fmt.Errorf("ui: unexpected final model type %T", final)
-	}
-	return fm.Action(), nil
+	return nil
 }

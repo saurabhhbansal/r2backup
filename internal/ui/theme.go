@@ -50,3 +50,22 @@ func stateStyle(s string) lipgloss.Style {
 		return warnStyle
 	}
 }
+
+// Tab styling.
+//
+// No borders. A bordered lipgloss style renders as several lines, and the bar
+// is built by placing tabs side by side -- so a bottom border turned every tab
+// into its own stacked block with the rules misaligned underneath. The active
+// mode is filled instead, which also survives a terminal with a small palette
+// better than a colour difference alone.
+var (
+	tabStyle = lipgloss.NewStyle().Foreground(muted).Padding(0, 1)
+
+	activeTabStyle = lipgloss.NewStyle().
+			Foreground(lipgloss.Color("0")).
+			Background(accent).
+			Bold(true).
+			Padding(0, 1)
+
+	tabGapStyle = lipgloss.NewStyle().Foreground(subtle)
+)

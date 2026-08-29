@@ -29,8 +29,9 @@ func TestZZScreenshot(t *testing.T) {
 			{Name: "Server backups", Root: "/srv/dumps", Prefix: "machines/studio/Server backups",
 				State: "never run", Retention: 30},
 		},
-		ov: Overview{Machine: "studio", Bucket: "sam-backups",
-			OpsUsed: 4127, OpsLimit: 1000000, Scheduled: true, Interval: 30 * time.Minute},
+		ov: Overview{Machine: "studio", Bucket: "sam-backups", Configured: true,
+			OpsUsed: 4127, OpsLimit: 1000000, Scheduled: true, Interval: 30 * time.Minute,
+			SchedulerAvailable: true},
 	}
 	m := sized(b, 150, 44)
 	if err := os.WriteFile(os.Getenv("R2B_SHOT"), []byte(m.View()), 0o644); err != nil {

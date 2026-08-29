@@ -2,9 +2,9 @@ package ui
 
 import (
 	"context"
-	"fmt"
 	"time"
 
+	"github.com/charmbracelet/bubbles/filepicker"
 	"github.com/charmbracelet/bubbles/help"
 	"github.com/charmbracelet/bubbles/list"
 	bprogress "github.com/charmbracelet/bubbles/progress"
@@ -15,23 +15,57 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/saurabhhbansal/r2backup/internal/progress"
+	"github.com/saurabhhbansal/r2backup/internal/scan"
+	"github.com/saurabhhbansal/r2backup/internal/tui"
 )
 
-type screen int
+// tab is one of the modes across the top of the window.
+//
+// Scheduling used to be a single unexplained keystroke on the folder list,
+// which is no way to present the setting that decides whether any of this
+// happens without you. Each mode is now somewhere you can go and look at.
+type tab int
 
 const (
-	screenHome screen = iota
-	screenDetail
-	screenTrash
-	screenRunning
-	screenConfirm
-	screenHelp
+	tabFolders tab = iota
+	tabSchedule
+	tabTrash
+	tabAccount
+	numTabs
 )
 
-// tickInterval is how often the home screen re-reads local state. It is a
-// second because that is how often a running backup rewrites progress.json,
-// and Load is required not to touch the network precisely so this can be
-// cheap enough to do on a timer.
+func (t tab) String() string {
+	switch t {
+	case tabFolders:
+		return "Folders"
+	case tabSchedule:
+		return "Schedule"
+	case tabTrash:
+		return "Trash"
+	case tabAccount:
+		return "Account"
+	}
+	return ""
+}
+
+// overlay is a flow that takes over the window until it is finished or
+// cancelled. Tabs are places; overlays are jobs.
+type overlay int
+
+const (
+	overlayNone    overlay = iota
+	overlayBrowse          // choosing a folder to add
+	overlayPicker          // the tree picker, for add and edit
+	overlayForm            // any of the typed forms
+	overlayRunning         // a backup or restore in progress
+	overlayConfirm         // a yes/no question
+	overlayHelp
+	overlayDetail
+)
+
+// tickInterval is how often local state is re-read. A second, because that is
+// how often a running backup rewrites progress.json, and Load is required not
+// to touch the network precisely so this can be cheap enough to do on a timer.
 const tickInterval = time.Second
 
 type (
@@ -39,35 +73,52 @@ type (
 		sets []SetView
 		ov   Overview
 	}
-	errMsg      struct{ err error }
-	tickMsg     time.Time
+	accountMsg AccountView
+	errMsg     struct{ err error }
+	noticeMsg  string
+	tickMsg    time.Time
+	scannedMsg struct {
+		root string
+		name string
+		res  *scan.Result
+		// editing names the set when this scan is for `edit` rather than
+		// for a new folder.
+		editing string
+	}
 	phaseMsg    string
 	runSetMsg   string
 	snapshotMsg progress.Snapshot
 	runDoneMsg  struct {
-		set string
+		what string
+		err  error
+	}
+	restoreDoneMsg struct {
+		res RestoreResult
 		err error
 	}
 	trashMsg struct {
 		set  string
 		rows []TrashRow
 	}
-	actionDoneMsg struct{ note string }
+	updateMsg struct {
+		version string
+		applied bool
+	}
 )
 
-// Model is the whole interface. One model with a screen field, rather than a
-// stack of separate programs: every screen shares the same loaded state, and
-// the alternative is each of them re-reading it and disagreeing.
+// Model is the whole interface: four tabs and the flows that run over them.
 type Model struct {
 	backend Backend
 	ctx     context.Context
 
-	screen screen
-	width  int
-	height int
+	tab     tab
+	overlay overlay
+	width   int
+	height  int
 
 	sets []SetView
 	ov   Overview
+	acct AccountView
 
 	list   list.Model
 	trash  table.Model
@@ -76,29 +127,36 @@ type Model struct {
 	spin   spinner.Model
 	bar    bprogress.Model
 
-	// runState is the live backup this window itself started.
+	browse filepicker.Model
+	picker *tui.Model
+	// pickerFor is the set being edited, or "" when the picker is choosing
+	// what a brand new folder should include.
+	pickerFor  string
+	pickerRoot string
+	form       *form
+
+	detailBody string
+	trashSet   string
+	trashRows  []TrashRow
+
 	running   bool
-	runSet    string
+	runWhat   string
 	runPhase  string
 	runSnap   progress.Snapshot
 	runCancel context.CancelFunc
 	events    chan tea.Msg
 
-	detailBody string
-	trashSet   string
-	trashRows  []TrashRow
-	trashCount int
-
 	confirm    string
 	confirmYes func() tea.Cmd
 
-	status string
+	// pendingUpdate is a version found by a check and not yet installed, so
+	// the same key can confirm it.
+	pendingUpdate string
+
+	notice string
 	err    error
 
-	// action is what Run returns: a job this interface hands back to the
-	// command line rather than doing itself.
-	action Action
-	quit   bool
+	quit bool
 }
 
 // New builds the interface over a backend.
@@ -114,26 +172,26 @@ func New(ctx context.Context, b Backend) *Model {
 	sp.Spinner = spinner.Dot
 	sp.Style = lipgloss.NewStyle().Foreground(accent)
 
-	h := help.New()
-	h.ShowAll = false
+	fp := filepicker.New()
+	fp.DirAllowed = true
+	fp.FileAllowed = false
+	fp.ShowHidden = false
+	fp.AutoHeight = false
 
 	return &Model{
 		backend: b,
 		ctx:     ctx,
-		screen:  screenHome,
 		width:   80,
 		height:  24,
 		list:    l,
-		help:    h,
+		help:    help.New(),
 		spin:    sp,
 		bar:     bprogress.New(bprogress.WithDefaultGradient()),
 		detail:  viewport.New(0, 0),
+		browse:  fp,
 		events:  make(chan tea.Msg, 64),
 	}
 }
-
-// Action reports what the user asked for on the way out.
-func (m *Model) Action() Action { return m.action }
 
 func (m *Model) Init() tea.Cmd {
 	return tea.Batch(m.load(), m.spin.Tick, tick())
@@ -153,24 +211,33 @@ func (m *Model) load() tea.Cmd {
 	}
 }
 
-// waitForEvent turns the backup goroutine's channel into a stream of
-// messages. Every message re-arms it, which is the standard way to consume a
-// channel from bubbletea without blocking Update.
+// loadAccount reaches the network, so it runs when the Account tab is opened
+// and on an explicit refresh -- never on the tick.
+func (m *Model) loadAccount() tea.Cmd {
+	return func() tea.Msg {
+		a, err := m.backend.Account(m.ctx)
+		if err != nil {
+			return accountMsg(AccountView{Err: err.Error()})
+		}
+		return accountMsg(a)
+	}
+}
+
+// waitForEvent turns the worker goroutine's channel into a stream of
+// messages. Every message re-arms it, which is how bubbletea consumes a
+// channel without blocking Update.
 func (m *Model) waitForEvent() tea.Cmd {
 	ch := m.events
 	return func() tea.Msg { return <-ch }
 }
 
-// Update is a thin wrapper so that a screen change always re-runs layout.
-//
-// The header is nineteen rows taller on the home screen than anywhere else,
-// so the body budget every component sizes itself against changes the moment
-// the screen does. Without this the list keeps a home-sized height on the
-// detail screen and paints past the bottom of the window.
+// Update is a thin wrapper so a screen change always re-runs layout: the
+// header is nineteen rows taller on the folder tab than in an overlay, so the
+// body budget every component sizes itself against changes with it.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	before := m.screen
+	beforeTab, beforeOverlay := m.tab, m.overlay
 	model, cmd := m.update(msg)
-	if m.screen != before {
+	if m.tab != beforeTab || m.overlay != beforeOverlay {
 		m.layout()
 	}
 	return model, cmd
@@ -192,24 +259,35 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncList()
 		return m, nil
 
-	case errMsg:
-		m.err = msg.err
+	case accountMsg:
+		m.acct = AccountView(msg)
 		return m, nil
 
+	case errMsg:
+		m.err = msg.err
+		if m.overlay == overlayRunning {
+			m.overlay = overlayNone
+			m.running = false
+		}
+		return m, nil
+
+	case noticeMsg:
+		m.notice = string(msg)
+		return m, m.load()
+
 	case tickMsg:
-		// Only the home screen refreshes on a timer. Reloading underneath a
-		// confirmation prompt or a trash listing would move the thing the
-		// user is looking at.
-		if m.screen == screenHome || m.screen == screenRunning {
+		// Only the resting screens refresh on a timer. Reloading underneath
+		// a form or a confirmation would move what the user is looking at.
+		if m.overlay == overlayNone || m.overlay == overlayRunning {
 			return m, tea.Batch(tick(), m.load())
 		}
 		return m, tick()
 
+	case scannedMsg:
+		return m, m.openPicker(msg)
+
 	case runSetMsg:
-		// Which set is being worked on now. `B` backs up every set in turn,
-		// and the running screen showed the first one's name for the whole
-		// batch until this existed.
-		m.runSet = string(msg)
+		m.runWhat = string(msg)
 		m.runPhase = "starting"
 		return m, m.waitForEvent()
 
@@ -224,11 +302,22 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case runDoneMsg:
 		m.running = false
 		m.runCancel = nil
-		m.screen = screenHome
+		m.overlay = overlayNone
 		if msg.err != nil {
-			m.err = fmt.Errorf("%s: %w", msg.set, msg.err)
+			m.err = msg.err
 		} else {
-			m.status = msg.set + " backed up."
+			m.notice = msg.what
+		}
+		return m, m.load()
+
+	case restoreDoneMsg:
+		m.running = false
+		m.runCancel = nil
+		m.overlay = overlayNone
+		if msg.err != nil {
+			m.err = msg.err
+		} else {
+			m.notice = restoreSummary(msg.res)
 		}
 		return m, m.load()
 
@@ -236,9 +325,37 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.showTrash(msg)
 		return m, nil
 
-	case actionDoneMsg:
-		m.status = msg.note
-		return m, m.load()
+	case addedMsg:
+		m.notice = ""
+		return m, m.startBackup([]string{string(msg)})
+
+	case codeSentMsg:
+		m.askCode(string(msg))
+		return m, nil
+
+	case signedInMsg:
+		// Signing in is only half of it. What the user wants is this
+		// computer working, so the moment the session exists we go looking
+		// for stored credentials rather than making them find another key.
+		return m, tea.Batch(m.loadAccount(), m.afterSignIn())
+
+	case unlockNeededMsg:
+		m.askUnlock()
+		return m, nil
+
+	case updateMsg:
+		if !msg.applied && msg.version != "" {
+			m.pendingUpdate = msg.version
+		}
+		switch {
+		case msg.applied:
+			m.notice = "Updated to " + msg.version + ". Restart r2b to use it."
+		case msg.version == "":
+			m.notice = "You are on the latest version."
+		default:
+			m.notice = msg.version + " is available. Press u again to install it."
+		}
+		return m, nil
 
 	case spinner.TickMsg:
 		var cmd tea.Cmd
@@ -252,13 +369,19 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // forward passes anything unhandled to whichever component owns the screen.
 func (m *Model) forward(msg tea.Msg) tea.Cmd {
 	var cmd tea.Cmd
-	switch m.screen {
-	case screenHome:
-		m.list, cmd = m.list.Update(msg)
-	case screenTrash:
-		m.trash, cmd = m.trash.Update(msg)
-	case screenDetail:
+	switch {
+	case m.overlay == overlayBrowse:
+		m.browse, cmd = m.browse.Update(msg)
+	case m.overlay == overlayPicker && m.picker != nil:
+		_, cmd = m.picker.Update(msg)
+	case m.overlay == overlayDetail:
 		m.detail, cmd = m.detail.Update(msg)
+	case m.overlay != overlayNone:
+		return nil
+	case m.tab == tabFolders:
+		m.list, cmd = m.list.Update(msg)
+	case m.tab == tabTrash:
+		m.trash, cmd = m.trash.Update(msg)
 	}
 	return cmd
 }
@@ -269,4 +392,13 @@ func (m *Model) selected() (SetView, bool) {
 		return SetView{}, false
 	}
 	return it.v, true
+}
+
+func (m *Model) setByName(name string) (SetView, bool) {
+	for _, s := range m.sets {
+		if s.Name == name {
+			return s, true
+		}
+	}
+	return SetView{}, false
 }

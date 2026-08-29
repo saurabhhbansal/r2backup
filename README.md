@@ -55,21 +55,29 @@ run every 30 minutes from then on.
 
 ## Use it
 
-Run `r2b` on its own for the dashboard: what is backed up, what happened last
-time, how much of R2's free tier you have used, and whether it is running
-automatically.
+Run `r2b` on its own and everything is there — signing in, adding a folder,
+restoring, scheduling. There is nothing you have to drop back to the command
+line for.
+
+Four modes, on <kbd>1</kbd>–<kbd>4</kbd> or <kbd>tab</kbd>:
+
+| mode | |
+|---|---|
+| **Folders** | what is backed up, and what each run did |
+| **Schedule** | whether backups run by themselves, how often, and when next |
+| **Trash** | what is recoverable, and until when |
+| **Account** | your R2 keys, signing in, and your other computers |
 
 | key | |
 |---|---|
-| <kbd>↑</kbd> <kbd>↓</kbd> | move · <kbd>enter</kbd> for details |
-| <kbd>b</kbd> | back up the selected folder · <kbd>B</kbd> for all of them |
-| <kbd>a</kbd> <kbd>e</kbd> | add a folder · change what one includes |
-| <kbd>r</kbd> <kbd>t</kbd> | restore · see what is recoverable |
-| <kbd>s</kbd> <kbd>x</kbd> | turn automatic backups on or off · stop backing a folder up |
-| <kbd>?</kbd> <kbd>q</kbd> | all keys · quit |
+| <kbd>a</kbd> | add a folder — browse to it, then tick what goes in |
+| <kbd>b</kbd> <kbd>B</kbd> | back up this folder · back up all of them |
+| <kbd>e</kbd> <kbd>r</kbd> | change what is included · restore |
+| <kbd>n</kbd> <kbd>m</kbd> | rename · point at a folder that moved |
+| <kbd>x</kbd> <kbd>?</kbd> | stop backing a folder up · every key |
 
-Every command also works on its own, which is what the scheduler and your
-scripts use.
+Every command also still works on its own, unchanged — which is what the
+scheduler and your scripts use.
 
 | command | |
 |---|---|

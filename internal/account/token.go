@@ -1,6 +1,8 @@
 package account
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -71,4 +73,29 @@ func ClearToken() error {
 		return fmt.Errorf("account: clear token: %w", err)
 	}
 	return nil
+}
+
+// EmailFromToken reads the subject out of a cached session token.
+//
+// The token is a JWT whose payload the server signs and this client only
+// reads; the signature is the server's business, checked on every request it
+// is sent with. This is for display -- the Account screen saying which
+// address you are signed in as -- so a payload that does not parse yields ""
+// rather than an error, and nothing is trusted on the strength of it.
+func EmailFromToken(token string) string {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return ""
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(parts[1])
+	if err != nil {
+		return ""
+	}
+	var claims struct {
+		Sub string `json:"sub"`
+	}
+	if err := json.Unmarshal(raw, &claims); err != nil {
+		return ""
+	}
+	return claims.Sub
 }

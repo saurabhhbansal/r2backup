@@ -392,3 +392,16 @@ func padBetween(left, right string, width int) string {
 	}
 	return left + strings.Repeat(" ", gap) + right
 }
+
+// Root exposes the tree the picker is showing, so a caller can apply a set's
+// existing excludes to it before the first frame.
+//
+// It exists because the picker is now embedded in the main interface as a
+// child model rather than run as its own program -- two bubbletea programs
+// would both be reading the same terminal. Pick still does the same thing for
+// the standalone path; this is the seam the embedded path needs.
+func (m *Model) Root() *Node { return m.root }
+
+// Refresh rebuilds the visible rows after the tree has been changed from
+// outside, which ApplyExcludes does.
+func (m *Model) Refresh() { m.refreshRows() }
