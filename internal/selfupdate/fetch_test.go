@@ -193,3 +193,55 @@ func archiveExt() string {
 	}
 	return ".tar.gz"
 }
+
+// TestFetchExtractsEitherBinaryName is the one thing the r2backup -> r2b
+// rename could have broken silently. An installed copy looks inside a
+// downloaded archive for a file by name, so the *old* version has to be able
+// to open the *new* archive -- and the way to find that out the hard way is a
+// release that every existing installation reports as "no binary in the
+// archive". Both spellings extract, in both directions.
+func TestFetchExtractsEitherBinaryName(t *testing.T) {
+	for _, inArchive := range []string{"r2b", "r2backup"} {
+		t.Run(inArchive, func(t *testing.T) {
+			member := inArchive
+			if runtime.GOOS == "windows" {
+				member += ".exe"
+			}
+			name := "r2backup_1.0.0_" + Platform() + archiveExt()
+			body := []byte("binary bytes for " + inArchive)
+
+			var archive []byte
+			if runtime.GOOS == "windows" {
+				archive = zipped(t, member, body)
+			} else {
+				archive = tarGz(t, member, body)
+			}
+			sum := sha256.Sum256(archive)
+
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasSuffix(r.URL.Path, "checksums.txt") {
+					fmt.Fprintf(w, "%s  %s\n", hex.EncodeToString(sum[:]), name)
+					return
+				}
+				w.Write(archive)
+			}))
+			defer srv.Close()
+
+			r, err := Fetch(context.Background(), &Release{
+				Version:   "v1.0.0",
+				Assets:    map[string]string{Platform(): srv.URL + "/" + name},
+				Checksums: srv.URL + "/checksums.txt",
+			})
+			if err != nil {
+				t.Fatalf("archive containing %q: %v", member, err)
+			}
+			var got bytes.Buffer
+			if _, err := got.ReadFrom(r); err != nil {
+				t.Fatal(err)
+			}
+			if got.String() != string(body) {
+				t.Errorf("extracted %q, want %q", got.String(), body)
+			}
+		})
+	}
+}

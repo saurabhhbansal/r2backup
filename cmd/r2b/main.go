@@ -1,4 +1,4 @@
-// Command r2backup backs up folders to Cloudflare R2 and restores them anywhere.
+// Command r2b backs up folders to Cloudflare R2 and restores them anywhere.
 package main
 
 import (
@@ -30,7 +30,7 @@ func main() {
 	_ = selfupdate.Cleanup()
 	opts := &cli.Options{Out: os.Stdout, Err: os.Stderr}
 	if err := cli.NewRoot(opts).Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, "r2backup:", err)
+		fmt.Fprintln(os.Stderr, "r2b:", err)
 		os.Exit(1)
 	}
 }

@@ -8,7 +8,7 @@ import (
 
 func TestEveryCommandIsReachableAndDocumented(t *testing.T) {
 	root := NewRoot(&Options{})
-	want := []string{"add", "edit", "backup", "restore", "status", "ls", "schedule", "rename", "relink", "remove", "trash"}
+	want := []string{"setup", "add", "edit", "backup", "restore", "status", "ls", "schedule", "rename", "relink", "remove", "trash", "account", "update"}
 	have := map[string]bool{}
 	for _, c := range root.Commands() {
 		have[c.Name()] = true
@@ -95,4 +95,59 @@ func TestRenameOffersNoWayToMoveTheBucketPrefix(t *testing.T) {
 		return
 	}
 	t.Fatal("rename command not found")
+}
+
+// The command list is the whole interface for someone who is not at a
+// terminal all day, and three entries in it were costing more than they
+// returned.
+//
+// `completion` is cobra's, generated on every root command unless it is
+// switched off: to anyone who does not already know what a completion script
+// is, it is a command that appears to do nothing and then prints several
+// hundred lines of shell.
+//
+// `login` and `account push` were two thirds of a three-command choreography
+// for getting a second computer working, and nothing said which one to run
+// when. `setup` does all of it.
+func TestTheCommandsThatWereRemovedStayRemoved(t *testing.T) {
+	root := NewRoot(&Options{})
+	gone := map[string]string{
+		"completion": "cobra's generated completion command is noise in this help; DisableDefaultCmd turns it off",
+		"login":      "signing in is part of setup",
+	}
+	for _, c := range root.Commands() {
+		if why, bad := gone[c.Name()]; bad {
+			t.Errorf("%q is back in the command list: %s", c.Name(), why)
+		}
+	}
+	for _, c := range root.Commands() {
+		if c.Name() != "account" {
+			continue
+		}
+		for _, sub := range c.Commands() {
+			if sub.Name() == "push" {
+				t.Error("`account push` is back; setup stores the credentials as part of signing in, " +
+					"and a step you have to know to run in advance is the thing that made this not work")
+			}
+		}
+	}
+}
+
+// The command a user types is "r2b". The product, the repo, the release asset
+// and the OS scheduler entry all keep the name they had, on purpose -- those
+// are identities other things already point at.
+func TestTheCommandIsCalledR2b(t *testing.T) {
+	root := NewRoot(&Options{})
+	if root.Use != "r2b" {
+		t.Errorf("root command Use = %q, want %q", root.Use, "r2b")
+	}
+	// Help text that names the old command would send the user to a binary
+	// that is no longer installed under that name.
+	for _, c := range root.Commands() {
+		for _, text := range []string{c.Short, c.Long} {
+			if strings.Contains(text, "r2backup ") {
+				t.Errorf("%q's help still tells the user to run `r2backup ...`:\n%s", c.Name(), text)
+			}
+		}
+	}
 }

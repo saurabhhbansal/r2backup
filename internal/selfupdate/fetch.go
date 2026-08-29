@@ -74,12 +74,36 @@ func checksumFor(contents, name string) (string, error) {
 	return "", fmt.Errorf("%s is not listed in checksums.txt", name)
 }
 
-// extract pulls the r2backup binary out of a .zip or .tar.gz.
-func extract(archive []byte, url string) ([]byte, error) {
-	wanted := "r2backup"
+// binaryNames is what the main binary may be called inside a release
+// archive, newest spelling first.
+//
+// The command was renamed from r2backup to r2b, and the archive is the one
+// place where that is not merely cosmetic: an installed copy looks inside a
+// downloaded archive for a file by name, so a release that renames the file
+// is a release the previous version cannot install. Both names are accepted
+// so that is a one-time cost paid once, and never again on the next rename.
+func binaryNames() []string {
 	if runtime.GOOS == "windows" {
-		wanted = "r2backup.exe"
+		return []string{"r2b.exe", "r2backup.exe"}
 	}
+	return []string{"r2b", "r2backup"}
+}
+
+func wantedName(names []string) string { return names[0] }
+
+func matches(base string, names []string) bool {
+	for _, n := range names {
+		if base == n {
+			return true
+		}
+	}
+	return false
+}
+
+// extract pulls the r2b binary out of a .zip or .tar.gz.
+func extract(archive []byte, url string) ([]byte, error) {
+	names := binaryNames()
+	wanted := wantedName(names)
 
 	if strings.HasSuffix(url, ".zip") {
 		zr, err := zip.NewReader(bytes.NewReader(archive), int64(len(archive)))
@@ -87,7 +111,7 @@ func extract(archive []byte, url string) ([]byte, error) {
 			return nil, fmt.Errorf("open release archive: %w", err)
 		}
 		for _, f := range zr.File {
-			if path.Base(f.Name) != wanted {
+			if !matches(path.Base(f.Name), names) {
 				continue
 			}
 			rc, err := f.Open()
@@ -114,7 +138,7 @@ func extract(archive []byte, url string) ([]byte, error) {
 		if err != nil {
 			return nil, fmt.Errorf("read release archive: %w", err)
 		}
-		if path.Base(h.Name) == wanted {
+		if matches(path.Base(h.Name), names) {
 			return io.ReadAll(io.LimitReader(tr, maxArchive))
 		}
 	}

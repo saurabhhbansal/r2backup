@@ -538,3 +538,57 @@ func TestDeletePrefixOfNothingIsNotAnError(t *testing.T) {
 		t.Errorf("DeletePrefix reported %+v, want a zero result", got)
 	}
 }
+
+// TestListPrefixesReturnsOnlyTheNextLevel is the call a computer that has
+// never backed anything up uses to find out what is in the bucket. The point
+// of it is the delimiter: without one, learning three set names would mean
+// listing every object under machines/, which for a real backup is tens of
+// thousands of keys and the operations to match.
+func TestListPrefixesReturnsOnlyTheNextLevel(t *testing.T) {
+	c := newClient(t)
+	ctx := context.Background()
+
+	for _, key := range []string{
+		"machines/desktop/Documents/current/a.txt",
+		"machines/desktop/Documents/current/deep/b.txt",
+		"machines/desktop/Code/current/c.txt",
+		"machines/laptop/Documents/current/d.txt",
+		"machines/laptop/Photos/current/e.txt",
+		// Not under machines/ at all: must not appear.
+		"r2backup/state.json",
+	} {
+		body := []byte("x")
+		if err := c.Put(ctx, remote.PutInput{
+			Key: key, Body: bytes.NewReader(body), Size: int64(len(body)),
+			Metadata: remote.Metadata{ModTime: time.Now(), Mode: 0o644},
+		}); err != nil {
+			t.Fatalf("Put %s: %v", key, err)
+		}
+	}
+
+	machines, err := c.ListPrefixes(ctx, "machines/")
+	if err != nil {
+		t.Fatalf("ListPrefixes: %v", err)
+	}
+	if got, want := strings.Join(machines, ","), "desktop,laptop"; got != want {
+		t.Fatalf("ListPrefixes(machines/) = %q, want %q", got, want)
+	}
+
+	names, err := c.ListPrefixes(ctx, "machines/desktop/")
+	if err != nil {
+		t.Fatalf("ListPrefixes: %v", err)
+	}
+	// Code and Documents, and specifically not "current" or "deep" -- the
+	// delimiter has to stop at the first "/" past the prefix.
+	if got, want := strings.Join(names, ","), "Code,Documents"; got != want {
+		t.Fatalf("ListPrefixes(machines/desktop/) = %q, want %q", got, want)
+	}
+
+	empty, err := c.ListPrefixes(ctx, "machines/nosuchpc/")
+	if err != nil {
+		t.Fatalf("ListPrefixes of nothing: %v", err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("ListPrefixes of an unused prefix = %v, want none", empty)
+	}
+}

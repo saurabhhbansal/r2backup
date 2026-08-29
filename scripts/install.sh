@@ -66,12 +66,32 @@ fi
 [ "$actual" = "$expected" ] || fail "checksum mismatch — refusing to install"
 
 tar -xzf "$tmp/$asset" -C "$tmp"
-install -m 0755 "$tmp/r2backup" "$INSTALL_DIR/r2backup" 2>/dev/null \
-  || { cp "$tmp/r2backup" "$INSTALL_DIR/r2backup" && chmod 0755 "$INSTALL_DIR/r2backup"; }
 
-printf '\nInstalled r2backup %s to %s\n' "$tag" "$INSTALL_DIR/r2backup"
+# The binary was called r2backup up to v0.1.6. Accept either name in the
+# archive so this script keeps working on an older release. The archive itself
+# is still named r2backup_<version>_... -- that string is what every
+# already-installed copy looks for when it updates itself.
+src=""
+for candidate in r2b r2backup; do
+  [ -f "$tmp/$candidate" ] && { src="$tmp/$candidate"; break; }
+done
+[ -n "$src" ] || fail "the archive contains no r2b binary"
+
+install -m 0755 "$src" "$INSTALL_DIR/r2b" 2>/dev/null \
+  || { cp "$src" "$INSTALL_DIR/r2b" && chmod 0755 "$INSTALL_DIR/r2b"; }
+
+# Clear out the old name. A scheduled run holds an absolute path, so a stale
+# binary left behind would go on running last month's code while the user
+# upgrades the copy they type at.
+rm -f "$INSTALL_DIR/r2backup"
+
+# ...and re-point an existing schedule at the file that now exists. A no-op on
+# a machine with no schedule; it never creates one.
+"$INSTALL_DIR/r2b" schedule --repair >/dev/null 2>&1 || true
+
+printf '\nInstalled r2backup %s to %s. The command is: r2b\n' "$tag" "$INSTALL_DIR/r2b"
 case ":$PATH:" in
   *":$INSTALL_DIR:"*) ;;
   *) printf 'Note: %s is not on your PATH. Add it, or run the binary by its full path.\n' "$INSTALL_DIR" ;;
 esac
-printf '\nNext: r2backup setup\n'
+printf '\nNext: r2b setup\n'

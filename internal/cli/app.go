@@ -67,7 +67,7 @@ func (a *app) connect(ctx context.Context) error {
 	c, err := a.creds.Load()
 	if err != nil {
 		if errors.Is(err, creds.ErrNotFound) {
-			return errors.New("no credentials on this machine yet. Run: r2backup setup")
+			return errors.New("no credentials on this machine yet. Run: r2b setup")
 		}
 		return err
 	}
@@ -102,7 +102,7 @@ func (a *app) resolveSets(name string) ([]sets.Set, error) {
 	if name == "" {
 		all := a.sets.List()
 		if len(all) == 0 {
-			return nil, errors.New("nothing is being backed up yet. Run: r2backup add <folder>")
+			return nil, errors.New("nothing is being backed up yet. Run: r2b add <folder>")
 		}
 		return all, nil
 	}

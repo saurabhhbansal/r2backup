@@ -3,6 +3,8 @@ package remote
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
@@ -50,4 +52,38 @@ func (c *Client) List(ctx context.Context, prefix string) ([]ListEntry, error) {
 		}
 	}
 	return entries, nil
+}
+
+// ListPrefixes returns the immediate child "folders" under prefix -- the
+// CommonPrefixes an S3 LIST reports when it is given a delimiter -- with the
+// prefix and the trailing "/" trimmed off each one.
+//
+// It exists so a computer that has never backed anything up can find out what
+// is in the bucket. Everything else here reads objects because it already
+// knows which ones it wants; this is the one question ("what is there?") that
+// cannot be answered from local state, and answering it by listing every
+// object under "machines/" would download a key for all 60,000 files to learn
+// a handful of names. A delimited list stops at the first "/" and pays for
+// pages of names instead.
+func (c *Client) ListPrefixes(ctx context.Context, prefix string) ([]string, error) {
+	var names []string
+	paginator := s3.NewListObjectsV2Paginator(c.s3, &s3.ListObjectsV2Input{
+		Bucket:    aws.String(c.bucket),
+		Prefix:    aws.String(prefix),
+		Delimiter: aws.String("/"),
+	})
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("remote: list prefixes %q: %w", prefix, err)
+		}
+		for _, cp := range page.CommonPrefixes {
+			name := strings.TrimSuffix(strings.TrimPrefix(aws.ToString(cp.Prefix), prefix), "/")
+			if name != "" {
+				names = append(names, name)
+			}
+		}
+	}
+	sort.Strings(names)
+	return names, nil
 }

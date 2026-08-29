@@ -61,15 +61,27 @@ func (o *Options) Decision() Answer {
 // NewRoot builds the command tree.
 func NewRoot(opts *Options) *cobra.Command {
 	root := &cobra.Command{
-		Use:   "r2backup",
+		// "r2b", not "r2backup". The product keeps its name; the thing you
+		// type does not have to carry it. This is a tool for people who are
+		// not at a terminal all day, and every extra character is one they
+		// get wrong at 11pm.
+		Use:   "r2b",
 		Short: "Back up folders to Cloudflare R2 and restore them anywhere",
-		Long: "r2backup mirrors folders to Cloudflare R2 and restores them anywhere.\n\n" +
+		Long: "r2b mirrors folders to Cloudflare R2 and restores them anywhere.\n\n" +
 			"It does one job. There is no sync, no conflict resolution and no\n" +
 			"background service: the OS scheduler runs it and it exits.",
 		Version:       Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
+	// cobra generates a `completion` command on every root command unless
+	// told not to. It emits a shell completion script to stdout -- useful to
+	// someone who knows what to do with one, and to everyone else it is a
+	// command in --help that appears to do nothing and prints several hundred
+	// lines of shell if they try it. This help has eleven entries and each one
+	// has to earn its place.
+	root.CompletionOptions.DisableDefaultCmd = true
+
 	root.PersistentFlags().BoolVar(&opts.Yes, "yes", false,
 		"answer yes to any decision, instead of asking")
 	root.PersistentFlags().BoolVar(&opts.No, "no", false,
@@ -97,7 +109,6 @@ func NewRoot(opts *Options) *cobra.Command {
 		newRemoveCmd(opts),
 		newTrashCmd(opts),
 		newUpdateCmd(opts),
-		newLoginCmd(opts),
 		newAccountCmd(opts),
 	)
 	return root

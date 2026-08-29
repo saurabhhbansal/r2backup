@@ -225,3 +225,41 @@ func TestModel_EmptyScan_NoPanic(t *testing.T) {
 		t.Fatalf("Excludes() on empty tree = %v", got)
 	}
 }
+
+// windowsSpaceKey is what bubbletea's Windows console reader delivers when the
+// user presses space: KeyRunes carrying a single ' ', not KeySpace. Every
+// other test in this file sends the unix spelling, which is exactly how the
+// checkbox came to be dead on Windows -- the one platform this ships to --
+// while the suite stayed green.
+func windowsSpaceKey() tea.KeyMsg {
+	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{' '}}
+}
+
+func TestModel_SpaceToggles_InTheWindowsSpelling(t *testing.T) {
+	res := newResult(map[string]int64{
+		"a.txt": 1,
+		"b.txt": 2,
+	})
+	m := NewModel("/tmp/root", res)
+
+	first := m.rows[m.cursor].Node
+	if first.Key != "a.txt" {
+		t.Fatalf("expected cursor to start on a.txt, got %q", first.Key)
+	}
+
+	m.Update(windowsSpaceKey())
+	if first.Check != Unchecked {
+		t.Fatalf("a.txt Check = %v, want Unchecked after space", first.Check)
+	}
+	if got := m.Excludes(); len(got) != 1 || got[0] != "a.txt" {
+		t.Fatalf("Excludes() = %v, want [a.txt]", got)
+	}
+
+	m.Update(windowsSpaceKey())
+	if first.Check != Checked {
+		t.Fatalf("a.txt Check = %v, want Checked after second space", first.Check)
+	}
+	if got := m.Excludes(); len(got) != 0 {
+		t.Fatalf("Excludes() = %v, want empty after toggling back", got)
+	}
+}

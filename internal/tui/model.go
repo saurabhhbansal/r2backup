@@ -104,6 +104,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case tea.KeyRight:
 			m.expandCurrent()
 		case tea.KeySpace:
+			// The unix spelling. Windows sends KeyRunes{' '} instead -- see
+			// the " " case below.
 			m.toggleCurrent()
 		case tea.KeyPgUp:
 			m.moveCursor(-m.height)
@@ -115,6 +117,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.setCursor(len(m.rows) - 1)
 		case tea.KeyRunes:
 			switch string(msg.Runes) {
+			// Space arrives here, not as tea.KeySpace, on Windows. bubbletea
+			// reads the Windows console directly rather than an ANSI stream,
+			// and that path maps VK_SPACE to KeyRunes{' '} (see key_windows.go
+			// keyType, whose own comment claims unix does the same -- it does
+			// not; the ANSI reader promotes a lone ' ' to KeySpace). So the
+			// KeySpace case below is the unix spelling of this one, and
+			// handling only that made the checkbox dead on the single platform
+			// this ships to: every folder went in whole or not at all. The
+			// tests all sent KeySpace, so none of them noticed.
+			case " ":
+				m.toggleCurrent()
 			case "q":
 				m.cancelled = true
 				return m, tea.Quit

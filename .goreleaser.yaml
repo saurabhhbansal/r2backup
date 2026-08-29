@@ -6,9 +6,9 @@ before:
     - go mod download
 
 builds:
-  - id: r2backup
-    main: ./cmd/r2backup
-    binary: r2backup
+  - id: r2b
+    main: ./cmd/r2b
+    binary: r2b
     env:
       # No cgo, so every target cross-compiles from one Linux runner and the
       # result is a single static file with no runtime to install. That is the
@@ -24,11 +24,11 @@ builds:
   # -H=windowsgui makes it a GUI-subsystem binary, so Windows allocates no
   # console for it at all -- which is the only way to not have one, since a
   # console binary gets its console from the loader before any of its code
-  # runs. See cmd/r2backupw. It carries no version because it has no logic to
-  # go stale: it runs whichever r2backup.exe sits beside it.
-  - id: r2backupw
-    main: ./cmd/r2backupw
-    binary: r2backupw
+  # runs. See cmd/r2bw. It carries no version because it has no logic to
+  # go stale: it runs whichever r2b.exe sits beside it.
+  - id: r2bw
+    main: ./cmd/r2bw
+    binary: r2bw
     env:
       - CGO_ENABLED=0
     goos: [windows]
@@ -39,18 +39,20 @@ builds:
 
 archives:
   - id: default
-    # Both builds. On Linux and macOS only r2backup exists, so this is the
+    # Both builds. On Linux and macOS only r2b exists, so this is the
     # same single-binary archive it always was; a Windows archive gains the
     # launcher beside it.
-    ids: [r2backup, r2backupw]
+    ids: [r2b, r2bw]
     # Windows archives hold two files and the others hold one, which
     # goreleaser refuses by default as a likely packaging mistake. Here it is
     # the intent: only Windows has a console window to avoid, so only Windows
     # ships the launcher that avoids it.
     allow_different_binary_count: true
     # The name the updater looks for. internal/selfupdate.AssetName builds the
-    # same string; if these two ever disagree, `r2backup update` stops finding
-    # its own releases.
+    # same string; if these two ever disagree, `r2b update` stops finding its
+    # own releases. It keeps the product's name, not the command's: it is
+    # matched by every already-installed copy, and renaming it would strand
+    # them all on the version they are running.
     name_template: "r2backup_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
     formats: [tar.gz]
     format_overrides:
@@ -98,16 +100,15 @@ release:
     irm https://github.com/saurabhhbansal/r2backup/releases/download/{{ .Tag }}/install.ps1 | iex
     ```
 
-    Or download the archive for your platform below and put `r2backup` on your PATH.
+    Or download the archive for your platform below and put `r2b` on your PATH.
 
     ### Getting started
 
     ```sh
-    r2backup setup                  # store your R2 credentials on this machine
-    r2backup add ~/Documents        # pick what to include, then back it up
-    r2backup schedule --every 30    # run it every 30 minutes from now on
-    r2backup status                 # what ran, when, and what is next
-    r2backup restore Documents      # bring it back, here or on another computer
+    r2b setup                  # sign in, or enter your R2 keys
+    r2b add ~/Documents        # pick what to include, back it up, schedule it
+    r2b status                 # what ran, when, and what is next
+    r2b restore Documents      # bring it back, here or on another computer
     ```
 
     Verify your download against `checksums.txt`.

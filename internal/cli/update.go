@@ -29,7 +29,7 @@ func newUpdateCmd(opts *Options) *cobra.Command {
 			}
 			fmt.Fprintf(opts.Out, "%s is available (you have %s).\n", rel.Version, Version)
 			if check {
-				fmt.Fprintln(opts.Out, "Run `r2backup update` to install it.")
+				fmt.Fprintln(opts.Out, "Run `r2b update` to install it.")
 				return nil
 			}
 

@@ -1,7 +1,11 @@
 # Build output
 /dist/
+/r2b
 /r2backup
+/r2b.exe
+/r2bw.exe
 /r2backup.exe
+/r2backupw.exe
 *.old
 
 # Test artifacts

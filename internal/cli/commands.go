@@ -15,7 +15,6 @@ import (
 
 	"github.com/saurabhhbansal/r2backup/internal/backup"
 	"github.com/saurabhhbansal/r2backup/internal/config"
-	"github.com/saurabhhbansal/r2backup/internal/creds"
 	"github.com/saurabhhbansal/r2backup/internal/index"
 	"github.com/saurabhhbansal/r2backup/internal/progress"
 	"github.com/saurabhhbansal/r2backup/internal/remote"
@@ -35,70 +34,6 @@ import (
 // terminal, and everything that would ask a question or animate a progress bar
 // checks this first.
 func interactive() bool { return term.IsTerminal(int(os.Stdout.Fd())) }
-
-func newSetupCmd(opts *Options) *cobra.Command {
-	return &cobra.Command{
-		Use:   "setup",
-		Short: "Store this machine's Cloudflare R2 credentials",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			a, err := openApp()
-			if err != nil {
-				return err
-			}
-			defer a.close()
-
-			if !interactive() {
-				return errors.New("setup needs a terminal")
-			}
-			in := bufio.NewReader(os.Stdin)
-			ask := func(label string) (string, error) {
-				fmt.Fprintf(opts.Out, "%s: ", label)
-				line, err := in.ReadString('\n')
-				return strings.TrimSpace(line), err
-			}
-			c := creds.Credentials{}
-			for _, f := range []struct {
-				label string
-				into  *string
-			}{
-				{"Cloudflare account ID", &c.AccountID},
-				{"R2 access key ID", &c.AccessKeyID},
-				{"R2 bucket name", &c.Bucket},
-			} {
-				v, err := ask(f.label)
-				if err != nil {
-					return err
-				}
-				*f.into = v
-			}
-			fmt.Fprint(opts.Out, "R2 secret access key: ")
-			secret, err := term.ReadPassword(int(os.Stdin.Fd()))
-			fmt.Fprintln(opts.Out)
-			if err != nil {
-				return err
-			}
-			c.SecretAccessKey = strings.TrimSpace(string(secret))
-
-			if err := a.creds.Save(c); err != nil {
-				return err
-			}
-			name, protected := a.creds.Protection()
-			fmt.Fprintf(opts.Out, "\nSaved. Secret is guarded by %s.\n", name)
-			if !protected {
-				fmt.Fprintln(opts.Out, "Note: no OS keystore is available here, so this is file permissions only.")
-			}
-			fmt.Fprintln(opts.Out, "Checking the connection...")
-			if err := a.connect(cmd.Context()); err != nil {
-				return err
-			}
-			if _, err := a.client.List(cmd.Context(), "r2backup/"); err != nil {
-				return fmt.Errorf("credentials saved, but the bucket could not be read: %w", err)
-			}
-			fmt.Fprintln(opts.Out, "Connection works. Next: r2backup add <folder>")
-			return nil
-		},
-	}
-}
 
 func newAddCmd(opts *Options) *cobra.Command {
 	var (
@@ -264,7 +199,7 @@ func newBackupCmd(opts *Options) *cobra.Command {
 						// this, and so status can show it needs a person.
 						_ = a.sets.MarkNeedsAttention(s.Name, err.Error())
 						fmt.Fprintf(opts.Err,
-							"  Nothing was deleted. When you know where it is: r2backup relink %q <new-path>\n", s.Name)
+							"  Nothing was deleted. When you know where it is: r2b relink %q <new-path>\n", s.Name)
 					}
 					continue
 				}
@@ -308,7 +243,7 @@ func cleanPastedPath(s string) string {
 // offerRelink asks where a vanished folder went and repoints the set at it,
 // returning the updated set and whether the run should be retried.
 //
-// The alternative it replaces was printing `r2backup relink "Photos"
+// The alternative it replaces was printing `r2b relink "Photos"
 // <new-path>` and giving up. That is a fine answer for someone who lives in a
 // terminal and a dead end for everyone else: this tool is meant to be set up
 // once and forgotten, and "your backup stopped, here is a command to go and
@@ -401,7 +336,7 @@ func newStatusCmd(opts *Options) *cobra.Command {
 func printStatus(a *app, opts *Options) error {
 	list := a.sets.List()
 	if len(list) == 0 {
-		fmt.Fprintln(opts.Out, "Nothing is being backed up yet. Run: r2backup add <folder>")
+		fmt.Fprintln(opts.Out, "Nothing is being backed up yet. Run: r2b add <folder>")
 		return nil
 	}
 	histPath, _ := historyPath()
@@ -450,7 +385,7 @@ func printStatus(a *app, opts *Options) error {
 	if st, err := schedule.Current("r2backup"); err == nil && st.Registered {
 		fmt.Fprintf(opts.Out, "Scheduled: every %s\n", st.Interval)
 	} else {
-		fmt.Fprintln(opts.Out, "Not scheduled. To run automatically: r2backup schedule --every 30")
+		fmt.Fprintln(opts.Out, "Not scheduled. To run automatically: r2b schedule --every 30")
 	}
 	return nil
 }
@@ -607,7 +542,7 @@ func installSchedule(opts *Options, every int) error {
 				"      permission needed to run it when you are signed out, which\n"+
 				"      needs the \"Log on as a batch job\" right for your account.")
 	}
-	fmt.Fprintln(opts.Out, "To watch one: r2backup status --watch")
+	fmt.Fprintln(opts.Out, "To watch one: r2b status --watch")
 	return nil
 }
 
@@ -636,7 +571,7 @@ func askYesNo(out io.Writer, in io.Reader, question string, def bool) bool {
 
 // offerSchedule asks, once, whether backups should run by themselves.
 //
-// `add` used to end with "To have this run by itself: r2backup schedule
+// `add` used to end with "To have this run by itself: r2b schedule
 // --every 30" -- a command the user had to notice, remember and run. Anyone
 // who did not was left with a folder that is backed up exactly once, which is
 // the opposite of what they asked for, and nothing said so again except
@@ -654,7 +589,7 @@ func offerSchedule(opts *Options, every int) {
 		return
 	}
 	if !interactive() || opts.Decision() != Ask || !schedule.Supported() {
-		fmt.Fprintf(opts.Out, "\nTo have this run by itself: r2backup schedule --every %d\n", every)
+		fmt.Fprintf(opts.Out, "\nTo have this run by itself: r2b schedule --every %d\n", every)
 		return
 	}
 	in := opts.In
@@ -664,7 +599,7 @@ func offerSchedule(opts *Options, every int) {
 	fmt.Fprintln(opts.Out)
 	if !askYesNo(opts.Out, in,
 		fmt.Sprintf("Back up automatically every %d minutes from now on?", every), true) {
-		fmt.Fprintf(opts.Out, "Not scheduled. To do it later: r2backup schedule --every %d\n", every)
+		fmt.Fprintf(opts.Out, "Not scheduled. To do it later: r2b schedule --every %d\n", every)
 		return
 	}
 	if err := installSchedule(opts, every); err != nil {
@@ -672,7 +607,7 @@ func offerSchedule(opts *Options, every int) {
 		// command was for. Say what did not happen rather than failing the
 		// whole thing after the work succeeded.
 		fmt.Fprintf(opts.Err, "Could not set up the schedule: %v\n", err)
-		fmt.Fprintf(opts.Err, "To try again: r2backup schedule --every %d\n", every)
+		fmt.Fprintf(opts.Err, "To try again: r2b schedule --every %d\n", every)
 	}
 }
 
@@ -899,7 +834,7 @@ func newRemoveCmd(opts *Options) *cobra.Command {
 			default:
 				fmt.Fprintf(opts.Out, "Removed %q. This computer no longer backs up %s.\n", s.Name, s.Root)
 				fmt.Fprintf(opts.Out, "The backup is still in the bucket under %s and nothing will delete it.\n", s.KeyScope())
-				fmt.Fprintf(opts.Out, "To get it back: r2backup add %s --name %s\n", s.Root, s.Name)
+				fmt.Fprintf(opts.Out, "To get it back: r2b add %s --name %s\n", s.Root, s.Name)
 				// Said plainly because it is a real cost and the whole
 				// argument of this tool is the operations budget. The index
 				// went with the set, and a run reads the index rather than
@@ -914,7 +849,7 @@ func newRemoveCmd(opts *Options) *cobra.Command {
 			if len(a.sets.List()) == 0 {
 				if st, err := schedule.Current("r2backup"); err == nil && st.Registered {
 					fmt.Fprintln(opts.Out, "\nNothing is being backed up now, and a scheduled run is still registered.")
-					fmt.Fprintln(opts.Out, "To unregister it: r2backup schedule --remove")
+					fmt.Fprintln(opts.Out, "To unregister it: r2b schedule --remove")
 				}
 			}
 			return nil
@@ -926,14 +861,14 @@ func newRemoveCmd(opts *Options) *cobra.Command {
 }
 
 // LauncherName is the window-less companion beside r2backup on Windows.
-// See cmd/r2backupw.
-const LauncherName = "r2backupw.exe"
+// See cmd/r2bw.
+const LauncherName = "r2bw.exe"
 
 // scheduledBinary picks what the OS scheduler should actually run, and
 // reports whether that choice puts nothing on screen.
 //
 // On Windows the answer is the launcher beside this binary when it is there.
-// Registering r2backup.exe directly means Task Scheduler starts a
+// Registering r2b.exe directly means Task Scheduler starts a
 // console-subsystem program in the interactive session, and a console window
 // appears for the length of the backup -- measured on a real desktop, both
 // before and after r2backup started hiding its own console, because the
@@ -991,6 +926,7 @@ func newScheduleCmd(opts *Options) *cobra.Command {
 	var (
 		every  int
 		remove bool
+		repair bool
 	)
 	cmd := &cobra.Command{
 		Use:   "schedule",
@@ -1023,11 +959,32 @@ func newScheduleCmd(opts *Options) *cobra.Command {
 				}
 				return nil
 			}
+			if repair {
+				// Point an existing entry at wherever the binary lives now,
+				// keeping the interval it already has. The installers call
+				// this after replacing the files: the OS scheduler stores an
+				// absolute path, so renaming the executable -- which the move
+				// from r2backup.exe to r2b.exe is -- leaves the task aimed at
+				// a file that no longer exists, and a backup that silently
+				// stops running is the worst way for this to fail.
+				//
+				// A machine with no schedule is left with no schedule. An
+				// installer must not quietly start backing things up on a
+				// timer nobody asked for.
+				st, err := schedule.Current("r2backup")
+				if err != nil || !st.Registered {
+					fmt.Fprintln(opts.Out, "Nothing scheduled; nothing to repair.")
+					return nil
+				}
+				return installSchedule(opts, int(st.Interval.Round(time.Minute)/time.Minute))
+			}
 			return installSchedule(opts, every)
 		},
 	}
 	cmd.Flags().IntVar(&every, "every", schedule.DefaultIntervalMinutes, "minutes between runs")
 	cmd.Flags().BoolVar(&remove, "remove", false, "unregister instead")
+	cmd.Flags().BoolVar(&repair, "repair", false,
+		"re-point an existing schedule at this copy of the program, keeping its interval")
 	return cmd
 }
 
@@ -1075,7 +1032,7 @@ func newRenameCmd(opts *Options) *cobra.Command {
 			if err := a.sets.Rename(args[0], args[1]); err != nil {
 				if back := a.index.RenameSet(args[1], args[0]); back != nil {
 					return fmt.Errorf("%w (and the index could not be put back under %q: %v -- "+
-						"run `r2backup backup %s` to rebuild it, which re-uploads the set)",
+						"run `r2b backup %s` to rebuild it, which re-uploads the set)",
 						err, args[0], back, args[1])
 				}
 				return err
@@ -1190,7 +1147,11 @@ func newRestoreCmd(opts *Options) *cobra.Command {
 			if err := a.connect(cmd.Context()); err != nil {
 				return err
 			}
-			s, err := a.sets.Get(args[0])
+			// Local record first, bucket second. A computer that has just run
+			// setup has no sets.json at all, and telling it "no such set"
+			// about data it can see and pay for is the wrong answer -- see
+			// resolveRestoreSet.
+			s, err := resolveRestoreSet(cmd.Context(), a, args[0], machine)
 			if err != nil {
 				return err
 			}
@@ -1207,8 +1168,14 @@ func newRestoreCmd(opts *Options) *cobra.Command {
 			})
 			if err != nil {
 				if errors.Is(err, restore.ErrNoTarget) {
+					if s.Root == "" {
+						// Discovered in the bucket: there is no original
+						// path to report, because this computer never had one.
+						return fmt.Errorf("%w\n  %q was backed up from %s, so there is no folder here to put it back into.\n"+
+							"  Say where to put it: r2b restore %s --to <folder>", err, s.Name, s.Machine, s.Name)
+					}
 					return fmt.Errorf("%w\n  The original folder %q is not on this machine.\n"+
-						"  Say where to put it: r2backup restore %q --to <directory>", err, s.Root, s.Name)
+						"  Say where to put it: r2b restore %q --to <folder>", err, s.Root, s.Name)
 				}
 				return err
 			}
@@ -1222,7 +1189,7 @@ func newRestoreCmd(opts *Options) *cobra.Command {
 			if rep.ListedFiles == 0 {
 				if machine != "" {
 					return fmt.Errorf("nothing is stored for %q under machine %q, so nothing was restored. "+
-						"Check the name with `r2backup account devices`", s.Name, machine)
+						"Check the name with `r2b account devices`", s.Name, machine)
 				}
 				return fmt.Errorf("nothing is stored for %q yet, so nothing was restored", s.Name)
 			}

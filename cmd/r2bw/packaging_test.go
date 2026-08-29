@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// The entire fix is one linker flag. Built without -H=windowsgui, r2backupw
+// The entire fix is one linker flag. Built without -H=windowsgui, r2bw
 // becomes an ordinary console binary, Windows allocates a console for it, and
 // the scheduled run puts a window on the desktop again -- while everything
 // still compiles, every other test still passes, and `schedule` still says
@@ -22,9 +22,9 @@ func TestTheLauncherIsReleasedWithoutAConsole(t *testing.T) {
 	}
 	cfg := string(data)
 
-	idx := strings.Index(cfg, "id: r2backupw")
+	idx := strings.Index(cfg, "id: r2bw")
 	if idx < 0 {
-		t.Fatal("no r2backupw build in .goreleaser.yaml: the launcher would not ship at all, and every Windows schedule would fall back to a visible console")
+		t.Fatal("no r2bw build in .goreleaser.yaml: the launcher would not ship at all, and every Windows schedule would fall back to a visible console")
 	}
 	// The build entry runs until the next top-level key.
 	block := cfg[idx:]
@@ -32,15 +32,15 @@ func TestTheLauncherIsReleasedWithoutAConsole(t *testing.T) {
 		block = block[:end]
 	}
 	if !strings.Contains(block, "-H=windowsgui") {
-		t.Error("the r2backupw build has lost -H=windowsgui; it would be a console binary and the console window comes back")
+		t.Error("the r2bw build has lost -H=windowsgui; it would be a console binary and the console window comes back")
 	}
 	if !strings.Contains(block, "goos: [windows]") {
-		t.Error("the r2backupw build no longer targets windows only")
+		t.Error("the r2bw build no longer targets windows only")
 	}
 
 	// It has to actually reach the archive, which is a separate mistake:
 	// goreleaser builds every id whether or not an archive includes it.
-	if !strings.Contains(cfg, "ids: [r2backup, r2backupw]") {
+	if !strings.Contains(cfg, "ids: [r2b, r2bw]") {
 		t.Error("the archive no longer carries both binaries; the launcher would be built and never shipped")
 	}
 }
@@ -54,7 +54,7 @@ func TestTheWindowsInstallerPlacesTheLauncher(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read install.ps1: %v", err)
 	}
-	if !strings.Contains(string(data), "r2backupw.exe") {
-		t.Error("install.ps1 never mentions r2backupw.exe, so an installed r2backup would show a console window on every scheduled run")
+	if !strings.Contains(string(data), "r2bw.exe") {
+		t.Error("install.ps1 never mentions r2bw.exe, so an installed r2b would show a console window on every scheduled run")
 	}
 }
