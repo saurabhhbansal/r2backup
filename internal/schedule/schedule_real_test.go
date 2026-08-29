@@ -6,6 +6,8 @@ import (
 	"runtime"
 	"testing"
 	"time"
+
+	"github.com/saurabhhbansal/r2backup/internal/winconsole"
 )
 
 // TestInstallAgainstTheRealScheduler registers a task with this machine's
@@ -48,10 +50,14 @@ func TestInstallAgainstTheRealScheduler(t *testing.T) {
 	})
 
 	entry := Entry{
-		Name:       name,
-		Interval:   17 * time.Minute, // distinctive, so a stale task is obvious
+		Name:     name,
+		Interval: 17 * time.Minute, // distinctive, so a stale task is obvious
+		// The command line a real schedule is registered with, not a
+		// simplified one: on Windows that includes --hidden, and a scheduler
+		// that refused the argument would otherwise only be discovered by a
+		// user whose backups had silently stopped running.
 		BinaryPath: binary,
-		Args:       []string{"backup"},
+		Args:       []string{"backup", winconsole.HiddenFlag},
 	}
 	if err := Install(entry); err != nil {
 		t.Fatalf("Install against the real scheduler: %v", err)

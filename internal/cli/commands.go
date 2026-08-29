@@ -24,6 +24,7 @@ import (
 	"github.com/saurabhhbansal/r2backup/internal/sets"
 	"github.com/saurabhhbansal/r2backup/internal/trash"
 	"github.com/saurabhhbansal/r2backup/internal/tui"
+	"github.com/saurabhhbansal/r2backup/internal/winconsole"
 	"github.com/spf13/cobra"
 	"golang.org/x/term"
 )
@@ -439,6 +440,27 @@ func newListCmd(opts *Options) *cobra.Command {
 	}
 }
 
+// scheduledRunArgs is the command line the OS scheduler is given.
+//
+// On Windows it carries --hidden. Task Scheduler cannot start a process
+// without a window, and <Hidden> in the task XML does not do it -- that hides
+// the task from Task Scheduler's own list, not the console. A run in the
+// interactive session, which is what an account without the "Log on as a
+// batch job" right gets, therefore puts a console window on the desktop for
+// as long as the backup takes. The process closes its own; see
+// internal/winconsole.
+//
+// goos is a parameter rather than read from runtime so the Windows command
+// line can be asserted from any platform -- the CI leg that would have caught
+// the console window is a person looking at a desktop, and there isn't one.
+func scheduledRunArgs(goos string) []string {
+	args := []string{"backup"}
+	if goos == "windows" {
+		args = append(args, winconsole.HiddenFlag)
+	}
+	return args
+}
+
 func newScheduleCmd(opts *Options) *cobra.Command {
 	var (
 		every  int
@@ -447,9 +469,10 @@ func newScheduleCmd(opts *Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "schedule",
 		Short: "Register with the operating system's scheduler",
-		Long: "Registers a hidden Task Scheduler entry on Windows, a systemd user\n" +
-			"timer on Linux, or a launchd agent on macOS. Nothing of ours stays\n" +
-			"running in between, so updating the binary is never blocked.",
+		Long: "Registers a Task Scheduler entry on Windows, a systemd user timer\n" +
+			"on Linux, or a launchd agent on macOS. Runs put nothing on screen.\n" +
+			"Nothing of ours stays running in between, so updating the binary is\n" +
+			"never blocked.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !schedule.Supported() {
 				return errors.New("no scheduler is available on this platform")
@@ -482,11 +505,11 @@ func newScheduleCmd(opts *Options) *cobra.Command {
 				Name:       "r2backup",
 				Interval:   time.Duration(every) * time.Minute,
 				BinaryPath: self,
-				Args:       []string{"backup"},
+				Args:       scheduledRunArgs(runtime.GOOS),
 			}); err != nil {
 				return err
 			}
-			fmt.Fprintf(opts.Out, "Registered. Backups run every %d minutes, hidden, and survive a reboot.\n", every)
+			fmt.Fprintf(opts.Out, "Registered. Backups run every %d minutes, out of sight, and survive a reboot.\n", every)
 			// On Windows the preferred registration can be refused and a
 			// second one used instead, and the difference matters: one runs
 			// whether or not you are signed in, the other does not. Read it

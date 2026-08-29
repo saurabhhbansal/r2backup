@@ -182,7 +182,8 @@ func windowsTaskXMLAs(e Entry, userID, logonType string) (string, error) {
 	b.WriteString("    <Principal id=\"Author\">\n")
 	fmt.Fprintf(&b, "      <UserId>%s</UserId>\n", user)
 	// See logonS4U / logonInteractiveToken. Either way no password is
-	// stored, and Hidden=true below keeps a console off the screen.
+	// stored. Note that neither of them, and nothing else in this document,
+	// keeps a console window off the screen -- see Hidden below.
 	fmt.Fprintf(&b, "      <LogonType>%s</LogonType>\n", logonType)
 	b.WriteString("      <RunLevel>LeastPrivilege</RunLevel>\n")
 	b.WriteString("    </Principal>\n")
@@ -202,7 +203,14 @@ func windowsTaskXMLAs(e Entry, userID, logonType string) (string, error) {
 	b.WriteString("    <StartWhenAvailable>true</StartWhenAvailable>\n")
 	b.WriteString("    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>\n")
 	b.WriteString("    <Enabled>true</Enabled>\n")
-	// Hidden=true: nothing appears on screen while it works.
+	// Hidden=true hides the task from Task Scheduler's own list view. It is
+	// NOT what keeps a console window off the screen, however much it reads
+	// like it: Task Scheduler cannot launch a process without a window at
+	// all. A console-subsystem binary gets its console from the loader, and
+	// under the InteractiveToken fallback that console is on the user's
+	// desktop for the whole length of the backup. The process closes its own
+	// window instead -- see internal/winconsole, and the --hidden argument
+	// the CLI puts on the command line for exactly that.
 	b.WriteString("    <Hidden>true</Hidden>\n")
 	// ExecutionTimeLimit=PT0S means "no limit" to Task Scheduler: a
 	// six-hour first backup is not killed partway through the way a

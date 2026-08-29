@@ -11,6 +11,8 @@ import (
 	"io"
 
 	"github.com/spf13/cobra"
+
+	"github.com/saurabhhbansal/r2backup/internal/winconsole"
 )
 
 // Version is set at build time with -ldflags "-X ...cli.Version=v1.0.0".
@@ -69,6 +71,14 @@ func NewRoot(opts *Options) *cobra.Command {
 		"answer yes to any decision, instead of asking")
 	root.PersistentFlags().BoolVar(&opts.No, "no", false,
 		"answer no to any decision, taking the safe path")
+	// Acted on in main, before cobra runs -- see winconsole. It is registered
+	// here so cobra accepts it on the scheduled command line rather than
+	// failing with "unknown flag", and so it is a real flag with real help
+	// text instead of an argument the program secretly understands. Hidden
+	// from --help because `schedule` is the only thing that should pass it.
+	root.PersistentFlags().Bool(winconsole.HiddenFlagName, false,
+		"hide this process's own console window (Windows scheduled runs)")
+	_ = root.PersistentFlags().MarkHidden(winconsole.HiddenFlagName)
 
 	root.AddCommand(
 		newSetupCmd(opts),
