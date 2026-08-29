@@ -438,3 +438,83 @@ func TestConcurrentAccess(t *testing.T) {
 		}
 	}
 }
+
+func TestRenameSetMovesEveryRecord(t *testing.T) {
+	db := openTestDB(t)
+	for i := 0; i < 25; i++ {
+		if err := db.Put("photos", sampleRecord(fmt.Sprintf("a/%d.jpg", i))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Put("music", sampleRecord("untouched.flac")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := db.RenameSet("photos", "pictures"); err != nil {
+		t.Fatalf("RenameSet: %v", err)
+	}
+
+	moved, err := db.All("pictures")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(moved) != 25 {
+		t.Errorf("pictures holds %d records, want 25", len(moved))
+	}
+	got, err := db.Get("pictures", "a/7.jpg")
+	if err != nil {
+		t.Fatalf("Get after rename: %v", err)
+	}
+	if got != sampleRecord("a/7.jpg") {
+		t.Errorf("record did not survive the rename intact:\n got %+v\nwant %+v", got, sampleRecord("a/7.jpg"))
+	}
+
+	// The old name must be gone, not merely shadowed: leaving it behind is
+	// what would let a later set of the same name inherit stale records.
+	left, err := db.All("photos")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(left) != 0 {
+		t.Errorf("the old name still holds %d records", len(left))
+	}
+
+	// Every other set is untouched.
+	if _, err := db.Get("music", "untouched.flac"); err != nil {
+		t.Errorf("renaming one set disturbed another: %v", err)
+	}
+}
+
+func TestRenameSetRefusesToMergeOntoAnExistingSet(t *testing.T) {
+	db := openTestDB(t)
+	if err := db.Put("photos", sampleRecord("a.jpg")); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Put("pictures", sampleRecord("b.jpg")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := db.RenameSet("photos", "pictures"); err == nil {
+		t.Fatal("RenameSet merged two sets' records into one bucket instead of refusing")
+	}
+
+	// And it refused before touching either side, so neither set lost anything.
+	if _, err := db.Get("photos", "a.jpg"); err != nil {
+		t.Errorf("the source set lost its records to a refused rename: %v", err)
+	}
+	if _, err := db.Get("pictures", "b.jpg"); err != nil {
+		t.Errorf("the target set lost its records to a refused rename: %v", err)
+	}
+}
+
+func TestRenameSetOfANeverBackedUpSetIsNotAnError(t *testing.T) {
+	db := openTestDB(t)
+	// A set added but never run has no bucket at all, and renaming it is an
+	// ordinary thing to do.
+	if err := db.RenameSet("brand-new", "renamed"); err != nil {
+		t.Errorf("RenameSet on a set with no records: %v", err)
+	}
+	if err := db.RenameSet("same", "same"); err != nil {
+		t.Errorf("RenameSet onto the same name: %v", err)
+	}
+}

@@ -336,6 +336,57 @@ func (db *DB) DropSet(set string) error {
 	return nil
 }
 
+// RenameSet moves every record from one set name to another.
+//
+// The index is keyed by set name, and a set's name is the only thing
+// `r2backup rename` changes -- so without this, renaming a set left its
+// records stranded under the old key and the next backup read an empty index
+// and re-uploaded the entire tree, to the very same prefix it was already
+// stored under. That is the free-tier claim breaking on a cosmetic change.
+//
+// The whole move is one transaction: it either happens or it does not, and
+// there is no window in which the records exist under both names or neither.
+// Renaming onto a name that already holds records is refused rather than
+// merged -- two sets' records in one bucket would make each look like the
+// other had deleted half its files.
+func (db *DB) RenameSet(from, to string) error {
+	if from == to {
+		return nil
+	}
+	err := db.bolt.Update(func(tx *bbolt.Tx) error {
+		sets := tx.Bucket(setsBucketName)
+		if sets == nil {
+			return errors.New("index: sets bucket missing (index not opened via Open)")
+		}
+		src := sets.Bucket([]byte(from))
+		if src == nil {
+			// Nothing was ever recorded under that name. A set that has
+			// never been backed up is renameable like any other.
+			return nil
+		}
+		if sets.Bucket([]byte(to)) != nil {
+			return fmt.Errorf("index already holds records for %q", to)
+		}
+		dst, err := sets.CreateBucket([]byte(to))
+		if err != nil {
+			return err
+		}
+		if err := src.ForEach(func(k, v []byte) error {
+			if v == nil { // a nested bucket, which this layout never creates
+				return nil
+			}
+			return dst.Put(k, v)
+		}); err != nil {
+			return err
+		}
+		return sets.DeleteBucket([]byte(from))
+	})
+	if err != nil {
+		return fmt.Errorf("rename set %q to %q in the index: %w", from, to, err)
+	}
+	return nil
+}
+
 // opsState is the persisted shape of the operation counter: the calendar
 // month it is counting for, and how many operations have landed in it.
 type opsState struct {

@@ -480,7 +480,31 @@ func newRenameCmd(opts *Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// Checked before anything is written. It used to be checked after
+			// the rename had already happened, so `rename x y --remote`
+			// renamed the set, printed that it had, and then exited 1 -- a
+			// command that both succeeded and failed.
+			if remote {
+				n, _ := a.index.Count(args[0])
+				return fmt.Errorf("--remote is not implemented yet, and nothing has been changed. "+
+					"It would copy %s objects from %q to a new prefix and delete the originals, "+
+					"one operation each way, for a change only you can see",
+					progress.FormatCount(int64(n)), s.Prefix)
+			}
+			// The index is keyed by set name too. Move it first: it is one
+			// bbolt transaction and so cannot half-happen, and if the set
+			// store then refuses the new name the index goes back where it
+			// was. The other order has no recovery -- it is what left a
+			// renamed set reading an empty index and re-uploading everything.
+			if err := a.index.RenameSet(args[0], args[1]); err != nil {
+				return err
+			}
 			if err := a.sets.Rename(args[0], args[1]); err != nil {
+				if back := a.index.RenameSet(args[1], args[0]); back != nil {
+					return fmt.Errorf("%w (and the index could not be put back under %q: %v -- "+
+						"run `r2backup backup %s` to rebuild it, which re-uploads the set)",
+						err, args[0], back, args[1])
+				}
 				return err
 			}
 			n, _ := a.index.Count(args[1])
@@ -488,9 +512,6 @@ func newRenameCmd(opts *Options) *cobra.Command {
 			fmt.Fprintf(opts.Out,
 				"The bucket still stores it under %q. Moving it would copy %s objects,\n"+
 					"one operation each, for a cosmetic change.\n", s.Prefix, progress.FormatCount(int64(n)))
-			if remote {
-				return errors.New("--remote is not implemented yet")
-			}
 			return nil
 		},
 	}

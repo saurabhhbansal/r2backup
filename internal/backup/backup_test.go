@@ -163,6 +163,39 @@ func TestSecondBackupOfAnUnchangedTreeIsFree(t *testing.T) {
 	}
 }
 
+// TestRenamingASetDoesNotReuploadIt is the same pricing argument, aimed at
+// the one command that used to break it. The index is keyed by set name, and
+// `r2backup rename` changes exactly that -- so the rename left every record
+// stranded under the old key, the next run read an empty index, and the whole
+// tree went back up to the very prefix it was already stored under. Verified
+// against the real binary before the fix: "4 uploaded, 4 operations" where an
+// idle run had said "nothing changed, 0 operations".
+func TestRenamingASetDoesNotReuploadIt(t *testing.T) {
+	h := setup(t, fixtures.Spec{SmallFiles: 40, SmallFileSize: 256, Seed: 11})
+
+	first := h.run(t)
+	if first.Uploaded == 0 {
+		t.Fatal("first run uploaded nothing")
+	}
+
+	const renamed = "Work Projects"
+	if err := h.db.RenameSet(h.set.Name, renamed); err != nil {
+		t.Fatalf("RenameSet: %v", err)
+	}
+	h.set.Name = renamed // the bucket prefix deliberately does not move
+
+	after := h.run(t)
+	if after.Operations != 0 {
+		t.Errorf("the run after a rename cost %d operations, want 0 -- renaming a set is cosmetic and must not re-upload it", after.Operations)
+	}
+	if after.Uploaded != 0 {
+		t.Errorf("Uploaded = %d after a rename, want 0", after.Uploaded)
+	}
+	if after.Unchanged != first.Uploaded {
+		t.Errorf("Unchanged = %d after a rename, want %d -- the index did not come with the new name", after.Unchanged, first.Uploaded)
+	}
+}
+
 func TestOnlyChangedFilesMoveOnASecondRun(t *testing.T) {
 	h := setup(t, fixtures.Spec{SmallFiles: 80, SmallFileSize: 256, Seed: 8})
 	h.run(t)
