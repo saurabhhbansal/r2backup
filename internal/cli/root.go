@@ -111,6 +111,7 @@ func NewRoot(opts *Options) *cobra.Command {
 		newUpdateCmd(opts),
 		newAccountCmd(opts),
 	)
+	attachDashboard(root, opts)
 	return root
 }
 

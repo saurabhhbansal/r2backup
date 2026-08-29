@@ -1,123 +1,129 @@
-# r2backup
+<div align="center">
 
-Back up folders to Cloudflare R2 and restore them anywhere. One static binary —
-no installer, no runtime, no background service. The operating system's own
-scheduler runs it, and it exits.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.png">
+  <img src="assets/logo.png" alt="r2backup" width="420">
+</picture>
 
-- **Mirror, not snapshots.** The bucket holds your folder as it is now, one
-  object per file, browsable in the R2 dashboard.
-- **Deleted and overwritten files stay recoverable for 30 days** in trash.
-- **A run that changes nothing costs nothing.** A local index decides what
-  changed, so an unchanged tree makes no requests at all and stays inside R2's
-  free tier.
-- **An honest ETA.** If it says two hours, two hours is what it means.
+**Back up your folders to Cloudflare R2, and get them back anywhere.**
+
+[![Release](https://img.shields.io/github/v/release/saurabhhbansal/r2backup?style=flat-square&color=0b7285)](https://github.com/saurabhhbansal/r2backup/releases/latest)
+[![CI](https://img.shields.io/github/actions/workflow/status/saurabhhbansal/r2backup/ci.yml?branch=main&style=flat-square&label=tests)](https://github.com/saurabhhbansal/r2backup/actions)
+[![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
+
+</div>
+
+---
 
 ## Install
 
-**Linux / macOS**
-
-```sh
-curl -sSL https://github.com/saurabhhbansal/r2backup/releases/latest/download/install.sh | sh
-```
-
-**Windows** (PowerShell)
+**Windows** — PowerShell
 
 ```powershell
 irm https://github.com/saurabhhbansal/r2backup/releases/latest/download/install.ps1 | iex
 ```
 
-Both verify the download against the published checksums before installing.
-Or take the archive for your platform from the
-[releases page](https://github.com/saurabhhbansal/r2backup/releases) and put
-`r2b` on your PATH.
-
-The command is `r2b`. (Before v0.1.7 it was `r2backup`; the installers replace
-the old binary and re-point an existing schedule at the new one. An older copy
-cannot update itself across the rename — run the install line above once.)
-
-## Getting started
-
-You need a Cloudflare R2 bucket and an S3 API token for it (Cloudflare
-dashboard → R2 → Manage API tokens).
+**macOS / Linux**
 
 ```sh
-r2b setup                  # sign in, or enter your R2 keys
-r2b add ~/Documents        # pick what to include, back it up, and schedule it
-r2b status                 # what ran, when, and what is next
+curl -sSL https://github.com/saurabhhbansal/r2backup/releases/latest/download/install.sh | sh
 ```
 
-`add` opens the folder as a tree with everything already selected. Uncheck what
-you do not want and press enter — or press enter straight away and all of it
-goes. `--all` skips the picker. When it has finished it offers to run backups
-automatically from then on, so setting up is one command and then nothing.
+One static binary, no runtime to install and nothing left running in the
+background. Both scripts check the download against the published checksums.
+The command is `r2b`.
 
-To change what a folder includes later, `r2b edit Documents` reopens the
-same picker on the current selection. Newly excluded files move to trash and
-stay recoverable; they are not deleted.
+## Start
 
-To bring a folder back:
+You need a Cloudflare R2 bucket and an S3 API token for it — Cloudflare
+dashboard → R2 → Manage API tokens.
 
 ```sh
-r2b restore Documents              # to where it came from
-r2b restore Documents --to ~/tmp   # somewhere else
-r2b restore Documents --verify     # re-read and byte-compare every file
+r2b setup              # sign in and store your keys
+r2b add ~/Documents    # choose what goes in, then it backs up and schedules itself
+r2b                    # open the dashboard
 ```
 
-Files that are already there are left alone and counted; pass `--overwrite` to
-replace them. Restoring onto a different computer works the same way, except
-that `--to` is required, because it will not guess a path that does not exist.
+`add` shows the folder as a tree with everything ticked. Untick what you do
+not want, press enter, and it takes care of the rest — including offering to
+run every 30 minutes from then on.
 
-## On another computer
+<div align="center">
+<br>
+<img src="assets/screenshot.png" alt="The r2backup dashboard" width="760">
+</div>
 
-Run `r2b setup` on both. There is nothing else to remember.
+## Use it
 
-It asks for your email address and mails you a six-digit code. On the first
-computer it then takes your R2 keys and stores them, encrypted here under a
-password you choose. On every computer after that it finds them, asks for that
-password, and sets the machine up itself.
+Run `r2b` on its own for the dashboard: what is backed up, what happened last
+time, how much of R2's free tier you have used, and whether it is running
+automatically.
+
+| key | |
+|---|---|
+| <kbd>↑</kbd> <kbd>↓</kbd> | move · <kbd>enter</kbd> for details |
+| <kbd>b</kbd> | back up the selected folder · <kbd>B</kbd> for all of them |
+| <kbd>a</kbd> <kbd>e</kbd> | add a folder · change what one includes |
+| <kbd>r</kbd> <kbd>t</kbd> | restore · see what is recoverable |
+| <kbd>s</kbd> <kbd>x</kbd> | turn automatic backups on or off · stop backing a folder up |
+| <kbd>?</kbd> <kbd>q</kbd> | all keys · quit |
+
+Every command also works on its own, which is what the scheduler and your
+scripts use.
+
+| command | |
+|---|---|
+| `r2b setup` | Get this computer ready. `--keys` to re-enter your R2 keys |
+| `r2b add <folder>` | Choose what to include, then back it up |
+| `r2b edit <set>` | Change what a folder includes |
+| `r2b backup [set]` | Back up now — all folders, or one |
+| `r2b restore <set>` | Bring a folder back. `--to`, `--only`, `--verify`, `--deleted` |
+| `r2b status` | What ran, when, and what is next. `--watch` follows a run |
+| `r2b ls [set]` | What is stored |
+| `r2b trash ls [set]` | What is recoverable, and until when |
+| `r2b schedule` | Automatic runs. `--every`, `--remove` |
+| `r2b rename` · `r2b relink` | Rename a set · point one at a folder that moved |
+| `r2b remove <set>` | Stop backing a folder up. `--purge` deletes the copy too |
+| `r2b account` | The computers signed in. `devices`, `logout` |
+| `r2b update` | Update to the latest release |
+
+## What it does
+
+**Mirrors, not snapshots.** The bucket holds your folder as it is now, one
+object per file, browsable in the R2 dashboard.
+
+**Keeps deleted files for 30 days.** Anything deleted or overwritten goes to
+trash first, and `restore --deleted` brings it back.
+
+**Costs nothing when nothing changed.** A local index decides what to upload,
+so an unchanged folder makes no requests at all.
+
+**Tells you the truth about time.** If it says two hours, it means two hours.
+
+**Restores anywhere.** Sign in on another computer with the same email and it
+picks up your credentials and finds what is in the bucket, with no local
+record of it.
+
+## More than one computer
+
+Run `r2b setup` on each and give it the same email address. The first machine
+stores your R2 keys, encrypted under a password you choose; every one after
+that finds them and asks for that password.
 
 ```sh
-r2b setup            # same email address on every computer
+r2b setup
 r2b restore Documents --to ~/Documents
 ```
 
-`restore` on a computer that has never backed anything up reads the bucket to
-find out what is there, so a fresh machine can pull down a folder it has no
-local record of. `--to` is required, because there is no original path to put
-it back into. If two computers back up a folder of the same name, say which
-with `--machine`.
+Your keys are encrypted before they leave the machine, so the server keeps a
+blob it cannot read. Forgetting that password is not a data-loss event — it
+guards the stored keys, not your files. The worst case is typing your R2 keys
+in again.
 
-Leaving the email blank at the prompt skips the account entirely and keeps the
-credentials on that one machine. `r2b account devices` lists which computers
-have signed in; `r2b account logout` forgets this one. Use `r2b setup --keys`
-to enter R2 keys again after rotating them.
+Leave the email blank at the prompt to skip the account and keep everything on
+one machine.
 
-The server stores a blob it cannot read. Forgetting the password is not a
-data-loss event: it guards the stored credentials, not your files, which are
-never encrypted client-side. The worst case is typing your R2 keys in again.
-
-## Commands
-
-| | |
-|---|---|
-| `setup` | Get this computer ready: sign in, or enter R2 keys (`--keys` to re-enter them) |
-| `add <folder>` | Pick what to include, then back it up |
-| `backup [set]` | Back up now, all sets or one |
-| `restore <set>` | Bring a folder back |
-| `ls [set]` | What is in the backup |
-| `trash ls [set]` | What is recoverable, and until when |
-| `status` | What ran, when, and what is next (`--watch` follows a run) |
-| `edit <set>` | Change what a folder includes |
-| `schedule` | Register with the OS scheduler (`--remove` to unregister, `--repair` to re-point it) |
-| `rename <set> <name>` | Change what a set is called |
-| `relink <set> <path>` | Point a set at a folder that moved |
-| `remove <set>` | Stop backing up a folder (`--purge` also deletes the backup) |
-| `account` | `devices` lists the computers signed in; `logout` forgets this one |
-| `update` | Replace this binary with the latest release |
-
-`--yes` and `--no` answer any prompt for you, for scripts and scheduled runs.
-
-## Where things live
+## Where things are kept
 
 | | |
 |---|---|
@@ -125,23 +131,10 @@ never encrypted client-side. The worst case is typing your R2 keys in again.
 | macOS | `~/Library/Application Support/r2backup` |
 | Linux | `$XDG_DATA_HOME/r2backup`, else `~/.local/share/r2backup` |
 
-Your R2 credentials sit alongside them in a `credentials` file. On Windows the
-secret is encrypted with DPAPI, so it is readable only by your account on that
-machine. On macOS and Linux there is no keystore backend yet and the file is
-0600 in a 0700 directory and nothing more — `setup` says which of the two you
-got rather than implying encryption that is not happening.
-
-If a backed-up folder is renamed or moved, r2b stops rather than reading
-the missing folder as a deletion. Run it yourself and it asks where the folder
-went, repoints it and carries on; a scheduled run leaves it for you and says so
-in `status`. Nothing is re-uploaded either way.
-
-`remove` stops backing a folder up and leaves what is already in the bucket
-alone; `remove --purge` deletes those objects too, permanently. Adding the
-folder again reaches the same place in the bucket, but uploads it once more —
-the record of what is already there is kept on this computer, and it goes with
-the set.
+Your R2 credentials sit alongside. On Windows the secret is encrypted with
+DPAPI; on macOS and Linux the file is `0600` in a `0700` directory, and
+`setup` tells you which of the two you got.
 
 ## Licence
 
-MIT. See [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE).
