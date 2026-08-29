@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/saurabhhbansal/r2backup/internal/creds"
 	"github.com/saurabhhbansal/r2backup/internal/index"
 	"github.com/saurabhhbansal/r2backup/internal/progress"
+	"github.com/saurabhhbansal/r2backup/internal/restore"
 	"github.com/saurabhhbansal/r2backup/internal/runstate"
 	"github.com/saurabhhbansal/r2backup/internal/scan"
 	"github.com/saurabhhbansal/r2backup/internal/schedule"
@@ -578,14 +580,111 @@ func newRestoreCmd(opts *Options) *cobra.Command {
 		Short: "Bring a folder back",
 		Long: "Restores to the folder's original path when that path exists on this\n" +
 			"machine, and otherwise requires --to. It never guesses and never asks.",
-		Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error { return notYet("restore") },
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			a, err := openApp()
+			if err != nil {
+				return err
+			}
+			defer a.close()
+			if err := a.connect(cmd.Context()); err != nil {
+				return err
+			}
+			s, err := a.sets.Get(args[0])
+			if err != nil {
+				return err
+			}
+			rep, err := restore.Run(cmd.Context(), restore.Options{
+				Set:           s,
+				Client:        a.client,
+				Target:        to,
+				Only:          only,
+				SourceMachine: machine,
+				Deleted:       deleted,
+				Overwrite:     overwrite,
+				Verify:        verify,
+				Observer:      &restoreObserver{out: opts.Out, set: s.Name, interactive: interactive()},
+			})
+			if err != nil {
+				if errors.Is(err, restore.ErrNoTarget) {
+					return fmt.Errorf("%w\n  The original folder %q is not on this machine.\n"+
+						"  Say where to put it: r2backup restore %q --to <directory>", err, s.Root, s.Name)
+				}
+				return err
+			}
+			fmt.Fprintf(opts.Out, "%s: %s restored (%s) into %s in %s\n",
+				rep.Set, progress.FormatCount(int64(rep.Downloaded)),
+				progress.FormatBytes(rep.Bytes), rep.Target, rep.Elapsed.Round(time.Second))
+			if rep.SkippedExisting > 0 {
+				fmt.Fprintf(opts.Out, "  %d file(s) already existed and were left alone. Use --overwrite to replace them.\n",
+					rep.SkippedExisting)
+			}
+			if rep.Verified > 0 {
+				fmt.Fprintf(opts.Out, "  %d file(s) byte-compared after writing.\n", rep.Verified)
+			}
+			if n := len(rep.VerifyMismatches); n > 0 {
+				fmt.Fprintf(opts.Out, "  %d file(s) did NOT match after writing:\n", n)
+				for i, k := range rep.VerifyMismatches {
+					if i == 5 {
+						break
+					}
+					fmt.Fprintf(opts.Out, "    %s\n", k)
+				}
+			}
+			if n := len(rep.Failures); n > 0 {
+				fmt.Fprintf(opts.Out, "  %d file(s) could not be restored:\n", n)
+				for i, f := range rep.Failures {
+					if i == 5 {
+						break
+					}
+					fmt.Fprintf(opts.Out, "    %s: %v\n", f.Key, f.Err)
+				}
+				return fmt.Errorf("%d file(s) did not restore", n)
+			}
+			return nil
+		},
 	}
 	cmd.Flags().StringVar(&to, "to", "", "restore into this directory instead")
 	cmd.Flags().StringVar(&only, "only", "", "restore only paths matching this glob")
 	cmd.Flags().StringVar(&machine, "machine", "", "restore from another computer's backup")
 	cmd.Flags().StringVar(&deleted, "deleted", "", "recover a deleted file from trash")
 	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "replace files that already exist")
-	cmd.Flags().BoolVar(&verify, "verify", false, "re-download and byte-compare afterwards")
+	cmd.Flags().BoolVar(&verify, "verify", false, "re-read and byte-compare each file after writing")
 	return cmd
+}
+
+// restoreObserver draws the same three-phase progress the backup side does, so
+// the two halves of the tool look and behave alike.
+type restoreObserver struct {
+	out         io.Writer
+	set         string
+	interactive bool
+	lastLines   int
+}
+
+func (o *restoreObserver) Phase(p restore.Phase, r *restore.Report) {
+	if !o.interactive {
+		return
+	}
+	switch p {
+	case restore.PhaseListing:
+		fmt.Fprintf(o.out, "[1/3] Listing     %s\n", o.set)
+	case restore.PhasePlanning:
+		fmt.Fprintf(o.out, "      %s files · %s\n[2/3] Planning\n",
+			progress.FormatCount(r.ListedFiles), progress.FormatBytes(r.ListedBytes))
+	case restore.PhaseDownloading:
+		fmt.Fprintf(o.out, "[3/3] Restoring into %s\n", r.Target)
+	}
+}
+
+func (o *restoreObserver) Progress(s progress.Snapshot) {
+	if !o.interactive {
+		return
+	}
+	for i := 0; i < o.lastLines; i++ {
+		fmt.Fprint(o.out, "\033[1A\033[2K")
+	}
+	line := progress.Render(s, 40)
+	fmt.Fprintln(o.out, line)
+	o.lastLines = strings.Count(line, "\n") + 1
 }

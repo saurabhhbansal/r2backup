@@ -69,11 +69,19 @@ func (r reporter) CompleteFile(size int64) { r.t.Complete(0) }
 // metadataFor builds the per-object metadata that makes the bucket
 // self-describing, so a restore needs no manifest.
 func metadataFor(e scan.Entry) map[string]string {
+	kind := remote.KindFile
+	switch e.Kind {
+	case scan.KindSymlink:
+		kind = remote.KindSymlink
+	case scan.KindEmptyDir:
+		kind = remote.KindEmptyDir
+	}
 	return remote.Metadata{
 		ModTime: e.ModTime,
 		Mode:    e.Mode,
 		Size:    e.Size,
 		Symlink: e.Target,
+		Kind:    kind,
 	}.ToS3()
 }
 

@@ -41,7 +41,24 @@ const (
 // deliberately-executable placeholder file would be misread as a directory
 // marker -- but it is the only signal this wire format leaves behind, and
 // every empty directory this codebase itself ever writes satisfies it.
+// classify decides what to reconstruct from an object.
+//
+// The object says what it is: backup stamps a "kind" into the metadata
+// precisely so this is not a guess. The fallback below only applies to objects
+// written before that field existed, and it is a guess -- an empty executable
+// file (touch run.sh; chmod +x run.sh) is indistinguishable from a directory
+// marker without it, and would come back as a directory. That is exactly why
+// the explicit field was added.
 func classify(meta remote.Metadata) itemKind {
+	switch meta.Kind {
+	case remote.KindSymlink:
+		return kindSymlink
+	case remote.KindEmptyDir:
+		return kindEmptyDir
+	case remote.KindFile:
+		return kindFile
+	}
+	// No kind recorded: an object from before the field existed.
 	if meta.Symlink != "" {
 		return kindSymlink
 	}

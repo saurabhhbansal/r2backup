@@ -134,6 +134,11 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 		// the connection is already TLS-protected and S3 accepts unsigned
 		// payloads over HTTPS.
 		o.APIOptions = append(o.APIOptions, v4.SwapComputePayloadSHA256ForUnsignedPayloadMiddleware)
+		// R2 does not return the checksums the SDK would like to validate, so
+		// it logs a warning on every single object. Restoring 60,000 files
+		// would print 60,000 lines of it over the user's progress bar, about
+		// a condition that is expected and harmless here.
+		o.DisableLogOutputChecksumValidationSkipped = true
 		o.BaseEndpoint = aws.String(endpoint)
 		// R2 and the MinIO server the tests run against only serve
 		// path-style requests (bucket-in-path). Virtual-hosted-style would

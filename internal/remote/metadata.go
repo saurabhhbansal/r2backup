@@ -18,6 +18,24 @@ const (
 	metaKeyMode    = "mode"
 	metaKeySize    = "size"
 	metaKeySymlink = "symlink"
+	// metaKeyKind records what the object represents.
+	//
+	// Without it, an empty-directory marker and a genuine zero-byte file are
+	// indistinguishable on the wire, and restore has to guess from the mode
+	// bits -- which turns an empty executable file (touch run.sh; chmod +x)
+	// into a directory. An object should say what it is rather than leave the
+	// reader inferring it.
+	metaKeyKind = "kind"
+)
+
+// Kind is what an object represents. It is written explicitly so restore never
+// has to infer it.
+type Kind string
+
+const (
+	KindFile     Kind = "file"
+	KindSymlink  Kind = "symlink"
+	KindEmptyDir Kind = "dir"
 )
 
 // Metadata is what a restore needs to put a file back exactly as it was:
@@ -32,6 +50,9 @@ type Metadata struct {
 	// Symlink is the link target. Leave it empty for a regular file; ToS3
 	// only writes the "symlink" key when this is non-empty.
 	Symlink string
+	// Kind says what the object represents. Empty means an older object
+	// written before this field existed; readers fall back to inference.
+	Kind Kind
 }
 
 // ToS3 renders Metadata as the map PutObjectInput.Metadata (and
@@ -47,6 +68,9 @@ func (m Metadata) ToS3() map[string]string {
 	}
 	if m.Symlink != "" {
 		out[metaKeySymlink] = m.Symlink
+	}
+	if m.Kind != "" {
+		out[metaKeyKind] = string(m.Kind)
 	}
 	return out
 }
@@ -88,5 +112,6 @@ func MetadataFromS3(m map[string]string) (Metadata, error) {
 		out.Size = size
 	}
 	out.Symlink = lower[metaKeySymlink]
+	out.Kind = Kind(lower[metaKeyKind])
 	return out, nil
 }
