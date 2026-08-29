@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -296,5 +297,66 @@ func TestOverlappingIsQuietWhenThereAreNoSets(t *testing.T) {
 	s, _ := store(t)
 	if _, ok := s.Overlapping(t.TempDir()); ok {
 		t.Error("Overlapping reported an overlap against an empty store")
+	}
+}
+
+func TestValidNameRefusesWhatWouldBreakTheKey(t *testing.T) {
+	// The name becomes part of every object key for the set, so these are
+	// not style rules. "../escape" was accepted before this existed: the set
+	// was created, `add` said "Added" and exited 0, and every upload for the
+	// rest of its life failed with XMinioInvalidResourceName.
+	bad := []struct {
+		name string
+		why  string
+	}{
+		{"", "empty"},
+		{"   ", "only whitespace"},
+		{"..", "a path component"},
+		{".", "a path component"},
+		{"../escape", "escapes the machine prefix"},
+		{"a/b", "silently becomes two prefix levels"},
+		{`a\b`, "a Windows separator does the same"},
+		{"trailing ", "a trailing space Windows would strip"},
+		{" leading", "a leading space"},
+		{"bell\x07", "a control character"},
+		{strings.Repeat("x", MaxNameLen+1), "longer than the key budget allows"},
+	}
+	for _, tc := range bad {
+		if err := ValidName(tc.name); err == nil {
+			t.Errorf("ValidName(%q) allowed it, but it is %s", tc.name, tc.why)
+		} else if !errors.Is(err, ErrBadName) {
+			t.Errorf("ValidName(%q) = %v, which does not wrap ErrBadName", tc.name, err)
+		}
+	}
+
+	for _, name := range []string{
+		"Documents",
+		"Code Projects",
+		"photos-2026",
+		"réservé",
+		"emoji 🎉 set",
+		"a.b.c",
+		"..leading dots are fine mid-name",
+		strings.Repeat("x", MaxNameLen),
+	} {
+		if err := ValidName(name); err != nil {
+			t.Errorf("ValidName(%q) refused an ordinary name: %v", name, err)
+		}
+	}
+}
+
+func TestAddAndRenameBothRefuseABadName(t *testing.T) {
+	// Enforced in the store, not only in the CLI, so no caller can route
+	// around it.
+	s, _ := store(t)
+	if err := s.Add(Set{Name: "../escape", Root: t.TempDir(), Machine: "test-pc"}); err == nil {
+		t.Error("Add accepted a name that would break every key for the set")
+	}
+	add(t, s, "Docs", t.TempDir())
+	if err := s.Rename("Docs", "../escape"); err == nil {
+		t.Error("Rename accepted a name Add would have refused")
+	}
+	if _, err := s.Get("Docs"); err != nil {
+		t.Errorf("a refused rename lost the set: %v", err)
 	}
 }

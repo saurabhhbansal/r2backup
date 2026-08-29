@@ -134,6 +134,11 @@ func newAddCmd(opts *Options) *cobra.Command {
 			if name == "" {
 				name = filepath.Base(root)
 			}
+			// Checked here as well as in sets.Add, so a bad name costs the
+			// user an error rather than a full scan of the folder first.
+			if err := sets.ValidName(name); err != nil {
+				return fmt.Errorf("%q: %w", name, err)
+			}
 			if _, err := a.sets.Get(name); err == nil {
 				return fmt.Errorf("a set called %q already exists; pass --name to choose another", name)
 			}

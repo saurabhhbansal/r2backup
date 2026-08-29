@@ -100,6 +100,8 @@ var (
 	ErrNotFound = errors.New("no such set")
 	// ErrExists means a set of that name is already recorded.
 	ErrExists = errors.New("a set with that name already exists")
+	// ErrBadName means the name cannot be used as a set name. See ValidName.
+	ErrBadName = errors.New("that name cannot be used for a set")
 )
 
 // Store holds every set, backed by one JSON file.
@@ -152,7 +154,59 @@ func (s *Store) Get(name string) (Set, error) {
 
 // Add records a new set. Prefix is derived from the name at this moment and
 // then fixed for the life of the set.
+// MaxNameLen caps a set name. A key is the set's prefix plus the relative
+// path of a file inside it, and S3 caps a key at 1024 bytes -- so every
+// character spent on the name is one a deeply nested file cannot have.
+const MaxNameLen = 100
+
+// ValidName reports why a name cannot be a set name, or nil.
+//
+// The name is not just a label: `add` builds the set's remote prefix out of
+// it ("machines/<machine>/<name>"), so whatever goes in here becomes part of
+// every object key for that set, forever -- the prefix is the set's identity
+// and is deliberately never rewritten afterwards. Nothing checked it. A set
+// added as "../escape" was accepted, reported "Added", exited 0, and then
+// failed every single upload for the rest of its life with
+//
+//	XMinioInvalidResourceName: Resource name contains bad components
+//
+// because "machines/pc/../escape/current/a.txt" is not a name a store will
+// take. A backup that can never work must not be creatable, and certainly
+// not with a success code.
+//
+// A "/" is refused for the same reason from the other direction: it would
+// quietly turn one name into several prefix levels, and two different sets
+// could then be given overlapping prefixes without either name looking
+// unusual.
+func ValidName(name string) error {
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("%w: it is empty", ErrBadName)
+	}
+	if name != strings.TrimSpace(name) {
+		return fmt.Errorf("%w: it starts or ends with a space", ErrBadName)
+	}
+	if len(name) > MaxNameLen {
+		return fmt.Errorf("%w: it is %d characters and the limit is %d, because the name is part of every object key for the set",
+			ErrBadName, len(name), MaxNameLen)
+	}
+	if name == "." || name == ".." {
+		return fmt.Errorf("%w: %q is a path component, not a name", ErrBadName, name)
+	}
+	if strings.ContainsAny(name, `/\`) {
+		return fmt.Errorf("%w: it contains a slash, and the name becomes part of the set's location in the bucket", ErrBadName)
+	}
+	for _, r := range name {
+		if r < 0x20 || r == 0x7f {
+			return fmt.Errorf("%w: it contains a control character", ErrBadName)
+		}
+	}
+	return nil
+}
+
 func (s *Store) Add(set Set) error {
+	if err := ValidName(set.Name); err != nil {
+		return fmt.Errorf("%q: %w", set.Name, err)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for _, existing := range s.sets {
@@ -234,6 +288,9 @@ func (s *Store) Update(set Set) error {
 // nothing is copied and nothing is spent. Moving the prefix as well is a
 // separate, costed operation the caller performs deliberately.
 func (s *Store) Rename(from, to string) error {
+	if err := ValidName(to); err != nil {
+		return fmt.Errorf("%q: %w", to, err)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if from == to {
