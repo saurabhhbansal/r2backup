@@ -22,8 +22,13 @@ import (
 // program itself errors; excludes is only meaningful when accepted is true.
 // An immediate enter -- the expected common case -- yields an empty exclude
 // list, because everything starts checked.
-func Pick(root string, scanned *scan.Result) (excludes []string, accepted bool, err error) {
+// alreadyExcluded is what the set currently leaves out, so reopening the
+// picker on an existing set shows what is being backed up now rather than
+// starting again from "everything". Pass nil for a new set.
+func Pick(root string, scanned *scan.Result, alreadyExcluded []string) (excludes []string, accepted bool, err error) {
 	m := NewModel(root, scanned)
+	ApplyExcludes(m.root, alreadyExcluded)
+	m.refreshRows()
 	p := tea.NewProgram(m, tea.WithAltScreen())
 
 	final, err := p.Run()

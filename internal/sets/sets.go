@@ -52,9 +52,6 @@ const DefaultRetentionDays = 30
 // no trash quietly paid to keep 30 days of it.
 const RetentionDisabled = -1
 
-// DefaultIntervalMinutes is how often the OS scheduler runs a set.
-const DefaultIntervalMinutes = 30
-
 // Set is one folder under backup.
 type Set struct {
 	// Name is what the user calls it, and what they type on the command line.
@@ -83,8 +80,12 @@ type Set struct {
 	// until the user unchecks something.
 	Excludes []string `json:"excludes,omitempty"`
 
-	RetentionDays   int `json:"retention_days"`
-	IntervalMinutes int `json:"interval_minutes"`
+	// RetentionDays is how long trash is kept. There is deliberately no
+	// per-set interval beside it: there is one OS task for the whole
+	// product, every run backs up every set, and a number stored here that
+	// nothing reads is worse than no number at all. It was exactly that for
+	// the life of the project. Scheduling lives in `r2backup schedule`.
+	RetentionDays int `json:"retention_days"`
 
 	Status     Status    `json:"status"`
 	StatusNote string    `json:"status_note,omitempty"`
@@ -246,9 +247,6 @@ func (s *Store) Add(set Set) error {
 	}
 	if set.RetentionDays == 0 {
 		set.RetentionDays = DefaultRetentionDays
-	}
-	if set.IntervalMinutes == 0 {
-		set.IntervalMinutes = DefaultIntervalMinutes
 	}
 	if set.Status == "" {
 		set.Status = StatusOK

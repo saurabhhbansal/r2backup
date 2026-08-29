@@ -38,14 +38,18 @@ dashboard → R2 → Manage API tokens).
 
 ```sh
 r2backup setup                  # store your R2 credentials on this machine
-r2backup add ~/Documents        # pick what to include, then back it up
-r2backup schedule --every 30    # run it every 30 minutes from now on
+r2backup add ~/Documents        # pick what to include, back it up, and schedule it
 r2backup status                 # what ran, when, and what is next
 ```
 
 `add` opens the folder as a tree with everything already selected. Uncheck what
 you do not want and press enter — or press enter straight away and all of it
-goes. It is the only place the tool asks you anything. `--all` skips it.
+goes. `--all` skips the picker. When it has finished it offers to run backups
+automatically from then on, so setting up is one command and then nothing.
+
+To change what a folder includes later, `r2backup edit Documents` reopens the
+same picker on the current selection. Newly excluded files move to trash and
+stay recoverable; they are not deleted.
 
 To bring a folder back:
 
@@ -88,6 +92,7 @@ never encrypted client-side. The worst case is typing your R2 keys in again.
 | `ls [set]` | What is in the backup |
 | `trash ls [set]` | What is recoverable, and until when |
 | `status` | What ran, when, and what is next (`--watch` follows a run) |
+| `edit <set>` | Change what a folder includes |
 | `schedule` | Register with the OS scheduler (`--remove` to unregister) |
 | `rename <set> <name>` | Change what a set is called |
 | `relink <set> <path>` | Point a set at a folder that moved |

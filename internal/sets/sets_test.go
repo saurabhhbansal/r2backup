@@ -43,9 +43,6 @@ func TestAddAppliesDefaults(t *testing.T) {
 	if got.RetentionDays != DefaultRetentionDays {
 		t.Errorf("RetentionDays = %d, want %d", got.RetentionDays, DefaultRetentionDays)
 	}
-	if got.IntervalMinutes != DefaultIntervalMinutes {
-		t.Errorf("IntervalMinutes = %d, want %d", got.IntervalMinutes, DefaultIntervalMinutes)
-	}
 	if got.Status != StatusOK {
 		t.Errorf("Status = %q, want %q", got.Status, StatusOK)
 	}
@@ -439,5 +436,45 @@ func TestKeyScopeStopsAtAComponentBoundary(t *testing.T) {
 		if !strings.HasPrefix(key, scope) {
 			t.Errorf("%q is %q's own object but falls outside its scope %q, and a purge would leave it paid for", key, docs.Name, scope)
 		}
+	}
+}
+
+// A set records no schedule of its own. There is one OS task for the whole
+// product and every run backs up every set, so a per-set interval could only
+// ever be a number nothing reads -- which is exactly what it was for the life
+// of the project: stored by `add`, printed once as a suggestion, and never
+// consulted by anything that decides when to run.
+//
+// This is here so it is not reintroduced by someone who finds
+// "interval_minutes" in an old sets.json and assumes it went missing.
+func TestASetCarriesNoScheduleOfItsOwn(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "sets.json")
+	// An older file, written when the field existed.
+	old := `[{"name":"Docs","prefix":"machines/pc/Docs","root":"/tmp/docs","machine":"pc","retention_days":30,"interval_minutes":45,"status":"ok"}]`
+	if err := os.WriteFile(path, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st, err := Open(path)
+	if err != nil {
+		t.Fatalf("an old sets.json must still load: %v", err)
+	}
+	got, err := st.Get("Docs")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RetentionDays != 30 || got.Root != "/tmp/docs" {
+		t.Errorf("the rest of the record did not survive: %+v", got)
+	}
+
+	// And the stale key does not come back when the file is rewritten.
+	if err := st.Rename("Docs", "Documents"); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "interval_minutes") {
+		t.Error("a rewritten sets.json still carries interval_minutes")
 	}
 }

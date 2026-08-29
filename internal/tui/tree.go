@@ -223,6 +223,81 @@ func SetAll(root *Node, state CheckState) {
 	setSubtree(root, state)
 }
 
+// ApplyExcludes unchecks everything an existing set already leaves out, so
+// the picker opens showing what is actually being backed up rather than
+// starting over from "everything".
+//
+// It is the inverse of ComputeExcludes and has to agree with sets.Set.Excluded
+// about what a rule covers: a rule naming a directory excludes everything
+// beneath it. Disagreeing would show the user a selection that is not the one
+// in force.
+//
+// A node that matches is unchecked whole and not descended into -- its
+// children are already covered by the same rule, and re-walking them would
+// only redo work.
+func ApplyExcludes(root *Node, excludes []string) {
+	if root == nil || len(excludes) == 0 {
+		return
+	}
+	var walk func(n *Node)
+	walk = func(n *Node) {
+		if n.Key != "" && excludedBy(n.Key, excludes) {
+			setSubtree(n, Unchecked)
+			return
+		}
+		for _, c := range n.Children {
+			walk(c)
+		}
+	}
+	walk(root)
+	// One bottom-up pass. recalcAncestors walks upward from a single change,
+	// which is right for a keypress and wrong here: this applies many at once
+	// and would otherwise re-walk the same ancestors for every one of them.
+	recalcSubtree(root)
+}
+
+// excludedBy reports whether key falls under any rule. Kept in step with
+// sets.Set.Excluded deliberately; see ApplyExcludes.
+func excludedBy(key string, excludes []string) bool {
+	for _, ex := range excludes {
+		if key == ex || strings.HasPrefix(key, ex+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// recalcSubtree recomputes check state and selected totals for a whole tree,
+// bottom up. Leaves keep whatever they were set to.
+func recalcSubtree(n *Node) {
+	if len(n.Children) == 0 {
+		return
+	}
+	var selSize, selFiles int64
+	allChecked, allUnchecked := true, true
+	for _, c := range n.Children {
+		recalcSubtree(c)
+		selSize += c.SelectedSize
+		selFiles += c.SelectedFiles
+		if c.Check != Checked {
+			allChecked = false
+		}
+		if c.Check != Unchecked {
+			allUnchecked = false
+		}
+	}
+	n.SelectedSize = selSize
+	n.SelectedFiles = selFiles
+	switch {
+	case allChecked:
+		n.Check = Checked
+	case allUnchecked:
+		n.Check = Unchecked
+	default:
+		n.Check = Partial
+	}
+}
+
 // ComputeExcludes returns the minimal set of keys that reproduces the current
 // selection under sets.Set.Excluded, which treats a directory key as covering
 // everything beneath it. The naive approach — collecting every unchecked leaf

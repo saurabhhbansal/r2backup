@@ -86,6 +86,7 @@ func NewRoot(opts *Options) *cobra.Command {
 	root.AddCommand(
 		newSetupCmd(opts),
 		newAddCmd(opts),
+		newEditCmd(opts),
 		newBackupCmd(opts),
 		newRestoreCmd(opts),
 		newStatusCmd(opts),

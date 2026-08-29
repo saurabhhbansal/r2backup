@@ -32,6 +32,11 @@ import (
 	"time"
 )
 
+// DefaultIntervalMinutes is how often a scheduled run fires when the user
+// does not say. It lives here rather than on a set: there is one OS task for
+// the whole product, and every run backs up every set.
+const DefaultIntervalMinutes = 30
+
 // Entry describes one scheduled run of the r2backup binary: which OS
 // scheduler entry to create, how often it should fire, and exactly what to
 // execute. r2backup has no daemon, so this is the only place "every 30

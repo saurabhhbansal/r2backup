@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -167,7 +168,7 @@ func newAddCmd(opts *Options) *cobra.Command {
 
 			var excludes []string
 			if !all && interactive() {
-				ex, accepted, err := tui.Pick(root, scanned)
+				ex, accepted, err := tui.Pick(root, scanned, nil)
 				if err != nil {
 					return err
 				}
@@ -180,10 +181,9 @@ func newAddCmd(opts *Options) *cobra.Command {
 
 			s := sets.Set{
 				Name: name, Root: root, Machine: machineName(),
-				Prefix:          "machines/" + machineName() + "/" + name,
-				Excludes:        excludes,
-				RetentionDays:   retention,
-				IntervalMinutes: interval,
+				Prefix:        "machines/" + machineName() + "/" + name,
+				Excludes:      excludes,
+				RetentionDays: retention,
 			}
 			// The flag's own default is DefaultRetentionDays, so retention can
 			// only be <= 0 here because the user asked for it. Say that in
@@ -204,12 +204,12 @@ func newAddCmd(opts *Options) *cobra.Command {
 				return err
 			}
 			summarise(opts.Out, rep)
-			fmt.Fprintf(opts.Out, "\nTo have this run by itself: r2backup schedule --every %d\n", stored.IntervalMinutes)
+			offerSchedule(opts, interval)
 			return nil
 		},
 	}
-	cmd.Flags().IntVar(&interval, "every", sets.DefaultIntervalMinutes,
-		"how often this set wants to run, in minutes: recorded, and used in the suggestion printed after adding. Nothing is scheduled until you run r2backup schedule")
+	cmd.Flags().IntVar(&interval, "every", schedule.DefaultIntervalMinutes,
+		"minutes between automatic backups, if you accept the offer to set them up")
 	cmd.Flags().IntVar(&retention, "retention", sets.DefaultRetentionDays,
 		"days to keep deleted and overwritten files; 0 disables trash")
 	cmd.Flags().BoolVar(&all, "all", false, "skip the picker and include everything")
@@ -563,6 +563,248 @@ func countOf(n int64, one, many string) string {
 	return progress.FormatCount(n) + " " + noun
 }
 
+// installSchedule registers the OS scheduler entry and explains what the user
+// actually got.
+//
+// Shared by `schedule` and by the offer `add` makes, so the two cannot drift:
+// the launcher lookup, the fallback, and the two notes Windows can force are
+// stated once. They are the difference between a backup that runs when you
+// are signed out and one that does not, and between a silent run and one that
+// flashes a console window.
+func installSchedule(opts *Options, every int) error {
+	self, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	binary, windowless := scheduledBinary(runtime.GOOS, self, fileExists)
+	if err := schedule.Install(schedule.Entry{
+		Name:       "r2backup",
+		Interval:   time.Duration(every) * time.Minute,
+		BinaryPath: binary,
+		Args:       scheduledRunArgs(runtime.GOOS),
+	}); err != nil {
+		return err
+	}
+	if windowless {
+		fmt.Fprintf(opts.Out, "Registered. Backups run every %d minutes, out of sight, and survive a reboot.\n", every)
+	} else {
+		// Said plainly rather than left to be discovered. A console window
+		// appearing every half hour on a tool sold as invisible is exactly
+		// the sort of thing a user assumes is broken.
+		fmt.Fprintf(opts.Out, "Registered. Backups run every %d minutes and survive a reboot.\n", every)
+		fmt.Fprintf(opts.Out,
+			"Note: a console window will appear briefly on each run. %s is missing\n"+
+				"      from %s; reinstall r2backup to get it back.\n",
+			LauncherName, filepath.Dir(self))
+	}
+	// On Windows the preferred registration can be refused and a second one
+	// used instead, and the difference matters: one runs whether or not you
+	// are signed in, the other does not. Read it back rather than claiming
+	// whichever was asked for first.
+	if st, err := schedule.Current("r2backup"); err == nil && st.Registered && !st.RunsWhenSignedOut && runtime.GOOS == "windows" {
+		fmt.Fprintln(opts.Out,
+			"Note: it runs while you are signed in. Windows would not grant the\n"+
+				"      permission needed to run it when you are signed out, which\n"+
+				"      needs the \"Log on as a batch job\" right for your account.")
+	}
+	fmt.Fprintln(opts.Out, "To watch one: r2backup status --watch")
+	return nil
+}
+
+// askYesNo puts a yes/no question and returns the answer, or def when there
+// is nothing to read. Enter takes the default, which is shown capitalised.
+func askYesNo(out io.Writer, in io.Reader, question string, def bool) bool {
+	choices := "[y/N]"
+	if def {
+		choices = "[Y/n]"
+	}
+	fmt.Fprintf(out, "%s %s ", question, choices)
+	line, err := bufio.NewReader(in).ReadString('\n')
+	switch strings.ToLower(strings.TrimSpace(line)) {
+	case "y", "yes":
+		return true
+	case "n", "no":
+		return false
+	}
+	if err != nil && strings.TrimSpace(line) == "" {
+		// EOF with nothing typed: no answer is coming. Take the default
+		// rather than hanging or guessing the other way.
+		fmt.Fprintln(out)
+	}
+	return def
+}
+
+// offerSchedule asks, once, whether backups should run by themselves.
+//
+// `add` used to end with "To have this run by itself: r2backup schedule
+// --every 30" -- a command the user had to notice, remember and run. Anyone
+// who did not was left with a folder that is backed up exactly once, which is
+// the opposite of what they asked for, and nothing said so again except
+// `status`. This is the single place that mattered most for a tool meant to
+// be set up and forgotten.
+//
+// It asks only when a person is there, like every other prompt here: an
+// unattended `add` prints the command instead. And it never changes a
+// schedule that already exists -- a second `add` should not silently
+// re-time the first one.
+func offerSchedule(opts *Options, every int) {
+	if st, err := schedule.Current("r2backup"); err == nil && st.Registered {
+		fmt.Fprintf(opts.Out, "\nBackups already run every %s. This folder is included from now on.\n",
+			st.Interval.Round(time.Minute))
+		return
+	}
+	if !interactive() || opts.Decision() != Ask || !schedule.Supported() {
+		fmt.Fprintf(opts.Out, "\nTo have this run by itself: r2backup schedule --every %d\n", every)
+		return
+	}
+	in := opts.In
+	if in == nil {
+		in = os.Stdin
+	}
+	fmt.Fprintln(opts.Out)
+	if !askYesNo(opts.Out, in,
+		fmt.Sprintf("Back up automatically every %d minutes from now on?", every), true) {
+		fmt.Fprintf(opts.Out, "Not scheduled. To do it later: r2backup schedule --every %d\n", every)
+		return
+	}
+	if err := installSchedule(opts, every); err != nil {
+		// Not fatal: the folder is added and backed up, which is what the
+		// command was for. Say what did not happen rather than failing the
+		// whole thing after the work succeeded.
+		fmt.Fprintf(opts.Err, "Could not set up the schedule: %v\n", err)
+		fmt.Fprintf(opts.Err, "To try again: r2backup schedule --every %d\n", every)
+	}
+}
+
+// newEditCmd builds `edit`, which reopens the picker on a set that already
+// exists.
+//
+// The picker had exactly one caller -- `add` -- so what a set included was
+// decided once, at the moment it was created, and could never be changed
+// again. The only way to exclude a node_modules you had not thought about was
+// to hand-edit sets.json, which is not a thing to ask of someone who is not a
+// programmer. Everything the picker needs was already there; nothing could
+// reach it.
+//
+// Changing the excludes is not a destructive act, and the run afterwards
+// makes that true rather than merely claimed: objects that fall out of the
+// mirror are moved to trash on the way out, so they stay recoverable for the
+// set's retention window exactly like a deleted file.
+func newEditCmd(opts *Options) *cobra.Command {
+	return &cobra.Command{
+		Use:   "edit <set>",
+		Short: "Change what is included in a set",
+		Long: "Reopens the folder picker with the current selection, then backs up\n" +
+			"with whatever you choose. Newly excluded files move to trash, so\n" +
+			"they stay recoverable.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !interactive() {
+				return errors.New("edit opens the folder picker, which needs a terminal")
+			}
+			a, err := openApp()
+			if err != nil {
+				return err
+			}
+			defer a.close()
+			s, err := a.sets.Get(args[0])
+			if err != nil {
+				return err
+			}
+			if err := a.connect(cmd.Context()); err != nil {
+				return err
+			}
+
+			fmt.Fprintf(opts.Out, "Scanning %s...\n", s.Root)
+			scanned, err := scan.Walk(cmd.Context(), scan.Options{Root: s.Root})
+			if err != nil {
+				// Same answer as a backup gives: ask where it went rather
+				// than printing a command to go and run.
+				if errors.Is(err, scan.ErrRootMissing) {
+					fmt.Fprintf(opts.Out, "%s: %s is not there any more.\n", s.Name, s.Root)
+					fmt.Fprintln(opts.Out, "  Nothing has been deleted from your backup.")
+					relinked, ok := offerRelink(opts, a, s)
+					if !ok {
+						return err
+					}
+					s = relinked
+					if scanned, err = scan.Walk(cmd.Context(), scan.Options{Root: s.Root}); err != nil {
+						return err
+					}
+				} else {
+					return err
+				}
+			}
+
+			// Opened showing what is backed up now, not a blank slate: this
+			// is an edit, and starting again from "everything" would quietly
+			// undo every choice already made.
+			chosen, accepted, err := tui.Pick(s.Root, scanned, s.Excludes)
+			if err != nil {
+				return err
+			}
+			if !accepted {
+				fmt.Fprintln(opts.Out, "Cancelled. Nothing was changed.")
+				return nil
+			}
+
+			added, removed := diffExcludes(s.Excludes, chosen)
+			if len(added) == 0 && len(removed) == 0 {
+				fmt.Fprintln(opts.Out, "No change.")
+				return nil
+			}
+			s.Excludes = chosen
+			if err := a.sets.Update(s); err != nil {
+				return err
+			}
+			for _, e := range added {
+				fmt.Fprintf(opts.Out, "  now excluded: %s\n", e)
+			}
+			for _, e := range removed {
+				fmt.Fprintf(opts.Out, "  now included: %s\n", e)
+			}
+			if len(added) > 0 {
+				fmt.Fprintln(opts.Out, "Excluded files move to trash and stay recoverable.")
+			}
+
+			fmt.Fprintln(opts.Out)
+			rep, err := runOne(cmd.Context(), a, s, opts.Out, interactive())
+			if err != nil {
+				return err
+			}
+			summarise(opts.Out, rep)
+			return nil
+		},
+	}
+}
+
+// diffExcludes reports what the user just excluded and what they just let
+// back in, so the change is stated in their terms rather than as two lists to
+// compare by eye.
+func diffExcludes(before, after []string) (added, removed []string) {
+	was := make(map[string]bool, len(before))
+	for _, e := range before {
+		was[e] = true
+	}
+	now := make(map[string]bool, len(after))
+	for _, e := range after {
+		now[e] = true
+	}
+	for _, e := range after {
+		if !was[e] {
+			added = append(added, e)
+		}
+	}
+	for _, e := range before {
+		if !now[e] {
+			removed = append(removed, e)
+		}
+	}
+	sort.Strings(added)
+	sort.Strings(removed)
+	return added, removed
+}
+
 // newRemoveCmd builds `remove`.
 //
 // Nothing could stop backing up a folder: sets.Store.Remove and
@@ -781,47 +1023,10 @@ func newScheduleCmd(opts *Options) *cobra.Command {
 				}
 				return nil
 			}
-			self, err := os.Executable()
-			if err != nil {
-				return err
-			}
-			binary, windowless := scheduledBinary(runtime.GOOS, self, fileExists)
-			if err := schedule.Install(schedule.Entry{
-				Name:       "r2backup",
-				Interval:   time.Duration(every) * time.Minute,
-				BinaryPath: binary,
-				Args:       scheduledRunArgs(runtime.GOOS),
-			}); err != nil {
-				return err
-			}
-			if windowless {
-				fmt.Fprintf(opts.Out, "Registered. Backups run every %d minutes, out of sight, and survive a reboot.\n", every)
-			} else {
-				// Said plainly rather than left to be discovered. A console
-				// window appearing every half hour on a tool sold as
-				// invisible is exactly the sort of thing a user assumes is
-				// broken.
-				fmt.Fprintf(opts.Out, "Registered. Backups run every %d minutes and survive a reboot.\n", every)
-				fmt.Fprintf(opts.Out,
-					"Note: a console window will appear briefly on each run. %s is missing\n"+
-						"      from %s; reinstall r2backup to get it back.\n",
-					LauncherName, filepath.Dir(self))
-			}
-			// On Windows the preferred registration can be refused and a
-			// second one used instead, and the difference matters: one runs
-			// whether or not you are signed in, the other does not. Read it
-			// back rather than claiming whichever was asked for first.
-			if st, err := schedule.Current("r2backup"); err == nil && st.Registered && !st.RunsWhenSignedOut && runtime.GOOS == "windows" {
-				fmt.Fprintln(opts.Out,
-					"Note: it runs while you are signed in. Windows would not grant the\n"+
-						"      permission needed to run it when you are signed out, which\n"+
-						"      needs the \"Log on as a batch job\" right for your account.")
-			}
-			fmt.Fprintln(opts.Out, "To watch one: r2backup status --watch")
-			return nil
+			return installSchedule(opts, every)
 		},
 	}
-	cmd.Flags().IntVar(&every, "every", sets.DefaultIntervalMinutes, "minutes between runs")
+	cmd.Flags().IntVar(&every, "every", schedule.DefaultIntervalMinutes, "minutes between runs")
 	cmd.Flags().BoolVar(&remove, "remove", false, "unregister instead")
 	return cmd
 }

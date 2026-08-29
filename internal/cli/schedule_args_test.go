@@ -114,3 +114,98 @@ func TestOtherPlatformsScheduleTheBinaryItself(t *testing.T) {
 		}
 	}
 }
+
+// `add` used to end by printing a command the user had to notice, remember
+// and run. Anyone who did not was left with a folder backed up exactly once,
+// which is the opposite of what they asked for. The offer is the fix, and it
+// follows the same rule as every other prompt here: only when a person is
+// there to answer.
+func TestSchedulingIsOfferedOnlyWhenSomeoneCanAnswer(t *testing.T) {
+	for _, o := range []*Options{{Yes: true}, {No: true}} {
+		if o.Decision() == Ask {
+			t.Fatalf("Options{Yes:%v No:%v} reports Ask; an unattended add would block on a prompt", o.Yes, o.No)
+		}
+	}
+}
+
+func TestAskYesNo(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		def  bool
+		want bool
+	}{
+		{"enter takes the default", "\n", true, true},
+		{"enter takes the default, the other way", "\n", false, false},
+		{"y", "y\n", false, true},
+		{"yes", "YES\n", false, true},
+		{"n", "n\n", true, false},
+		{"no", "No\n", true, false},
+		{"anything else takes the default", "maybe\n", true, true},
+		// Nothing to read at all: take the default rather than hang.
+		{"EOF", "", true, true},
+		{"EOF, safe default", "", false, false},
+	}
+	for _, c := range cases {
+		var out bytes.Buffer
+		if got := askYesNo(&out, strings.NewReader(c.in), "Do it?", c.def); got != c.want {
+			t.Errorf("%s: askYesNo(%q, def=%v) = %v, want %v", c.name, c.in, c.def, got, c.want)
+		}
+		if !strings.Contains(out.String(), "Do it?") {
+			t.Errorf("%s: the question was not asked", c.name)
+		}
+	}
+	// The default is the one shown capitalised.
+	var out bytes.Buffer
+	askYesNo(&out, strings.NewReader("\n"), "Q", true)
+	if !strings.Contains(out.String(), "[Y/n]") {
+		t.Errorf("a default of yes should render [Y/n], got %q", out.String())
+	}
+	out.Reset()
+	askYesNo(&out, strings.NewReader("\n"), "Q", false)
+	if !strings.Contains(out.String(), "[y/N]") {
+		t.Errorf("a default of no should render [y/N], got %q", out.String())
+	}
+}
+
+// The excludes a set carries are editable after the fact. They were not: the
+// picker had exactly one caller, so the choice was made once at creation and
+// the only way to change it afterwards was to hand-edit sets.json.
+func TestEditExistsAndTakesASet(t *testing.T) {
+	root := NewRoot(&Options{})
+	for _, c := range root.Commands() {
+		if c.Name() != "edit" {
+			continue
+		}
+		if c.Short == "" {
+			t.Error("edit has no short description")
+		}
+		if err := c.Args(c, []string{}); err == nil {
+			t.Error("edit accepted no arguments; it needs a set name")
+		}
+		if err := c.Args(c, []string{"one"}); err != nil {
+			t.Errorf("edit rejected a single set name: %v", err)
+		}
+		return
+	}
+	t.Fatal("edit command not found")
+}
+
+func TestDiffExcludesNamesWhatChanged(t *testing.T) {
+	added, removed := diffExcludes(
+		[]string{"code/node_modules", "docs/old"},
+		[]string{"code/node_modules", "photos/raw"},
+	)
+	if !slices.Equal(added, []string{"photos/raw"}) {
+		t.Errorf("added = %v, want [photos/raw]", added)
+	}
+	if !slices.Equal(removed, []string{"docs/old"}) {
+		t.Errorf("removed = %v, want [docs/old]", removed)
+	}
+	// Unchanged means unchanged, so `edit` can say "No change" rather than
+	// running a backup for nothing.
+	a, r := diffExcludes([]string{"x"}, []string{"x"})
+	if len(a) != 0 || len(r) != 0 {
+		t.Errorf("an unchanged list reported added=%v removed=%v", a, r)
+	}
+}
