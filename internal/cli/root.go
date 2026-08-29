@@ -22,6 +22,9 @@ var Version = "dev"
 type Options struct {
 	Out io.Writer
 	Err io.Writer
+	// In is where a prompt reads its answer. nil means os.Stdin; tests set
+	// it so a conversation can be driven without a terminal.
+	In io.Reader
 	// Yes and No pre-answer the few prompts that exist, for scripts and for
 	// scheduled runs. They are mutually exclusive; No is the safe one and wins
 	// if both are somehow set.

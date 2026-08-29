@@ -242,15 +242,29 @@ func newBackupCmd(opts *Options) *cobra.Command {
 			var failed int
 			for _, s := range list {
 				rep, err := runOne(cmd.Context(), a, s, opts.Out, interactive())
+				// A vanished folder is never a deletion. Before anything is
+				// reported as a failure, ask where it went -- the person
+				// running this is the one who moved it, and telling them to
+				// go and run a second command is how a backup quietly stays
+				// broken.
+				if errors.Is(err, backup.ErrRootMissing) {
+					fmt.Fprintf(opts.Out, "%s: %s is not there any more.\n", s.Name, s.Root)
+					fmt.Fprintln(opts.Out, "  Nothing has been deleted from your backup.")
+					if relinked, ok := offerRelink(opts, a, s); ok {
+						// Retried once, and only once: if the folder is not
+						// at the new path either, that is the answer.
+						rep, err = runOne(cmd.Context(), a, relinked, opts.Out, interactive())
+					}
+				}
 				if err != nil {
 					failed++
 					fmt.Fprintf(opts.Err, "%s: %v\n", s.Name, err)
-					// A vanished folder is never a deletion. Park the set and
-					// leave the bucket untouched until a person decides.
 					if errors.Is(err, backup.ErrRootMissing) {
+						// Parked, so a scheduled run does not keep hitting
+						// this, and so status can show it needs a person.
 						_ = a.sets.MarkNeedsAttention(s.Name, err.Error())
 						fmt.Fprintf(opts.Err,
-							"  Nothing was deleted. If the folder moved: r2backup relink %q <new-path>\n", s.Name)
+							"  Nothing was deleted. When you know where it is: r2backup relink %q <new-path>\n", s.Name)
 					}
 					continue
 				}
@@ -263,6 +277,103 @@ func newBackupCmd(opts *Options) *cobra.Command {
 		},
 	}
 	return cmd
+}
+
+// cleanPastedPath makes sense of a path a person typed or pasted at a prompt.
+//
+// It exists because of how the answer actually arrives. Windows' Explorer
+// "Copy as path" wraps the result in double quotes, so a user who does the
+// obvious thing pastes `"D:\Photos\2026"`, and a path with those quotes still
+// on it does not exist. Trailing whitespace comes free with a paste, and a
+// trailing separator is how plenty of people write a folder. None of that is
+// user error, and none of it should be answered with "no such directory".
+func cleanPastedPath(s string) string {
+	s = strings.TrimSpace(s)
+	for _, q := range []string{`"`, `'`} {
+		if len(s) >= 2 && strings.HasPrefix(s, q) && strings.HasSuffix(s, q) {
+			s = strings.TrimSpace(s[1 : len(s)-1])
+		}
+	}
+	// A bare "/" or `C:\` is a real root and must keep its separator; only a
+	// trailing one on a longer path is noise.
+	if len(s) > 1 {
+		trimmed := strings.TrimRight(s, `/\`)
+		if trimmed != "" && !strings.HasSuffix(trimmed, ":") {
+			s = trimmed
+		}
+	}
+	return s
+}
+
+// offerRelink asks where a vanished folder went and repoints the set at it,
+// returning the updated set and whether the run should be retried.
+//
+// The alternative it replaces was printing `r2backup relink "Photos"
+// <new-path>` and giving up. That is a fine answer for someone who lives in a
+// terminal and a dead end for everyone else: this tool is meant to be set up
+// once and forgotten, and "your backup stopped, here is a command to go and
+// look up" is the opposite of that. Nothing is being decided that the user
+// does not already know -- they are the one who moved the folder.
+//
+// It asks only when a person is actually there. A scheduled run has no
+// terminal, and a hidden 3am task that blocks on a question is worse than one
+// that parks the set and waits: it would sit there until the next reboot,
+// backing nothing up and saying nothing. --yes and --no both mean nobody is
+// watching, and neither can supply a path anyway, so both skip straight to
+// parking. That is the same rule the rest of this package follows, not a new
+// one.
+func offerRelink(opts *Options, a *app, s sets.Set) (sets.Set, bool) {
+	if !interactive() || opts.Decision() != Ask {
+		return s, false
+	}
+	in := opts.In
+	if in == nil {
+		in = os.Stdin
+	}
+	if !askForNewRoot(opts.Out, in, func(path string) error { return a.sets.Relink(s.Name, path) }) {
+		return s, false
+	}
+	updated, err := a.sets.Get(s.Name)
+	if err != nil {
+		return s, false
+	}
+	return updated, true
+}
+
+// askForNewRoot runs the prompt loop and reports whether relink succeeded.
+//
+// Split out from offerRelink so the conversation can be tested without a
+// terminal, a set store or a server: everything that decides what the user
+// sees is here, and everything that needs the world is behind `relink`. The
+// first attempt to test this end to end hung, because the loop read os.Stdin
+// directly and a pty with nothing left to give never returns.
+func askForNewRoot(out io.Writer, in io.Reader, relink func(string) error) bool {
+	fmt.Fprintf(out, "\nDid you move or rename it? Type or paste where it is now.\n")
+	r := bufio.NewReader(in)
+	// A few tries, because a mistyped path is the expected mistake here and
+	// answering it with a dead end is what this whole prompt exists to avoid.
+	// Not unlimited: input that keeps failing must not spin.
+	for attempt := 0; attempt < 3; attempt++ {
+		fmt.Fprint(out, "New location (or press Enter to leave it for now): ")
+		line, err := r.ReadString('\n')
+		path := cleanPastedPath(line)
+		if path == "" {
+			// Enter, EOF and a closed stdin all mean the same thing: no
+			// answer is coming, and nothing should be guessed.
+			fmt.Fprintln(out)
+			return false
+		}
+		if rerr := relink(path); rerr != nil {
+			fmt.Fprintf(out, "  %v\n", rerr)
+			if err != nil {
+				return false // nothing more to read; do not re-prompt into EOF
+			}
+			continue
+		}
+		fmt.Fprintf(out, "Relinked. Nothing has to be uploaded again.\n\n")
+		return true
+	}
+	return false
 }
 
 func newStatusCmd(opts *Options) *cobra.Command {
