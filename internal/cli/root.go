@@ -71,6 +71,7 @@ func NewRoot(opts *Options) *cobra.Command {
 		"answer no to any decision, taking the safe path")
 
 	root.AddCommand(
+		newSetupCmd(opts),
 		newAddCmd(opts),
 		newBackupCmd(opts),
 		newRestoreCmd(opts),

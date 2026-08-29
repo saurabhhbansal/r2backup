@@ -225,6 +225,14 @@ func readCrontab(ctx context.Context) ([]string, error) {
 		if strings.Contains(strings.ToLower(string(out)), "no crontab") {
 			return nil, nil
 		}
+		// Nor is cron not being installed at all. A machine with no crontab
+		// binary certainly has no cron entry of ours to find or remove, which
+		// is the same answer as an empty crontab. Reporting it as an error
+		// made `schedule --remove` fail on a systemd-only box that had never
+		// used cron in the first place.
+		if errors.Is(err, exec.ErrNotFound) {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("schedule: crontab -l: %w", err)
 	}
 	text := strings.TrimRight(string(out), "\n")
