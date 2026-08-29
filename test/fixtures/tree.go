@@ -172,12 +172,25 @@ func Build(root string, spec Spec) (*Manifest, error) {
 	}
 
 	if spec.UnicodeNames {
+		before := len(m.Files)
 		for _, n := range []string{NameNFC, NameNFD} {
 			if err := writeFile("unicode/"+n, 64); err != nil {
-				// A filesystem that normalises names will collide these two.
-				// That is a property of the platform, not a test failure.
 				m.Skipped = append(m.Skipped, "unicode/"+n)
 			}
+		}
+		// Whether these are one file or two is decided by the filesystem, not
+		// by us. ext4 stores the bytes it was given and holds both; APFS
+		// normalises on the way in, so the second write silently lands on the
+		// first and the directory holds one.
+		//
+		// Detecting that by counting what is actually on disk matters more
+		// than it looks: the write SUCCEEDS on APFS, so an error check alone
+		// reports two files where there is one, and every test downstream then
+		// expects a collision that cannot happen there.
+		if sameFileCount(root, "unicode") == 1 {
+			m.Files = m.Files[:before+1]
+			m.Skipped = append(m.Skipped,
+				"unicode/"+NameNFD+" (this filesystem normalises names, so NFC and NFD are one file)")
 		}
 	}
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -30,6 +31,11 @@ func TestClassify(t *testing.T) {
 }
 
 func TestModeAndModTimeArePreservedWithinTolerance(t *testing.T) {
+	// NTFS has no unix permission bits. Go's os.Chmod on Windows toggles the
+	// read-only attribute and nothing else, so a stored 0640 cannot come back
+	// as 0640 there -- and should not be expected to. The mtime half of this
+	// test still matters everywhere, so only the mode assertion is gated.
+	checkMode := runtime.GOOS != "windows"
 	backend := newFakeBackend()
 	mtime := time.Date(2023, 5, 6, 7, 8, 9, 0, time.UTC)
 	backend.put("proj/current/a.txt", []byte("content"), remote.Metadata{ModTime: mtime, Mode: 0o640})
@@ -45,7 +51,7 @@ func TestModeAndModTimeArePreservedWithinTolerance(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o640 {
+	if checkMode && info.Mode().Perm() != 0o640 {
 		t.Errorf("mode = %v, want 0640", info.Mode().Perm())
 	}
 	if d := info.ModTime().Sub(mtime); d > 2*time.Second || d < -2*time.Second {

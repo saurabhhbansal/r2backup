@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -202,6 +203,16 @@ func TestTargetMustBeCreatedIsCreated(t *testing.T) {
 }
 
 func TestAnUnwritableTargetErrorsClearly(t *testing.T) {
+	// A read-only directory bit does not stop writes on Windows -- NTFS uses
+	// ACLs, and the attribute Go's Chmod sets is advisory for directories. So
+	// this cannot be provoked the same way there, and pretending otherwise
+	// would test the test rather than the product.
+	if runtime.GOOS == "windows" {
+		t.Skip("a directory's read-only attribute does not deny writes on NTFS")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("running as root; permission bits do not apply")
+	}
 	parent := t.TempDir()
 	if err := os.Chmod(parent, 0o555); err != nil {
 		t.Fatal(err)
