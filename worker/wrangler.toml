@@ -18,7 +18,7 @@ database_name = "r2backup-account"
 # below / the deploy notes in the task report). wrangler refuses to deploy
 # with this value still in place, which is intentional: it stops a deploy
 # silently pointing at no database at all.
-database_id = "REPLACE_WITH_D1_DATABASE_ID"
+database_id = "d1499845-2268-4532-92ea-e6c71f832022"
 migrations_dir = "migrations"
 
 # JWT_SECRET and RESEND_API_KEY are deliberately absent from this file.

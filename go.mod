@@ -52,5 +52,6 @@ require (
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	go.etcd.io/bbolt v1.5.0 // indirect
+	golang.org/x/crypto v0.55.0 // indirect
 	golang.org/x/term v0.45.0 // indirect
 )

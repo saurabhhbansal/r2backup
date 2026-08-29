@@ -44,6 +44,19 @@ const (
 // environment fact, not a defect in the code under test.
 func Start(t testing.TB) (*remote.Client, func()) {
 	t.Helper()
+	return StartWithConfig(t, nil)
+}
+
+// StartWithConfig works like Start, but calls mutate on the remote.Config
+// just before the client is built, so a caller can install its own
+// HTTPClient -- e.g. a RoundTripper that hooks or throttles individual
+// requests to make an otherwise-racy scenario (a file changing mid-upload,
+// say) deterministic instead of timing-dependent. mutate must not change
+// Endpoint, Bucket, or the credentials; it exists to layer behaviour onto
+// the transport, not to repoint the client at something else. Pass nil for
+// plain Start behaviour.
+func StartWithConfig(t testing.TB, mutate func(*remote.Config)) (*remote.Client, func()) {
+	t.Helper()
 
 	bin, err := ensureBinary()
 	if err != nil {
@@ -65,12 +78,17 @@ func Start(t testing.TB) (*remote.Client, func()) {
 		return nil, nil
 	}
 
-	client, err := remote.New(context.Background(), remote.Config{
+	cfg := remote.Config{
 		Endpoint:        proc.endpoint,
 		Bucket:          bucketName,
 		AccessKeyID:     accessKeyID,
 		SecretAccessKey: secretAccessKey,
-	})
+	}
+	if mutate != nil {
+		mutate(&cfg)
+	}
+
+	client, err := remote.New(context.Background(), cfg)
 	if err != nil {
 		proc.stop()
 		t.Fatalf("minio test harness: build remote client: %v", err)

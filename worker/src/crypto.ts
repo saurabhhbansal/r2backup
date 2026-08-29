@@ -57,13 +57,25 @@ export async function verifyJWT(token: string, secret: string): Promise<JWTPaylo
   const [headerPart, payloadPart, sigPart] = parts;
   const signingInput = `${headerPart}.${payloadPart}`;
   const key = await hmacKey(secret);
+
+  // A token that isn't well-formed base64url at all (hand-typed garbage, a
+  // truncated paste) must fail the same way a validly-formed but wrong one
+  // does -- atob() throws on invalid input, so that has to be caught here
+  // rather than left to propagate as a 500.
+  let signatureBytes: Uint8Array;
+  let payload: JWTPayload;
+  try {
+    signatureBytes = base64UrlDecode(sigPart);
+  } catch {
+    return null;
+  }
+
   // crypto.subtle.verify does the comparison itself; it is specified and
   // implemented to run in constant time, so there is nothing to hand-roll
   // here the way there is for the OTP hash comparison below.
-  const valid = await crypto.subtle.verify("HMAC", key, base64UrlDecode(sigPart), encoder.encode(signingInput));
+  const valid = await crypto.subtle.verify("HMAC", key, signatureBytes, encoder.encode(signingInput));
   if (!valid) return null;
 
-  let payload: JWTPayload;
   try {
     payload = JSON.parse(decoder.decode(base64UrlDecode(payloadPart))) as JWTPayload;
   } catch {
