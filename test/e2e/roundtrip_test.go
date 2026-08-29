@@ -105,10 +105,10 @@ func TestDeepNesting30Levels(t *testing.T) {
 func TestCaseOnlyRename(t *testing.T) {
 	h := newHarness(t, "CaseOnly")
 	if _, err := fixtures.Build(h.root, fixtures.Spec{
-		SmallFiles:   5,
+		SmallFiles:    5,
 		SmallFileSize: 64,
-		CaseOnlyPair: true,
-		Seed:         2,
+		CaseOnlyPair:  true,
+		Seed:          2,
 	}); err != nil {
 		t.Fatal(err)
 	}

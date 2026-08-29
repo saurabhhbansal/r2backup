@@ -420,6 +420,18 @@ func (r *runner) uploadFile(ctx context.Context, entry scan.Entry, retried bool)
 	if err != nil {
 		return outcome{key: entry.Key, err: fmt.Errorf("stat %s: %w", entry.Key, err)}
 	}
+	// entry carries whatever scan.Walk saw when the plan was built, which on
+	// a retry is stale by definition -- the whole reason this is attempt two
+	// is that the file has since changed. Refreshing Size/ModTime from pre,
+	// taken immediately before this attempt's own read, is what keeps the
+	// metadata Put uploads (and the record OnUploaded hands the index)
+	// describing the bytes this attempt actually captured, rather than the
+	// file's state before whichever save triggered the retry. Without this,
+	// a retried upload lands with the right content under the wrong mtime,
+	// which both restores incorrectly and makes the next run see a false
+	// mismatch against its own freshly-corrected copy on disk.
+	entry.Size = pre.Size()
+	entry.ModTime = pre.ModTime()
 	f, err := r.opts.FS.Open(path)
 	if err != nil {
 		// Locked by another process, permission denied, deleted since the
@@ -447,6 +459,19 @@ func (r *runner) uploadFile(ctx context.Context, entry scan.Entry, retried bool)
 		return outcome{key: entry.Key, err: fmt.Errorf("post-upload stat %s: %w", entry.Key, err)}
 	}
 	if post.Size() != pre.Size() || !post.ModTime().Equal(pre.ModTime()) {
+		// Put has already succeeded from the remote's point of view: the
+		// (possibly torn) bytes it just streamed are sitting live at
+		// entry.Key right now, whatever we decide to report. Deciding to
+		// retry or fail without removing them would leave exactly the
+		// object this check exists to prevent -- reachable by any restore
+		// run this instant, not just "eventually corrected by a future
+		// backup" -- so it is deleted before either outcome below is ever
+		// returned, on the first attempt as much as the last.
+		if delErr := r.opts.Uploader.DeleteMany(ctx, []string{entry.Key}); delErr != nil {
+			return outcome{key: entry.Key, err: fmt.Errorf(
+				"upload %s: file changed during upload, and the resulting object could not be removed: %w",
+				entry.Key, delErr)}
+		}
 		if retried {
 			return outcome{key: entry.Key, err: fmt.Errorf("upload %s: file changed again during upload; giving up after one retry", entry.Key)}
 		}
