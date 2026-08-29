@@ -112,8 +112,9 @@ machine. On macOS and Linux there is no keystore backend yet and the file is
 got rather than implying encryption that is not happening.
 
 If a backed-up folder is renamed or moved, r2backup stops rather than reading
-the missing folder as a deletion, and tells you to run `relink`. Nothing is
-re-uploaded.
+the missing folder as a deletion. Run it yourself and it asks where the folder
+went, repoints it and carries on; a scheduled run leaves it for you and says so
+in `status`. Nothing is re-uploaded either way.
 
 `remove` stops backing a folder up and leaves what is already in the bucket
 alone; `remove --purge` deletes those objects too, permanently. Adding the
