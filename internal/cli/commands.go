@@ -454,10 +454,23 @@ func newScheduleCmd(opts *Options) *cobra.Command {
 				return errors.New("no scheduler is available on this platform")
 			}
 			if remove {
+				// Ask first, so this does not claim to have removed
+				// something that was never there. Remove itself treats "no
+				// such task" as success, which is right for the operation
+				// and wrong for the sentence printed afterwards.
+				before, cerr := schedule.Current("r2backup")
 				if err := schedule.Remove("r2backup"); err != nil {
 					return err
 				}
-				fmt.Fprintln(opts.Out, "Unregistered. Backups will only run when you run them.")
+				switch {
+				case cerr != nil:
+					// Could not tell either way; do not guess which it was.
+					fmt.Fprintln(opts.Out, "No scheduled task remains. Backups will only run when you run them.")
+				case before.Registered:
+					fmt.Fprintln(opts.Out, "Unregistered. Backups will only run when you run them.")
+				default:
+					fmt.Fprintln(opts.Out, "There was no scheduled task to remove. Backups only run when you run them.")
+				}
 				return nil
 			}
 			self, err := os.Executable()
