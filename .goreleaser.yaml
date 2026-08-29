@@ -87,6 +87,8 @@ release:
     Back up folders to Cloudflare R2 and restore them anywhere. One static
     binary, no installer, no background service.
 
+    Run `r2b` on its own for the dashboard, or use any command directly.
+
   footer: |
     ### Install
 
@@ -107,7 +109,7 @@ release:
     ```sh
     r2b setup                  # sign in, or enter your R2 keys
     r2b add ~/Documents        # pick what to include, back it up, schedule it
-    r2b status                 # what ran, when, and what is next
+    r2b                        # the dashboard
     r2b restore Documents      # bring it back, here or on another computer
     ```
 
