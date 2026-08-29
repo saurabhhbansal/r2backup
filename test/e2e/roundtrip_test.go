@@ -1,9 +1,12 @@
 package e2e
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/saurabhhbansal/r2backup/internal/backup"
 	"github.com/saurabhhbansal/r2backup/test/fixtures"
 )
 
@@ -215,7 +218,7 @@ func TestTwentyThousandFileTree(t *testing.T) {
 
 	first := h.backupRun(t)
 	if !first.Succeeded() {
-		t.Fatalf("first backup reported failures: %d", len(first.Failures))
+		t.Fatalf("first backup reported failures: %d\n%s", len(first.Failures), whyFailed(first))
 	}
 	if first.Uploaded != n {
 		t.Fatalf("Uploaded = %d, want %d", first.Uploaded, n)
@@ -234,7 +237,7 @@ func TestTwentyThousandFileTree(t *testing.T) {
 
 	second := h.backupRun(t)
 	if !second.Succeeded() {
-		t.Fatalf("second backup reported failures: %d", len(second.Failures))
+		t.Fatalf("second backup reported failures: %d\n%s", len(second.Failures), whyFailed(second))
 	}
 	wantMin := len(edited) + len(added)
 	if second.Uploaded < wantMin {
@@ -265,4 +268,29 @@ func TestTwentyThousandFileTree(t *testing.T) {
 		}
 		t.Fatalf("restore did not round-trip byte for byte: %d differences of %d files (see log)", len(diffs), n)
 	}
+}
+
+// whyFailed names what actually went wrong.
+//
+// This test asserts zero failures across 20,000 uploads, and when it broke on
+// a Windows runner it said "failures: 62" and nothing else -- which is not
+// enough to tell a genuine defect from the local MinIO refusing connections
+// under load on an overloaded machine. A count is not a diagnosis.
+func whyFailed(r *backup.Report) string {
+	var b strings.Builder
+	seen := map[string]int{}
+	for _, f := range r.Failures {
+		seen[f.Err.Error()]++
+	}
+	b.WriteString("distinct errors:\n")
+	for msg, n := range seen {
+		fmt.Fprintf(&b, "  %4d x %s\n", n, msg)
+	}
+	for i, f := range r.Failures {
+		if i == 3 {
+			break
+		}
+		fmt.Fprintf(&b, "  e.g. %s: %v\n", f.Key, f.Err)
+	}
+	return b.String()
 }
