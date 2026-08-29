@@ -512,14 +512,21 @@ func newRemoveCmd(opts *Options) *cobra.Command {
 				}
 			}
 
-			if err := a.sets.Remove(s.Name); err != nil {
+			// The index is a cache of what is already uploaded, keyed by set
+			// name, and it has to go with the set: left behind, a later set
+			// of the same name inherits it and skips uploading a file it has
+			// never seen, because the record says it is already there.
+			//
+			// Dropped before the set is forgotten, because the two steps can
+			// fail independently and the orders are not equally bad. This way
+			// a failure leaves a set whose index is empty, and the next run
+			// uploads the tree again -- expensive, never wrong. The other way
+			// leaves records with no set, waiting for the next set of that
+			// name to inherit them and skip files.
+			if err := a.index.DropSet(s.Name); err != nil {
 				return err
 			}
-			// The index is a cache of what is already uploaded, keyed by set
-			// name. It has to go with the set: left behind, a later set of
-			// the same name would inherit it and skip uploading a file it had
-			// never seen, because the record says it is already there.
-			if err := a.index.DropSet(s.Name); err != nil {
+			if err := a.sets.Remove(s.Name); err != nil {
 				return err
 			}
 
