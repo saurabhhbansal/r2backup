@@ -205,7 +205,8 @@ func newAddCmd(opts *Options) *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().IntVar(&interval, "every", sets.DefaultIntervalMinutes, "minutes between scheduled runs")
+	cmd.Flags().IntVar(&interval, "every", sets.DefaultIntervalMinutes,
+		"how often this set wants to run, in minutes: recorded, and used in the suggestion printed after adding. Nothing is scheduled until you run r2backup schedule")
 	cmd.Flags().IntVar(&retention, "retention", sets.DefaultRetentionDays,
 		"days to keep deleted and overwritten files; 0 disables trash")
 	cmd.Flags().BoolVar(&all, "all", false, "skip the picker and include everything")
