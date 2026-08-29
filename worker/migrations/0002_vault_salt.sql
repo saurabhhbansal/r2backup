@@ -1,0 +1,13 @@
+-- Add the salt the key derivation actually needs.
+--
+-- The vault was being stored without it. The client derives its key with
+-- argon2id(passphrase, salt), so a vault returned without its salt cannot be
+-- opened by anyone, ever -- including the person who wrote it. Encrypt and
+-- Decrypt round-tripped in memory, and the Worker's tests used a fake that
+-- echoed whatever shape it was handed, so nothing caught it until a real blob
+-- went to the real server and came back a field short.
+--
+-- Existing rows get an empty salt. There are none in production beyond a test
+-- row, and an empty salt is honestly undecryptable rather than quietly wrong:
+-- the client reports a failed unlock and the user re-runs `account push`.
+ALTER TABLE vaults ADD COLUMN salt TEXT NOT NULL DEFAULT '';

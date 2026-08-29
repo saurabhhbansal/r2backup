@@ -47,6 +47,7 @@ describe("PUT /vault then GET /vault", () => {
 
   it("stores and returns the blob unchanged, opaque to the server", async () => {
     const blob = {
+      salt: "YmFzZTY0c2FsdA==",
       ciphertext: "YmFzZTY0Y2lwaGVydGV4dA==",
       nonce: "YmFzZTY0bm9uY2U=",
       kdf_params: { time: 3, memory: 65536, threads: 4, key_len: 32 },
@@ -56,7 +57,13 @@ describe("PUT /vault then GET /vault", () => {
 
     const getRes = await handleGetVault(await authedRequest("GET", "/vault", "owner@example.com"), ctx);
     expect(getRes.status).toBe(200);
-    const stored = (await getRes.json()) as { ciphertext: string; nonce: string; kdf_params: string };
+    const stored = (await getRes.json()) as {
+      salt: string; ciphertext: string; nonce: string; kdf_params: string;
+    };
+    // The salt has to survive the trip. Without it the client cannot derive
+    // the key it encrypted with, so a vault returned without one can never be
+    // opened -- by anyone, including whoever wrote it.
+    expect(stored.salt).toBe(blob.salt);
     expect(stored.ciphertext).toBe(blob.ciphertext);
     expect(stored.nonce).toBe(blob.nonce);
     expect(JSON.parse(stored.kdf_params)).toEqual(blob.kdf_params);
@@ -64,11 +71,21 @@ describe("PUT /vault then GET /vault", () => {
 
   it("keeps vaults isolated per email", async () => {
     await handlePutVault(
-      await authedRequest("PUT", "/vault", "alice@example.com", { ciphertext: "a", nonce: "a", kdf_params: {} }),
+      await authedRequest("PUT", "/vault", "alice@example.com", { salt: "s", ciphertext: "a", nonce: "a", kdf_params: {} }),
       ctx,
     );
     const res = await handleGetVault(await authedRequest("GET", "/vault", "bob@example.com"), ctx);
     expect(res.status).toBe(404);
+  });
+
+  it("refuses a vault with no salt, which could never be opened", async () => {
+    const res = await handlePutVault(
+      await authedRequest("PUT", "/vault", "owner@example.com", {
+        ciphertext: "YmFzZTY0", nonce: "YmFzZTY0", kdf_params: {},
+      }),
+      ctx,
+    );
+    expect(res.status).toBe(400);
   });
 
   it("rejects a body missing required fields", async () => {

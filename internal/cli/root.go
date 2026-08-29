@@ -82,6 +82,8 @@ func NewRoot(opts *Options) *cobra.Command {
 		newRelinkCmd(opts),
 		newTrashCmd(opts),
 		newUpdateCmd(opts),
+		newLoginCmd(opts),
+		newAccountCmd(opts),
 	)
 	return root
 }

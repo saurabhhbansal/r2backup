@@ -7,6 +7,7 @@ export interface OtpRow {
 }
 
 export interface VaultRow {
+  salt: string;
   ciphertext: string;
   nonce: string;
   kdf_params: string;
@@ -79,7 +80,7 @@ export class D1Storage implements Storage {
 
   async getVault(email: string): Promise<VaultRow | null> {
     const row = await this.db
-      .prepare("SELECT ciphertext, nonce, kdf_params, updated_at FROM vaults WHERE email = ?")
+      .prepare("SELECT salt, ciphertext, nonce, kdf_params, updated_at FROM vaults WHERE email = ?")
       .bind(email)
       .first<VaultRow>();
     return row ?? null;
@@ -88,11 +89,11 @@ export class D1Storage implements Storage {
   async putVault(email: string, row: VaultRow): Promise<void> {
     await this.db
       .prepare(
-        `INSERT INTO vaults (email, ciphertext, nonce, kdf_params, updated_at) VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(email) DO UPDATE SET ciphertext = excluded.ciphertext, nonce = excluded.nonce,
+        `INSERT INTO vaults (email, salt, ciphertext, nonce, kdf_params, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT(email) DO UPDATE SET salt = excluded.salt, ciphertext = excluded.ciphertext, nonce = excluded.nonce,
            kdf_params = excluded.kdf_params, updated_at = excluded.updated_at`,
       )
-      .bind(email, row.ciphertext, row.nonce, row.kdf_params, row.updated_at)
+      .bind(email, row.salt, row.ciphertext, row.nonce, row.kdf_params, row.updated_at)
       .run();
   }
 

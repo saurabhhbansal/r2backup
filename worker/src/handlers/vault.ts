@@ -15,12 +15,13 @@ export async function handlePutVault(request: Request, ctx: AppContext): Promise
   const auth = await authenticate(request, ctx);
   if (auth instanceof Response) return auth;
 
-  const body = await readJsonBody<{ ciphertext?: unknown; nonce?: unknown; kdf_params?: unknown }>(
+  const body = await readJsonBody<{ salt?: unknown; ciphertext?: unknown; nonce?: unknown; kdf_params?: unknown }>(
     request,
     MAX_VAULT_BODY_BYTES,
   );
   if (
     body === null ||
+    typeof body.salt !== "string" ||
     typeof body.ciphertext !== "string" ||
     typeof body.nonce !== "string" ||
     body.kdf_params === undefined
@@ -36,6 +37,10 @@ export async function handlePutVault(request: Request, ctx: AppContext): Promise
   // re-serialised so its shape isn't dictated by whatever JSON the client
   // happened to send.
   await ctx.storage.putVault(auth, {
+    // The salt is required, not optional. Without it the client cannot derive
+    // the key it encrypted with, so a vault stored without one can never be
+    // opened by anyone -- including the person who wrote it.
+    salt: body.salt,
     ciphertext: body.ciphertext,
     nonce: body.nonce,
     kdf_params: JSON.stringify(body.kdf_params),
