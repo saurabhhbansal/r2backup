@@ -1,9 +1,10 @@
 <!--
 The standard shape for a release's notes. Copy this to
 .github/release-notes/<tag>.md — for example v1.0.1.md — and fill it in as
-part of the change, not afterwards. The release workflow passes the file for
-the tag being built to goreleaser as the release header, and the generated
-commit changelog follows underneath it.
+part of the change, not afterwards. The release workflow passes the file for the tag being built to goreleaser
+with --release-header. On the published page it lands under the short product
+blurb from .goreleaser.yaml and above the generated commit changelog — so
+write it as the body of the release, not as its opening line.
 
 Rules, so this never has to be decided again:
   * Write for someone who has the previous version installed and wants to
