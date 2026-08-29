@@ -42,6 +42,7 @@ type (
 	errMsg      struct{ err error }
 	tickMsg     time.Time
 	phaseMsg    string
+	runSetMsg   string
 	snapshotMsg progress.Snapshot
 	runDoneMsg  struct {
 		set string
@@ -203,6 +204,14 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(tick(), m.load())
 		}
 		return m, tick()
+
+	case runSetMsg:
+		// Which set is being worked on now. `B` backs up every set in turn,
+		// and the running screen showed the first one's name for the whole
+		// batch until this existed.
+		m.runSet = string(msg)
+		m.runPhase = "starting"
+		return m, m.waitForEvent()
 
 	case phaseMsg:
 		m.runPhase = string(msg)

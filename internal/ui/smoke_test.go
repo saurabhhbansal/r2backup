@@ -244,3 +244,96 @@ func TestTheFrameFitsTheTerminalExactly(t *testing.T) {
 		}
 	}
 }
+
+// Leaving the interface mid-run used to abandon the backup: the goroutine
+// keeps uploading and keeps posting onto a channel with no reader, fills the
+// buffer and blocks forever, so the run stops silently and partway. `edit`
+// also ends by running a backup of its own, which would then contend for the
+// same bbolt writer lock.
+func TestYouCannotWalkOutOnARunningBackup(t *testing.T) {
+	b := twoSets()
+	m := sized(b, 120, 40)
+	press(m, "b")
+	if !m.running {
+		t.Fatal("b should have started a backup")
+	}
+	for _, k := range []string{"a", "e", "r"} {
+		m.screen = screenHome
+		press(m, k)
+		if m.quit {
+			t.Fatalf("%q left the interface while a backup was running", k)
+		}
+		if m.Action().Kind != ActionNone {
+			t.Fatalf("%q queued %v while a backup was running", k, m.Action().Kind)
+		}
+	}
+	if !strings.Contains(m.status, "backup is running") {
+		t.Errorf("the user should be told why nothing happened, got %q", m.status)
+	}
+}
+
+// A backup goroutine must never block on a channel nobody is reading. If it
+// does, the upload it is in the middle of stops there.
+func TestProgressIsDroppedRatherThanBlocking(t *testing.T) {
+	b := twoSets()
+	m := sized(b, 120, 40)
+	// Fill the buffer so any blocking send would deadlock.
+	for len(m.events) < cap(m.events) {
+		m.events <- phaseMsg("filler")
+	}
+	press(m, "b")
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case msg := <-m.events:
+				if _, ok := msg.(runDoneMsg); ok {
+					return
+				}
+			case <-time.After(3 * time.Second):
+				return
+			}
+		}
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the backup goroutine wedged on a full channel")
+	}
+	if len(b.backups) != 1 {
+		t.Errorf("the backup did not run: %v", b.backups)
+	}
+}
+
+// `B` walks every set. The running screen named only the first one for the
+// whole batch until runSetMsg existed.
+func TestBackingUpEverythingNamesEachSetAsItGoes(t *testing.T) {
+	b := twoSets()
+	m := sized(b, 120, 40)
+	press(m, "B")
+
+	seen := map[string]bool{}
+	deadline := time.After(3 * time.Second)
+	for {
+		select {
+		case msg := <-m.events:
+			m.Update(msg)
+			if _, ok := msg.(runDoneMsg); ok {
+				if !seen["Documents"] || !seen["Code"] {
+					t.Fatalf("the title named %v, want both sets", seen)
+				}
+				return
+			}
+			if s, ok := msg.(runSetMsg); ok {
+				seen[string(s)] = true
+				if m.runSet != string(s) {
+					t.Errorf("runSet = %q, want %q", m.runSet, string(s))
+				}
+			}
+		case <-deadline:
+			t.Fatal("the batch never finished")
+		}
+	}
+}

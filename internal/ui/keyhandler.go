@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/key"
 	tea "github.com/charmbracelet/bubbletea"
@@ -100,9 +101,7 @@ func (m *Model) homeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, keys.Add):
-		m.action = Action{Kind: ActionAdd}
-		m.quit = true
-		return m, tea.Quit
+		return m, m.handOff(Action{Kind: ActionAdd})
 
 	case key.Matches(msg, keys.Backup):
 		if v, ok := m.selected(); ok {
@@ -118,17 +117,13 @@ func (m *Model) homeKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case key.Matches(msg, keys.Edit):
 		if v, ok := m.selected(); ok {
-			m.action = Action{Kind: ActionEdit, Set: v.Name}
-			m.quit = true
-			return m, tea.Quit
+			return m, m.handOff(Action{Kind: ActionEdit, Set: v.Name})
 		}
 		return m, nil
 
 	case key.Matches(msg, keys.Restore):
 		if v, ok := m.selected(); ok {
-			m.action = Action{Kind: ActionRestore, Set: v.Name}
-			m.quit = true
-			return m, tea.Quit
+			return m, m.handOff(Action{Kind: ActionRestore, Set: v.Name})
 		}
 		return m, nil
 
@@ -163,15 +158,30 @@ func (m *Model) detailKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.Trash):
 		return m, m.loadTrash(v.Name)
 	case key.Matches(msg, keys.Edit):
-		m.action = Action{Kind: ActionEdit, Set: v.Name}
-		m.quit = true
-		return m, tea.Quit
+		return m, m.handOff(Action{Kind: ActionEdit, Set: v.Name})
 	case key.Matches(msg, keys.Restore):
-		m.action = Action{Kind: ActionRestore, Set: v.Name}
-		m.quit = true
-		return m, tea.Quit
+		return m, m.handOff(Action{Kind: ActionRestore, Set: v.Name})
 	}
 	return m, m.forward(msg)
+}
+
+// handOff leaves the interface so the command line can run a job this screen
+// does not do itself -- but never while a backup is going.
+//
+// Leaving mid-run used to abandon it. The goroutine keeps uploading and keeps
+// posting progress onto a channel that no longer has a reader, fills the
+// buffer, and blocks forever: the backup stops silently, partway, having left
+// a stale progress file behind. And `edit` ends by running a backup of its
+// own, so even if it survived, two runs would be contending for one bbolt
+// writer lock on the same index.
+func (m *Model) handOff(a Action) tea.Cmd {
+	if m.running {
+		m.status = "A backup is running. Wait for it, or press q to stop it."
+		return nil
+	}
+	m.action = a
+	m.quit = true
+	return tea.Quit
 }
 
 // ask puts up a yes/no confirmation. Nothing destructive happens without one.
@@ -223,12 +233,24 @@ func (m *Model) runSets(names []string) tea.Cmd {
 	backend := m.backend
 
 	go func() {
+		// post never blocks. A send onto a channel whose reader has gone --
+		// which is what quitting is -- would otherwise wedge this goroutine
+		// forever, and with it the backup it is running. Progress is the
+		// most droppable thing on screen: a frame missed under a burst is
+		// invisible, a stalled upload is not.
+		post := func(msg tea.Msg) {
+			select {
+			case events <- msg:
+			case <-ctx.Done():
+			default:
+			}
+		}
 		var lastErr error
 		for _, n := range names {
-			events <- phaseMsg("starting " + n)
+			post(runSetMsg(n))
 			err := backend.Backup(ctx, n,
-				func(p string) { events <- phaseMsg(p) },
-				func(s progress.Snapshot) { events <- snapshotMsg(s) },
+				func(p string) { post(phaseMsg(p)) },
+				func(s progress.Snapshot) { post(snapshotMsg(s)) },
 			)
 			if err != nil {
 				lastErr = err
@@ -236,7 +258,12 @@ func (m *Model) runSets(names []string) tea.Cmd {
 			}
 		}
 		cancel()
-		events <- runDoneMsg{set: strings.Join(names, ", "), err: lastErr}
+		// The one message that must not be dropped: without it the interface
+		// believes a backup is still running for as long as it is open.
+		select {
+		case events <- runDoneMsg{set: strings.Join(names, ", "), err: lastErr}:
+		case <-time.After(5 * time.Second):
+		}
 	}()
 
 	return tea.Batch(m.waitForEvent(), m.spin.Tick)
