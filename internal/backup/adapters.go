@@ -115,6 +115,14 @@ func (a trashAdapter) Move(ctx context.Context, prefix string, keys []string) er
 	return err
 }
 
+func (a trashAdapter) Prune(ctx context.Context, prefix string) (Pruned, error) {
+	res, err := a.t.Prune(ctx, prefix, a.retentionDays)
+	if err != nil {
+		return Pruned{}, err
+	}
+	return Pruned{Dates: res.DatesPruned, Keys: res.KeysDeleted, Ops: res.ClassAOps}, nil
+}
+
 // NewTrash builds the Trash a run should use, or nil when the set keeps no
 // history. A set that is pure build output does not need thirty days of it.
 func NewTrash(client *remote.Client, retentionDays int) Trash {

@@ -525,6 +525,11 @@ func newRemoveCmd(opts *Options) *cobra.Command {
 			if err := a.index.DropSet(s.Name); err != nil {
 				return err
 			}
+			// Same reasoning: a later set of this name must not inherit a
+			// claim that makes it skip its first trash sweep.
+			if err := a.index.ForgetDailyPrune(s.Name); err != nil {
+				return err
+			}
 			if err := a.sets.Remove(s.Name); err != nil {
 				return err
 			}

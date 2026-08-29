@@ -55,6 +55,15 @@ type Report struct {
 	// way a backup can be incomplete without anything having failed.
 	Collisions []plan.Collision
 
+	// Pruned is the expired trash this run cleared.
+	Pruned Pruned
+	// PruneErr is why expired trash could not be cleared, if it could not.
+	// It never fails the run: the backup itself succeeded, and old trash
+	// that outstays its window costs storage, not data. It is reported
+	// rather than swallowed, because a retention window nothing enforces is
+	// the bug this field exists to make visible.
+	PruneErr error
+
 	Operations int
 	Elapsed    time.Duration
 }
@@ -83,11 +92,29 @@ type nopObserver struct{}
 func (nopObserver) Phase(Phase, *Report)       {}
 func (nopObserver) Progress(progress.Snapshot) {}
 
-// Trash moves objects aside before they are overwritten or deleted. It is an
-// interface so a run can be tested without one, and so retention 0 can simply
-// pass nil.
+// Trash moves objects aside before they are overwritten or deleted, and
+// clears what has outlived the set's retention. It is an interface so a run
+// can be tested without one, and so retention 0 can simply pass nil.
 type Trash interface {
 	Move(ctx context.Context, prefix string, keys []string) error
+	// Prune removes trash older than the set's retention window. A run is
+	// the only thing that calls it: there is no daemon, so if a backup does
+	// not expire old trash then nothing ever does -- which is exactly what
+	// used to happen. trash.Prune was fully written and fully tested and had
+	// no caller at all, so every "recoverable until <date>" that `trash ls`
+	// printed was a date nothing acted on, and trash grew forever.
+	Prune(ctx context.Context, prefix string) (Pruned, error)
+}
+
+// Pruned is what clearing expired trash did.
+type Pruned struct {
+	// Dates are the trash date directories removed, oldest first.
+	Dates []string
+	// Keys is how many trashed objects were removed.
+	Keys int
+	// Ops is the Class A cost of finding them. The deletes themselves are
+	// free on R2 however many there were.
+	Ops int
 }
 
 // Options configures one run.
@@ -166,7 +193,18 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 
 	if p.Empty() {
 		// A run where nothing changed costs nothing: no LIST, no HEAD, no
-		// PUT. This early return is where that claim is actually kept.
+		// PUT. This early return is where that claim is actually kept --
+		// except for expiring trash, which is due at most once a day and has
+		// to happen even here. A set that never changes never trashes
+		// anything either, so if an unchanged run does not sweep, that set's
+		// trash is kept and paid for forever.
+		expireTrash(ctx, opts, rep)
+		rep.Operations = rep.Pruned.Ops
+		if rep.Operations > 0 {
+			if err := opts.Index.AddOps(rep.Operations); err != nil {
+				return nil, fmt.Errorf("record operation count: %w", err)
+			}
+		}
 		rep.Elapsed = now().Sub(started)
 		obs.Phase(PhaseDone, rep)
 		return rep, nil
@@ -274,7 +312,11 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 		}
 	}
 
-	rep.Operations = p.Operations(set.TrashEnabled())
+	// After the uploads, so a run that fails partway has not also spent
+	// operations tidying.
+	expireTrash(ctx, opts, rep)
+
+	rep.Operations = p.Operations(set.TrashEnabled()) + rep.Pruned.Ops
 	if err := opts.Index.AddOps(rep.Operations); err != nil {
 		return nil, fmt.Errorf("record operation count: %w", err)
 	}
@@ -282,6 +324,36 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 	rep.Elapsed = now().Sub(started)
 	obs.Phase(PhaseDone, rep)
 	return rep, nil
+}
+
+// expireTrash sweeps whatever has outlived the set's retention window,
+// at most once per UTC day.
+//
+// There is no daemon, so a run is the only thing that can do this, and for a
+// long time nothing did: trash.Prune was written, documented and covered by
+// its own tests with no caller anywhere, so every "recoverable until <date>"
+// that `trash ls` printed was a date nothing acted on. A failure is recorded
+// on the report and never fails the run -- the backup itself succeeded, and
+// trash outstaying its window costs storage, not data -- but it is never
+// swallowed, because a retention window nothing enforces is the whole bug.
+func expireTrash(ctx context.Context, opts Options, rep *Report) {
+	if opts.Trash == nil {
+		return
+	}
+	due, err := opts.Index.ClaimDailyPrune(opts.Set.Name)
+	if err != nil {
+		rep.PruneErr = err
+		return
+	}
+	if !due {
+		return
+	}
+	pruned, err := opts.Trash.Prune(ctx, opts.Set.Prefix)
+	if err != nil {
+		rep.PruneErr = err
+		return
+	}
+	rep.Pruned = pruned
 }
 
 // priorOf adapts the index to what the planner needs.

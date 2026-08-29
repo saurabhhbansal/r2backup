@@ -180,6 +180,15 @@ func summarise(out io.Writer, r *backup.Report) {
 			fmt.Fprintf(out, "    %s\n", c.Key)
 		}
 	}
+	// Reported when it did something or when it could not. A retention
+	// window that nothing enforces was the bug here -- trash.Prune had no
+	// caller at all -- so a failure to enforce it is said out loud rather
+	// than left for someone to notice in a storage bill.
+	if r.PruneErr != nil {
+		fmt.Fprintf(out, "  expired files could not be cleared from trash: %v\n", r.PruneErr)
+	} else if r.Pruned.Keys > 0 {
+		fmt.Fprintf(out, "  %d expired file(s) cleared from trash.\n", r.Pruned.Keys)
+	}
 	if n := len(r.Failures); n > 0 {
 		fmt.Fprintf(out, "  %d file(s) failed to upload and will be retried next run:\n", n)
 		for i, f := range r.Failures {

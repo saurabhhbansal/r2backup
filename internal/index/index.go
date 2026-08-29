@@ -79,6 +79,9 @@ var (
 	setsBucketName = []byte("sets")
 	metaBucketName = []byte("meta")
 	opsKey         = []byte("ops")
+	// prunedKey holds, per set, the UTC calendar day its trash was last
+	// swept. See ClaimDailyPrune.
+	prunedKey = []byte("pruned")
 )
 
 // DB is a bbolt-backed store, isolated per set, safe for concurrent use from
@@ -402,6 +405,89 @@ func startOfNextMonth(t time.Time) time.Time {
 	t = t.UTC()
 	y, m, _ := t.Date()
 	return time.Date(y, m+1, 1, 0, 0, 0, 0, time.UTC)
+}
+
+// ClaimDailyPrune reports whether set's trash still needs sweeping today,
+// and records today's date when it says yes -- so the answer is yes at most
+// once per set per UTC day.
+//
+// This exists to hold two claims that pull against each other. Trash expires
+// by the calendar, so a set that never changes still has to be swept or its
+// trash is kept, and paid for, forever -- which is what happened while
+// trash.Prune had no caller. But finding what to expire costs a
+// ListObjectsV2, and "a run where nothing changed costs nothing" is this
+// product's headline claim, with its own tests. Sweeping once a day rather
+// than once a run keeps both: an unchanged tree is free every run but the
+// first of the day, and the retention window is actually enforced.
+//
+// The claim is recorded before the sweep runs, not after. A sweep that fails
+// is therefore not retried until tomorrow, which is the right way round: the
+// alternative retries a failing List on every run all day, spending
+// operations on an error, and old trash outstaying its window by a day costs
+// storage, not data.
+func (db *DB) ClaimDailyPrune(set string) (bool, error) {
+	today := db.now().UTC().Format("2006-01-02")
+	var due bool
+	err := db.bolt.Update(func(tx *bbolt.Tx) error {
+		meta := tx.Bucket(metaBucketName)
+		if meta == nil {
+			return errors.New("index: meta bucket missing (index not opened via Open)")
+		}
+		var byName map[string]string
+		if data := meta.Get(prunedKey); data != nil {
+			if err := json.Unmarshal(data, &byName); err != nil {
+				// Unreadable bookkeeping must not stop a sweep; the worst
+				// case of starting over is one extra listing.
+				byName = nil
+			}
+		}
+		if byName == nil {
+			byName = map[string]string{}
+		}
+		if byName[set] == today {
+			return nil
+		}
+		due = true
+		byName[set] = today
+		data, err := json.Marshal(byName)
+		if err != nil {
+			return fmt.Errorf("index: encode prune dates: %w", err)
+		}
+		return meta.Put(prunedKey, data)
+	})
+	if err != nil {
+		return false, err
+	}
+	return due, nil
+}
+
+// ForgetDailyPrune drops set's sweep bookkeeping. Called when a set is
+// removed, so a later set of the same name does not inherit a claim that
+// makes it skip its first sweep.
+func (db *DB) ForgetDailyPrune(set string) error {
+	return db.bolt.Update(func(tx *bbolt.Tx) error {
+		meta := tx.Bucket(metaBucketName)
+		if meta == nil {
+			return nil
+		}
+		data := meta.Get(prunedKey)
+		if data == nil {
+			return nil
+		}
+		var byName map[string]string
+		if err := json.Unmarshal(data, &byName); err != nil {
+			return meta.Delete(prunedKey)
+		}
+		if _, ok := byName[set]; !ok {
+			return nil
+		}
+		delete(byName, set)
+		out, err := json.Marshal(byName)
+		if err != nil {
+			return fmt.Errorf("index: encode prune dates: %w", err)
+		}
+		return meta.Put(prunedKey, out)
+	})
 }
 
 // AddOps records n more R2 operations against the current calendar month.
