@@ -1,0 +1,91 @@
+version: 2
+project_name: r2backup
+
+before:
+  hooks:
+    - go mod download
+
+builds:
+  - id: r2backup
+    main: ./cmd/r2backup
+    binary: r2backup
+    env:
+      # No cgo, so every target cross-compiles from one Linux runner and the
+      # result is a single static file with no runtime to install. That is the
+      # entire distribution story: no installer, no Python, no Node.
+      - CGO_ENABLED=0
+    goos: [linux, windows, darwin]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: default
+    # The name the updater looks for. internal/selfupdate.AssetName builds the
+    # same string; if these two ever disagree, `r2backup update` stops finding
+    # its own releases.
+    name_template: "r2backup_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+    files:
+      - LICENSE
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  use: github
+  sort: asc
+  filters:
+    exclude:
+      - "^test:"
+      - "^chore:"
+
+release:
+  draft: false
+  prerelease: auto
+  # The repo carries no README by design, so the release page is where a
+  # stranger learns how to run this. These notes are that page.
+  header: |
+    ## r2backup {{ .Version }}
+
+    Back up folders to Cloudflare R2 and restore them anywhere. One static
+    binary, no installer, no background service.
+
+  footer: |
+    ### Install
+
+    **Linux / macOS**
+    ```sh
+    curl -sSL https://github.com/saurabhhbansal/r2backup/releases/download/{{ .Tag }}/install.sh | sh
+    ```
+
+    **Windows** (PowerShell)
+    ```powershell
+    irm https://github.com/saurabhhbansal/r2backup/releases/download/{{ .Tag }}/install.ps1 | iex
+    ```
+
+    Or download the archive for your platform below and put `r2backup` on your PATH.
+
+    ### Getting started
+
+    ```sh
+    r2backup setup                  # store your R2 credentials on this machine
+    r2backup add ~/Documents        # pick what to include, then back it up
+    r2backup schedule --every 30m   # have it run by itself from now on
+    r2backup status                 # what ran, when, and what is next
+    r2backup restore Documents      # bring it back, here or on another computer
+    ```
+
+    Verify your download against `checksums.txt`.
+
+  extra_files:
+    - glob: ./scripts/install.sh
+    - glob: ./scripts/install.ps1
