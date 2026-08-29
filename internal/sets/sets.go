@@ -96,6 +96,18 @@ type Set struct {
 	LastError    string    `json:"last_error,omitempty"`
 }
 
+// KeyScope is the key prefix holding everything that belongs to this set, and
+// nothing that belongs to any other.
+//
+// The trailing slash is the whole point and is not cosmetic. Prefixes are
+// built from the set name, so a user with sets called "Docs" and "Docs2" has
+// prefixes "machines/pc/Docs" and "machines/pc/Docs2" -- and a bare
+// ListObjectsV2 on the first matches every object of the second, because S3
+// prefix matching is on bytes and knows nothing about path components. For a
+// listing that is a wrong answer; for `remove --purge`, which deletes what it
+// lists, it would be someone else's backup deleted without a word.
+func (s *Set) KeyScope() string { return s.Prefix + "/" }
+
 // TrashEnabled reports whether overwritten objects are kept.
 func (s *Set) TrashEnabled() bool { return s.RetentionDays > 0 }
 

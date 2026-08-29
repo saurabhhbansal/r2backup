@@ -90,6 +90,7 @@ func NewRoot(opts *Options) *cobra.Command {
 		newScheduleCmd(opts),
 		newRenameCmd(opts),
 		newRelinkCmd(opts),
+		newRemoveCmd(opts),
 		newTrashCmd(opts),
 		newUpdateCmd(opts),
 		newLoginCmd(opts),

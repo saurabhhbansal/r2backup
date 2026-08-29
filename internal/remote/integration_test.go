@@ -471,3 +471,70 @@ func TestOddballKeysRoundTrip(t *testing.T) {
 		})
 	}
 }
+
+// DeletePrefix is what `remove --purge` is built on, so the property that
+// matters is not that it deletes -- it is what it leaves alone. Two sets
+// whose names make one prefix a byte prefix of the other is not a contrived
+// case: "Docs" and "Docs2" are an ordinary pair of names, and S3 matches
+// prefixes by bytes with no idea that a "/" means anything. Getting this
+// wrong deletes a backup nobody asked to delete.
+func TestDeletePrefixStopsAtTheBoundaryItIsGiven(t *testing.T) {
+	c := newClient(t)
+	ctx := context.Background()
+
+	docs := []string{
+		"machines/pc/Docs/current/a.txt",
+		"machines/pc/Docs/current/sub/b.txt",
+		"machines/pc/Docs/trash/2026-08-29/a~130353-6ae44ae0.txt",
+	}
+	survivors := []string{
+		"machines/pc/Docs2/current/keepme.txt",
+		"machines/pc/Docsuments/current/keepme.txt",
+		"machines/pc/Other/current/keepme.txt",
+	}
+	body := []byte("0123456789")
+	for _, k := range append(append([]string{}, docs...), survivors...) {
+		if err := c.Put(ctx, remote.PutInput{
+			Key: k, Body: bytes.NewReader(body), Size: int64(len(body)),
+			Metadata: remote.Metadata{ModTime: time.Now(), Mode: 0o644},
+		}); err != nil {
+			t.Fatalf("Put %q: %v", k, err)
+		}
+	}
+
+	got, err := c.DeletePrefix(ctx, "machines/pc/Docs/")
+	if err != nil {
+		t.Fatalf("DeletePrefix: %v", err)
+	}
+	if got.Objects != len(docs) {
+		t.Errorf("deleted %d objects, want %d", got.Objects, len(docs))
+	}
+	if want := int64(len(docs) * len(body)); got.Bytes != want {
+		t.Errorf("reported %d bytes, want %d", got.Bytes, want)
+	}
+
+	for _, k := range docs {
+		if _, err := c.Head(ctx, k); err == nil {
+			t.Errorf("%q survived a purge of its own set", k)
+		}
+	}
+	for _, k := range survivors {
+		if _, err := c.Head(ctx, k); err != nil {
+			t.Errorf("%q was deleted by a purge of a different set: %v", k, err)
+		}
+	}
+}
+
+// Purging a set that never had anything in the bucket must report nothing
+// rather than fail: an empty folder is a legitimate thing to have added, and
+// removing it is not an error.
+func TestDeletePrefixOfNothingIsNotAnError(t *testing.T) {
+	c := newClient(t)
+	got, err := c.DeletePrefix(context.Background(), "machines/pc/NeverUsed/")
+	if err != nil {
+		t.Fatalf("DeletePrefix on an empty prefix: %v", err)
+	}
+	if got.Objects != 0 || got.Bytes != 0 {
+		t.Errorf("DeletePrefix reported %+v, want a zero result", got)
+	}
+}

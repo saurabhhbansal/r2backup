@@ -8,7 +8,7 @@ import (
 
 func TestEveryCommandIsReachableAndDocumented(t *testing.T) {
 	root := NewRoot(&Options{})
-	want := []string{"add", "backup", "restore", "status", "ls", "schedule", "rename", "relink", "trash"}
+	want := []string{"add", "backup", "restore", "status", "ls", "schedule", "rename", "relink", "remove", "trash"}
 	have := map[string]bool{}
 	for _, c := range root.Commands() {
 		have[c.Name()] = true

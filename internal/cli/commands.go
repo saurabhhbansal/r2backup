@@ -17,6 +17,7 @@ import (
 	"github.com/saurabhhbansal/r2backup/internal/creds"
 	"github.com/saurabhhbansal/r2backup/internal/index"
 	"github.com/saurabhhbansal/r2backup/internal/progress"
+	"github.com/saurabhhbansal/r2backup/internal/remote"
 	"github.com/saurabhhbansal/r2backup/internal/restore"
 	"github.com/saurabhhbansal/r2backup/internal/runstate"
 	"github.com/saurabhhbansal/r2backup/internal/scan"
@@ -424,7 +425,7 @@ func newListCmd(opts *Options) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				fmt.Fprintf(opts.Out, "%s: %s objects\n", s.Name, progress.FormatCount(int64(n)))
+				fmt.Fprintf(opts.Out, "%s: %s\n", s.Name, countOf(int64(n), "object", "objects"))
 				if only != "" {
 					recs, err := a.index.All(s.Name)
 					if err != nil {
@@ -438,6 +439,126 @@ func newListCmd(opts *Options) *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// countOf renders a count with its noun, singular or plural: "1 object",
+// "1,204 objects". Grouping comes from progress.FormatCount, so a number the
+// user reads here is spelled the same way it is everywhere else.
+func countOf(n int64, one, many string) string {
+	noun := many
+	if n == 1 {
+		noun = one
+	}
+	return progress.FormatCount(n) + " " + noun
+}
+
+// newRemoveCmd builds `remove`.
+//
+// Nothing could stop backing up a folder: sets.Store.Remove and
+// index.DropSet both existed and no command called either, so adding the
+// wrong folder was permanent. The question that kept it unbuilt is what
+// happens to the objects, and the answer is that the user says which.
+//
+// The default keeps them. Deleting someone's backup because they stopped
+// tracking a folder is never the safe reading of the request, and this is the
+// most destructive command in the product -- so the destructive half needs its
+// own word on the command line. Typing --purge *is* the confirmation: "no
+// second prompts" is a design decision here, and a y/N that everyone learns to
+// answer "y" to is not a safety feature.
+//
+// --purge deletes permanently rather than routing through trash, which looks
+// like the kinder option and is not. Trash is reachable only through a live
+// set: `trash ls` and `restore --deleted` both resolve a set by name, and
+// Prune only ever runs as part of a backup of that set. Trashing the objects
+// and then removing the set would leave them unreachable by any command, never
+// pruned, and still billed every month -- recoverable in name only. The
+// recoverable option is the default, which keeps the live mirror intact and
+// restorable.
+func newRemoveCmd(opts *Options) *cobra.Command {
+	var purge bool
+	cmd := &cobra.Command{
+		Use:   "remove <set>",
+		Short: "Stop backing up a folder",
+		Long: "Forgets the folder on this computer. The backup in the bucket is kept,\n" +
+			"and adding the folder again reaches it, unless you pass --purge.",
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			a, err := openApp()
+			if err != nil {
+				return err
+			}
+			defer a.close()
+			// Resolved before anything is changed, so an unknown name is an
+			// error and not a cheerful report of having removed nothing.
+			s, err := a.sets.Get(args[0])
+			if err != nil {
+				return err
+			}
+
+			var deleted remote.PrefixDeletion
+			if purge {
+				if err := a.connect(cmd.Context()); err != nil {
+					return err
+				}
+				// Deleted first, and the set forgotten only if that worked.
+				// The other order loses the only handle on these objects the
+				// moment the delete fails partway. KeyScope, never Prefix: a
+				// bare prefix also matches a set whose name merely starts
+				// with this one's.
+				var err error
+				deleted, err = a.client.DeletePrefix(cmd.Context(), s.KeyScope())
+				if err != nil {
+					return fmt.Errorf("%q was not removed: %w", s.Name, err)
+				}
+			}
+
+			if err := a.sets.Remove(s.Name); err != nil {
+				return err
+			}
+			// The index is a cache of what is already uploaded, keyed by set
+			// name. It has to go with the set: left behind, a later set of
+			// the same name would inherit it and skip uploading a file it had
+			// never seen, because the record says it is already there.
+			if err := a.index.DropSet(s.Name); err != nil {
+				return err
+			}
+
+			switch {
+			case purge && deleted.Objects == 0:
+				// Nothing was deleted, so saying it cannot be undone would be
+				// describing an event that did not happen.
+				fmt.Fprintf(opts.Out, "Removed %q. There was nothing in the bucket under %s to delete.\n",
+					s.Name, s.KeyScope())
+			case purge:
+				fmt.Fprintf(opts.Out, "Removed %q and deleted %s (%s) from the bucket. This cannot be undone.\n",
+					s.Name, countOf(int64(deleted.Objects), "object", "objects"), progress.FormatBytes(deleted.Bytes))
+			default:
+				fmt.Fprintf(opts.Out, "Removed %q. This computer no longer backs up %s.\n", s.Name, s.Root)
+				fmt.Fprintf(opts.Out, "The backup is still in the bucket under %s and nothing will delete it.\n", s.KeyScope())
+				fmt.Fprintf(opts.Out, "To get it back: r2backup add %s --name %s\n", s.Root, s.Name)
+				// Said plainly because it is a real cost and the whole
+				// argument of this tool is the operations budget. The index
+				// went with the set, and a run reads the index rather than
+				// the bucket to decide what is already there -- so the first
+				// backup after re-adding uploads the whole folder again over
+				// the top of objects that are already correct.
+				fmt.Fprintln(opts.Out, "Re-adding it uploads the folder once more: what is already uploaded is")
+				fmt.Fprintln(opts.Out, "tracked on this computer, and that record went with the set.")
+			}
+			// A scheduled task that has nothing left to back up fails every
+			// time it fires, on a machine where nobody is watching it.
+			if len(a.sets.List()) == 0 {
+				if st, err := schedule.Current("r2backup"); err == nil && st.Registered {
+					fmt.Fprintln(opts.Out, "\nNothing is being backed up now, and a scheduled run is still registered.")
+					fmt.Fprintln(opts.Out, "To unregister it: r2backup schedule --remove")
+				}
+			}
+			return nil
+		},
+	}
+	cmd.Flags().BoolVar(&purge, "purge", false,
+		"also delete this set's objects from the bucket, permanently and unrecoverably")
+	return cmd
 }
 
 // scheduledRunArgs is the command line the OS scheduler is given.

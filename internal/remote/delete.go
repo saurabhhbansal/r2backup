@@ -64,3 +64,44 @@ func (c *Client) DeleteBatch(ctx context.Context, keys []string) error {
 	}
 	return nil
 }
+
+// PrefixDeletion is what DeletePrefix removed.
+type PrefixDeletion struct {
+	Objects int
+	Bytes   int64
+}
+
+// DeletePrefix removes every object under prefix and reports what went.
+//
+// The prefix is matched by bytes, exactly as S3 matches it, and this call
+// deletes everything it finds -- so a caller passing a prefix that stops
+// short of a path-component boundary deletes more than it means to. A set
+// called "Docs" and one called "Docs2" have prefixes where one is a byte
+// prefix of the other, and "machines/pc/Docs" matches both. Pass the form
+// with the trailing separator; sets.Set.KeyScope exists to produce it.
+//
+// Listing first and deleting the result is deliberately not atomic: an
+// object written between the two is not deleted. For the one caller that
+// exists -- removing a set that this machine has already stopped backing up
+// -- nothing is writing there, and the alternative (deleting as each page
+// arrives) makes a partial failure much harder to describe afterwards.
+func (c *Client) DeletePrefix(ctx context.Context, prefix string) (PrefixDeletion, error) {
+	objects, err := c.List(ctx, prefix)
+	if err != nil {
+		return PrefixDeletion{}, err
+	}
+	if len(objects) == 0 {
+		return PrefixDeletion{}, nil
+	}
+	var out PrefixDeletion
+	keys := make([]string, len(objects))
+	for i, o := range objects {
+		keys[i] = o.Key
+		out.Bytes += o.Size
+	}
+	if err := c.DeleteBatch(ctx, keys); err != nil {
+		return PrefixDeletion{}, err
+	}
+	out.Objects = len(keys)
+	return out, nil
+}

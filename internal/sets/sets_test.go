@@ -411,3 +411,33 @@ func TestAddKeepsAnExplicitlyDisabledRetention(t *testing.T) {
 		t.Error("the disabled retention did not survive a reload")
 	}
 }
+
+// A set's key scope must not reach into a set whose name it is a prefix of.
+// `remove --purge` deletes everything the scope lists, so the difference
+// between "machines/pc/Docs" and "machines/pc/Docs/" is the difference
+// between deleting one set and deleting two.
+func TestKeyScopeStopsAtAComponentBoundary(t *testing.T) {
+	docs := Set{Name: "Docs", Prefix: "machines/pc/Docs"}
+	docs2 := Set{Name: "Docs2", Prefix: "machines/pc/Docs2"}
+
+	scope := docs.KeyScope()
+	if !strings.HasSuffix(scope, "/") {
+		t.Fatalf("KeyScope() = %q, want a trailing slash", scope)
+	}
+	for _, key := range []string{
+		docs2.Prefix + "/current/report.pdf",
+		docs2.Prefix + "/trash/2026-08-29/report~143022-a1b2c3.pdf",
+	} {
+		if strings.HasPrefix(key, scope) {
+			t.Errorf("%q falls inside %q's scope %q, and purging Docs would delete it", key, docs.Name, scope)
+		}
+	}
+	for _, key := range []string{
+		docs.Prefix + "/current/report.pdf",
+		docs.Prefix + "/trash/2026-08-29/report~143022-a1b2c3.pdf",
+	} {
+		if !strings.HasPrefix(key, scope) {
+			t.Errorf("%q is %q's own object but falls outside its scope %q, and a purge would leave it paid for", key, docs.Name, scope)
+		}
+	}
+}
