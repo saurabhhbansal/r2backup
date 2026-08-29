@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -417,6 +419,16 @@ func TestOddballKeysRoundTrip(t *testing.T) {
 
 	for _, key := range keys {
 		t.Run(key, func(t *testing.T) {
+			// MinIO's Windows build stores each object as an NTFS file, so it
+			// inherits NTFS's forbidden characters and rejects this key
+			// outright. Real R2 is object storage with no such filesystem
+			// underneath and accepts it. Skipping here keeps the test honest
+			// about what it is measuring -- the test server's limits, not the
+			// product's -- rather than weakening the key list for every
+			// platform because one test double cannot hold it.
+			if runtime.GOOS == "windows" && strings.ContainsAny(key, `?*:"<>|`) {
+				t.Skipf("MinIO on Windows cannot store %q: it maps object names onto NTFS filenames. R2 accepts it.", key)
+			}
 			content := []byte("payload for " + key)
 			err := c.Put(ctx, remote.PutInput{
 				Key:      key,

@@ -1,0 +1,28 @@
+name = "r2backup-account"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+
+account_id = "cbfede9ea66a3477b3dab34db4b21ab8"
+
+# Custom Domains provision their own DNS record and certificate on the zone,
+# which is why the hostname is one level deep: Cloudflare's free wildcard
+# cert (*.flexpod.cc) does not cover a second level (r2backup.foo.flexpod.cc).
+[[routes]]
+pattern = "r2backup.flexpod.cc"
+custom_domain = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "r2backup-account"
+# Placeholder -- replace with the id `wrangler d1 create` prints (see README
+# below / the deploy notes in the task report). wrangler refuses to deploy
+# with this value still in place, which is intentional: it stops a deploy
+# silently pointing at no database at all.
+database_id = "REPLACE_WITH_D1_DATABASE_ID"
+migrations_dir = "migrations"
+
+# JWT_SECRET and RESEND_API_KEY are deliberately absent from this file.
+# They are Worker Secrets, set with `wrangler secret put <NAME>` against the
+# deployed Worker, not [vars] -- [vars] land in wrangler.toml, which is
+# checked into git, and a JWT signing key or an email provider key committed
+# to source control stops being a secret the moment it's committed.

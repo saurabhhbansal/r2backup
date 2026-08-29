@@ -2,6 +2,7 @@ package backup_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -101,14 +102,31 @@ func TestFirstBackupUploadsTheWholeTree(t *testing.T) {
 	if len(live) != rep.Uploaded {
 		t.Errorf("bucket holds %d objects but the run reported %d uploaded", len(live), rep.Uploaded)
 	}
-	// The fixture deliberately writes "résumé.txt" precomposed AND decomposed.
-	// Linux holds both; they normalize to one key and only one can be stored.
-	// The run must say so rather than quietly dropping one.
-	if len(rep.Collisions) == 0 {
-		t.Error("the NFC/NFD pair was not reported as a collision; one file would be lost in silence")
+	// The fixture writes "résumé.txt" precomposed AND decomposed. Whether that
+	// is one file or two is a property of the filesystem, not of this tool:
+	// ext4 keeps the bytes it was given and holds both, while APFS normalizes
+	// on the way in and holds one. So the expectation is derived from what is
+	// actually on disk rather than from runtime.GOOS -- naming the OS would
+	// still be a guess about the filesystem underneath it.
+	unicodeFiles, err := os.ReadDir(filepath.Join(h.root, "unicode"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	if rep.Complete() {
-		t.Error("Complete() should be false when a collision means the bucket lacks a local file")
+	if len(unicodeFiles) > 1 {
+		// Two files on disk, one possible key. Exactly one can be stored, and
+		// the run must say so rather than quietly dropping the other.
+		if len(rep.Collisions) == 0 {
+			t.Error("the NFC/NFD pair was not reported as a collision; one file would be lost in silence")
+		}
+		if rep.Complete() {
+			t.Error("Complete() should be false when a collision means the bucket lacks a local file")
+		}
+	} else {
+		// The filesystem normalized them into one file, so there is nothing to
+		// collide and nothing to report.
+		if len(rep.Collisions) != 0 {
+			t.Errorf("this filesystem stores the NFC/NFD pair as one file, so there is no collision to report: %v", rep.Collisions)
+		}
 	}
 	// The bucket must be browsable: real folder structure under current/.
 	var sawNested bool
