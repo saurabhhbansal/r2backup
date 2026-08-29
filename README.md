@@ -91,6 +91,7 @@ never encrypted client-side. The worst case is typing your R2 keys in again.
 | `schedule` | Register with the OS scheduler (`--remove` to unregister) |
 | `rename <set> <name>` | Change what a set is called |
 | `relink <set> <path>` | Point a set at a folder that moved |
+| `remove <set>` | Stop backing up a folder (`--purge` also deletes the backup) |
 | `account`, `login` | Share credentials with your other computers |
 | `update` | Replace this binary with the latest release |
 
@@ -113,6 +114,12 @@ got rather than implying encryption that is not happening.
 If a backed-up folder is renamed or moved, r2backup stops rather than reading
 the missing folder as a deletion, and tells you to run `relink`. Nothing is
 re-uploaded.
+
+`remove` stops backing a folder up and leaves what is already in the bucket
+alone; `remove --purge` deletes those objects too, permanently. Adding the
+folder again reaches the same place in the bucket, but uploads it once more —
+the record of what is already there is kept on this computer, and it goes with
+the set.
 
 ## Licence
 
