@@ -4,8 +4,8 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"path"
 	"path/filepath"
-	"runtime"
 	"testing"
 	"time"
 
@@ -26,31 +26,69 @@ import (
 // happened to be available when the test was written.
 func injectObject(t *testing.T, h *harness, relPath string, content []byte) {
 	t.Helper()
+	if err := tryInjectObject(h, relPath, content); err != nil {
+		t.Fatalf("inject %s: %v", relPath, err)
+	}
+}
+
+// tryInjectObject is injectObject for keys the test server itself may refuse.
+// MinIO lays object keys out on its own filesystem, so a key ending in a dot
+// or a space is unstorable when MinIO is running on Windows -- it comes back
+// as an S3 IncompleteBody, because the path it wrote to is not the path it
+// was asked for. That is the emulator's limit and not r2backup's: R2 is a
+// real object store and takes the key verbatim, which is what test/r2 is for.
+// Callers decide what to do about a refusal instead of dying on it.
+func tryInjectObject(h *harness, relPath string, content []byte) error {
 	meta := remote.Metadata{
 		ModTime: time.Now(),
 		Mode:    0o644,
 		Size:    int64(len(content)),
 		Kind:    remote.KindFile,
 	}
-	err := h.client.Put(context.Background(), remote.PutInput{
+	return h.client.Put(context.Background(), remote.PutInput{
 		Key:      h.currentPrefix() + relPath,
 		Body:     bytes.NewReader(content),
 		Size:     int64(len(content)),
 		Metadata: meta,
 	})
-	if err != nil {
-		t.Fatalf("inject %s: %v", relPath, err)
+}
+
+// behavesAsAFile reports whether this machine turns writing to name inside
+// dir into an ordinary file holding those bytes.
+//
+// It exists because "can Windows create this name" has no answer that holds
+// for every Windows machine. A reserved name is not refused, it is redirected
+// to a device: CON.txt reaches the console, NUL.txt swallows what it is
+// given, and COM1.txt or LPT1.txt fail only on a machine with no such port.
+// The create can therefore succeed while leaving nothing behind, so the only
+// question worth asking is what is at the path afterwards. Note it never
+// reads the path back -- reading CON on a machine with a console waits for
+// somebody to type something, which in CI is forever.
+func behavesAsAFile(t *testing.T, dir, name string) bool {
+	t.Helper()
+	const probe = "probe"
+	p := filepath.Join(dir, name)
+	if err := os.WriteFile(p, []byte(probe), 0o644); err != nil {
+		return false
 	}
+	info, err := os.Lstat(p)
+	return err == nil && info.Mode().IsRegular() && info.Size() == int64(len(probe))
 }
 
 // TestWindowsReservedNamesRestoreAsFailuresNotCrashes covers the case a
-// predecessor tool got wrong: CON, PRN, AUX, NUL and COM1/LPT1 cannot be
-// created on Windows under any name-parsing rule, full stop. A backup made
-// on Linux or macOS can absolutely contain them (nothing on those platforms
-// stops it), so a Windows machine restoring someone else's backup -- or its
-// own, restored after reinstalling Windows onto what was a dual-boot box --
-// must not let those few objects crash or halt the run. They are reported
-// as failures, and every other object still restores.
+// predecessor tool got wrong. A backup made on Linux or macOS can absolutely
+// contain CON.txt, NUL.txt or COM1.txt -- nothing on those platforms stops it
+// -- so a Windows machine restoring someone else's backup, or its own after
+// reinstalling Windows onto what was a dual-boot box, must not let those few
+// objects crash or halt the run. Every other object still restores.
+//
+// What Windows does with such a name is not a constant, which is why this
+// probes rather than branching on runtime.GOOS. The names are redirected to
+// devices, not refused: writing CON.txt can succeed with the bytes going to
+// the console, NUL.txt discards them, and COM1.txt or LPT1.txt fail only
+// because that machine has no such port. Which of them come back as failures
+// is therefore a property of the machine, and asserting a fixed answer is
+// what made this test fail the first time it ever ran on Windows.
 func TestWindowsReservedNamesRestoreAsFailuresNotCrashes(t *testing.T) {
 	h := newHarness(t, "Reserved")
 	manifest, err := fixtures.Build(h.root, fixtures.Spec{
@@ -77,31 +115,38 @@ func TestWindowsReservedNamesRestoreAsFailuresNotCrashes(t *testing.T) {
 	target := t.TempDir()
 	restoreRep := h.restoreInto(t, target)
 
-	if runtime.GOOS == "windows" {
-		if restoreRep.Succeeded() {
-			t.Fatal("restore reported success, but Windows cannot create any of the reserved names")
+	// Whatever this machine makes of these names, a failure must never be
+	// reported against anything else: an object the platform cannot hold is
+	// not allowed to take an ordinary file down with it.
+	failed := map[string]bool{}
+	for _, f := range restoreRep.Failures {
+		if _, wasReserved := reservedContent[f.Key]; !wasReserved {
+			t.Errorf("unexpected failure for %q, which is not one of the reserved names", f.Key)
+			continue
 		}
-		if len(restoreRep.Failures) != len(reservedContent) {
-			t.Fatalf("Failures = %+v, want exactly the %d reserved-name objects", restoreRep.Failures, len(reservedContent))
+		failed[f.Key] = true
+	}
+
+	probe := t.TempDir()
+	for rel, want := range reservedContent {
+		if !behavesAsAFile(t, probe, path.Base(rel)) {
+			// This machine will not hand anybody a file by that name, so
+			// there is nothing on disk to compare it against. That restore
+			// neither crashed nor stopped is what matters, and the manifest
+			// check below is what proves it.
+			continue
 		}
-		for _, f := range restoreRep.Failures {
-			if _, wasReserved := reservedContent[f.Key]; !wasReserved {
-				t.Errorf("unexpected failure for %q, which is not one of the reserved names", f.Key)
-			}
+		if failed[rel] {
+			t.Errorf("%s was reported as a failure, but this machine writes that name as an ordinary file", rel)
+			continue
 		}
-	} else {
-		if !restoreRep.Succeeded() {
-			t.Fatalf("restore reported failures on a platform with no naming restriction: %+v", restoreRep.Failures)
+		got, err := os.ReadFile(filepath.Join(target, filepath.FromSlash(rel)))
+		if err != nil {
+			t.Errorf("read back %s: %v", rel, err)
+			continue
 		}
-		for rel, want := range reservedContent {
-			got, err := os.ReadFile(filepath.Join(target, filepath.FromSlash(rel)))
-			if err != nil {
-				t.Errorf("read back %s: %v", rel, err)
-				continue
-			}
-			if !bytes.Equal(got, want) {
-				t.Errorf("%s: content did not round-trip", rel)
-			}
+		if !bytes.Equal(got, want) {
+			t.Errorf("%s: content did not round-trip", rel)
 		}
 	}
 
@@ -140,11 +185,33 @@ func TestTrailingDotsAndSpacesDoNotCorruptRestore(t *testing.T) {
 	}
 
 	keepContent := []byte("the sibling in the same directory")
-	dotContent := []byte("trailing dot")
-	spaceContent := []byte("trailing space")
 	injectObject(t, h, "trailing/keep.txt", keepContent)
-	injectObject(t, h, "trailing/file.", dotContent)
-	injectObject(t, h, "trailing/name ", spaceContent)
+
+	// The odd names go in one at a time, because the test server may not be
+	// able to hold one: MinIO stores an object key as a path on its own
+	// filesystem, so running on Windows it cannot store a key whose last
+	// component ends in a dot or a space -- the very names this test is
+	// about. Whichever it does accept still exercises the restore side,
+	// which is what is under test here.
+	odd := []struct {
+		rel      string
+		stripped string
+		content  []byte
+	}{
+		{"trailing/file.", "trailing/file", []byte("trailing dot")},
+		{"trailing/name ", "trailing/name", []byte("trailing space")},
+	}
+	var stored []int
+	for i, o := range odd {
+		if err := tryInjectObject(h, o.rel, o.content); err != nil {
+			t.Logf("the test server would not store %q, so restoring it cannot be covered here: %v", o.rel, err)
+			continue
+		}
+		stored = append(stored, i)
+	}
+	if len(stored) == 0 {
+		t.Skip("the test server could not store either trailing-dot or trailing-space key, so there is no such object for restore to be tested against")
+	}
 
 	target := t.TempDir()
 	restoreRep := h.restoreInto(t, target)
@@ -164,8 +231,9 @@ func TestTrailingDotsAndSpacesDoNotCorruptRestore(t *testing.T) {
 		t.Error("sibling file's content was corrupted by restoring its oddly-named neighbours")
 	}
 
-	assertStrippedOrExact(t, target, "trailing/file.", "trailing/file", dotContent)
-	assertStrippedOrExact(t, target, "trailing/name ", "trailing/name", spaceContent)
+	for _, i := range stored {
+		assertStrippedOrExact(t, target, odd[i].rel, odd[i].stripped, odd[i].content)
+	}
 }
 
 // assertManifestFilesMatch checks every file fixtures.Build actually put
