@@ -182,7 +182,7 @@ func newAddCmd(opts *Options) *cobra.Command {
 				return err
 			}
 			summarise(opts.Out, rep)
-			fmt.Fprintf(opts.Out, "\nTo have this run by itself: r2backup schedule --every %dm\n", stored.IntervalMinutes)
+			fmt.Fprintf(opts.Out, "\nTo have this run by itself: r2backup schedule --every %d\n", stored.IntervalMinutes)
 			return nil
 		},
 	}
@@ -316,7 +316,7 @@ func printStatus(a *app, opts *Options) error {
 	if st, err := schedule.Current("r2backup"); err == nil && st.Registered {
 		fmt.Fprintf(opts.Out, "Scheduled: every %s\n", st.Interval)
 	} else {
-		fmt.Fprintln(opts.Out, "Not scheduled. To run automatically: r2backup schedule --every 30m")
+		fmt.Fprintln(opts.Out, "Not scheduled. To run automatically: r2backup schedule --every 30")
 	}
 	return nil
 }

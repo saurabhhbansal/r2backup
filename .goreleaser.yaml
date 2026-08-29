@@ -79,7 +79,7 @@ release:
     ```sh
     r2backup setup                  # store your R2 credentials on this machine
     r2backup add ~/Documents        # pick what to include, then back it up
-    r2backup schedule --every 30m   # have it run by itself from now on
+    r2backup schedule --every 30    # run it every 30 minutes from now on
     r2backup status                 # what ran, when, and what is next
     r2backup restore Documents      # bring it back, here or on another computer
     ```
