@@ -37,6 +37,21 @@ const (
 // million-per-month free tier.
 const DefaultRetentionDays = 30
 
+// RetentionDisabled is RetentionDays for a set that keeps no trash at all.
+//
+// It cannot be 0, even though TrashEnabled and every consumer downstream
+// already read 0 as "off". Add fills an unset RetentionDays in with
+// DefaultRetentionDays, and an unset int is 0 -- so 0 means both "the caller
+// asked for no trash" and "the caller did not say", and Add cannot honour the
+// first without making the second silently unrecoverable. Defaulting the
+// omission is the safe half of that trade, so the explicit answer needs its
+// own value.
+//
+// `add --retention 0` is the documented way to ask for this, and it did not
+// work: the 0 was read as "unset" and turned into 30, so a user who asked for
+// no trash quietly paid to keep 30 days of it.
+const RetentionDisabled = -1
+
 // DefaultIntervalMinutes is how often the OS scheduler runs a set.
 const DefaultIntervalMinutes = 30
 

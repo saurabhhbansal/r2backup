@@ -360,3 +360,54 @@ func TestAddAndRenameBothRefuseABadName(t *testing.T) {
 		t.Errorf("a refused rename lost the set: %v", err)
 	}
 }
+
+func TestAddKeepsAnExplicitlyDisabledRetention(t *testing.T) {
+	// The two must not collapse into each other. Omitting retention has to
+	// keep trash on, because a silently unrecoverable delete is the worse
+	// mistake -- but `add --retention 0` has to mean what it says, and it
+	// did not: the 0 was read as "unset" and became 30, so a user who asked
+	// for no trash paid to keep 30 days of it.
+	s, _ := store(t)
+
+	if err := s.Add(Set{Name: "Quiet", Root: "/data/quiet", Machine: "test-pc", RetentionDays: RetentionDisabled}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Add(Set{Name: "Ordinary", Root: "/data/ordinary", Machine: "test-pc"}); err != nil {
+		t.Fatal(err)
+	}
+
+	quiet, err := s.Get("Quiet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if quiet.RetentionDays != RetentionDisabled {
+		t.Errorf("RetentionDays = %d, want %d -- an explicit disable was overwritten", quiet.RetentionDays, RetentionDisabled)
+	}
+	if quiet.TrashEnabled() {
+		t.Error("TrashEnabled() is true for a set that asked for no trash")
+	}
+
+	ordinary, err := s.Get("Ordinary")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ordinary.RetentionDays != DefaultRetentionDays {
+		t.Errorf("RetentionDays = %d, want %d -- omitting retention must not disable trash", ordinary.RetentionDays, DefaultRetentionDays)
+	}
+	if !ordinary.TrashEnabled() {
+		t.Error("TrashEnabled() is false for a set that never asked to disable it")
+	}
+
+	// And it survives a reload, since this is what gets written to disk.
+	reopened, err := Open(filepath.Join(filepath.Dir(s.path), "sets.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	again, err := reopened.Get("Quiet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if again.TrashEnabled() {
+		t.Error("the disabled retention did not survive a reload")
+	}
+}

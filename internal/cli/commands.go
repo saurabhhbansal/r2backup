@@ -182,8 +182,11 @@ func newAddCmd(opts *Options) *cobra.Command {
 				RetentionDays:   retention,
 				IntervalMinutes: interval,
 			}
-			if retention < 0 {
-				s.RetentionDays = sets.DefaultRetentionDays
+			// The flag's own default is DefaultRetentionDays, so retention can
+			// only be <= 0 here because the user asked for it. Say that in
+			// the one way sets.Add will not mistake for "unset".
+			if retention <= 0 {
+				s.RetentionDays = sets.RetentionDisabled
 			}
 			if err := a.sets.Add(s); err != nil {
 				return err
@@ -587,6 +590,13 @@ func newTrashCmd(opts *Options) *cobra.Command {
 			}
 			tr := trash.New(a.client, trash.Clock{})
 			for _, s := range list {
+				// Listing a set with no trash would date every entry against
+				// a retention window that does not exist. There is nothing to
+				// list, and why is more use than "0 recoverable".
+				if !s.TrashEnabled() {
+					fmt.Fprintf(opts.Out, "%s: trash is off for this set, so nothing is recoverable.\n", s.Name)
+					continue
+				}
 				entries, err := tr.List(cmd.Context(), s.Prefix, s.RetentionDays)
 				if err != nil {
 					return err
