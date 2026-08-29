@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -486,6 +487,16 @@ func newScheduleCmd(opts *Options) *cobra.Command {
 				return err
 			}
 			fmt.Fprintf(opts.Out, "Registered. Backups run every %d minutes, hidden, and survive a reboot.\n", every)
+			// On Windows the preferred registration can be refused and a
+			// second one used instead, and the difference matters: one runs
+			// whether or not you are signed in, the other does not. Read it
+			// back rather than claiming whichever was asked for first.
+			if st, err := schedule.Current("r2backup"); err == nil && st.Registered && !st.RunsWhenSignedOut && runtime.GOOS == "windows" {
+				fmt.Fprintln(opts.Out,
+					"Note: it runs while you are signed in. Windows would not grant the\n"+
+						"      permission needed to run it when you are signed out, which\n"+
+						"      needs the \"Log on as a batch job\" right for your account.")
+			}
 			fmt.Fprintln(opts.Out, "To watch one: r2backup status --watch")
 			return nil
 		},

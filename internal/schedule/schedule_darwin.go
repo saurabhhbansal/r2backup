@@ -53,11 +53,14 @@ func Install(e Entry) error {
 	// interval change, not just a repeat of the same one. The bootout error
 	// is ignored: it fails harmlessly when nothing was loaded yet.
 	_, _ = run(ctx, "launchctl", "bootout", target, plistPath)
-	if _, err := run(ctx, "launchctl", "bootstrap", target, plistPath); err != nil {
+	if out, err := run(ctx, "launchctl", "bootstrap", target, plistPath); err != nil {
 		// launchctl bootstrap/bootout arrived in 10.11; older systems only
 		// have load/unload.
-		if _, err2 := run(ctx, "launchctl", "load", "-w", plistPath); err2 != nil {
-			return fmt.Errorf("schedule: launchctl bootstrap %s: %w (load fallback: %v)", plistPath, err, err2)
+		out2, err2 := run(ctx, "launchctl", "load", "-w", plistPath)
+		if err2 != nil {
+			return fmt.Errorf("%w (load fallback: %v)",
+				cmdError("schedule: launchctl bootstrap "+plistPath, out, err),
+				cmdError("launchctl load", out2, err2))
 		}
 	}
 	return nil

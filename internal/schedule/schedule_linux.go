@@ -129,18 +129,18 @@ func installSystemd(e Entry) error {
 		return fmt.Errorf("schedule: write %s: %w", timerPath, err)
 	}
 	ctx := context.Background()
-	if _, err := run(ctx, "systemctl", "--user", "daemon-reload"); err != nil {
-		return fmt.Errorf("schedule: systemctl --user daemon-reload: %w", err)
+	if out, err := run(ctx, "systemctl", "--user", "daemon-reload"); err != nil {
+		return cmdError("schedule: systemctl --user daemon-reload", out, err)
 	}
-	if _, err := run(ctx, "systemctl", "--user", "enable", unit+".timer"); err != nil {
-		return fmt.Errorf("schedule: systemctl --user enable %s.timer: %w", unit, err)
+	if out, err := run(ctx, "systemctl", "--user", "enable", unit+".timer"); err != nil {
+		return cmdError("schedule: systemctl --user enable "+unit+".timer", out, err)
 	}
 	// restart, not start: picks up a changed OnUnitActiveSec even when the
 	// timer was already running from a previous Install. This -- plus
 	// overwriting the same unit files above -- is what makes Install
 	// idempotent for an interval change, not just a repeat of the same one.
-	if _, err := run(ctx, "systemctl", "--user", "restart", unit+".timer"); err != nil {
-		return fmt.Errorf("schedule: systemctl --user restart %s.timer: %w", unit, err)
+	if out, err := run(ctx, "systemctl", "--user", "restart", unit+".timer"); err != nil {
+		return cmdError("schedule: systemctl --user restart "+unit+".timer", out, err)
 	}
 	return nil
 }
@@ -264,8 +264,8 @@ func writeCrontab(ctx context.Context, lines []string) error {
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("schedule: close temp crontab file: %w", err)
 	}
-	if _, err := run(ctx, "crontab", path); err != nil {
-		return fmt.Errorf("schedule: crontab %s: %w", path, err)
+	if out, err := run(ctx, "crontab", path); err != nil {
+		return cmdError("schedule: crontab "+path, out, err)
 	}
 	return nil
 }

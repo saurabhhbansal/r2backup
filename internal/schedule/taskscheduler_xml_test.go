@@ -204,3 +204,62 @@ func TestWindowsParseTaskInterval(t *testing.T) {
 		t.Errorf("windowsParseTaskInterval(...) = %s, want %s", d, 30*time.Minute)
 	}
 }
+
+// TestTaskXMLLogonTypesDifferOnlyInTheLogonType guards the fallback: the
+// InteractiveToken registration must be the same task in every other respect,
+// or a user who could not get S4U silently gets a differently-behaved backup.
+func TestTaskXMLLogonTypesDifferOnlyInTheLogonType(t *testing.T) {
+	e := validEntry()
+	s4u, err := windowsTaskXMLAs(e, "PC\\me", logonS4U)
+	if err != nil {
+		t.Fatal(err)
+	}
+	inter, err := windowsTaskXMLAs(e, "PC\\me", logonInteractiveToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s4u == inter {
+		t.Fatal("both logon types produced identical XML")
+	}
+	if normalised := strings.Replace(inter, "<LogonType>"+logonInteractiveToken+"</LogonType>",
+		"<LogonType>"+logonS4U+"</LogonType>", 1); normalised != s4u {
+		t.Error("the two task definitions differ somewhere other than <LogonType>")
+	}
+	// The settings that make it a backup rather than a nuisance must be in
+	// both: hidden, no time limit, and runs on battery.
+	for _, want := range []string{"<Hidden>true</Hidden>", "<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>",
+		"<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>"} {
+		if !strings.Contains(inter, want) {
+			t.Errorf("the fallback task lost %s", want)
+		}
+	}
+}
+
+func TestParseTaskLogonType(t *testing.T) {
+	for _, tc := range []struct {
+		xml  string
+		want string
+	}{
+		{"<LogonType>S4U</LogonType>", "S4U"},
+		{"<LogonType>InteractiveToken</LogonType>", "InteractiveToken"},
+		{"  <LogonType> S4U </LogonType>\n", "S4U"},
+		{"<Principal><UserId>me</UserId></Principal>", ""},
+		{"", ""},
+	} {
+		if got := windowsParseTaskLogonType(tc.xml); got != tc.want {
+			t.Errorf("windowsParseTaskLogonType(%q) = %q, want %q", tc.xml, got, tc.want)
+		}
+	}
+
+	// And it reads back what the builder wrote, which is the pairing that
+	// decides whether `schedule` tells the truth about signing out.
+	for _, lt := range []string{logonS4U, logonInteractiveToken} {
+		x, err := windowsTaskXMLAs(validEntry(), "PC\\me", lt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := windowsParseTaskLogonType(x); got != lt {
+			t.Errorf("round trip of %s read back as %q", lt, got)
+		}
+	}
+}

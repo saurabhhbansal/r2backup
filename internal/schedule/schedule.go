@@ -81,6 +81,12 @@ type Status struct {
 	NextRun    time.Time
 	LastRun    time.Time
 	LastResult string
+
+	// RunsWhenSignedOut reports whether the registered task runs regardless
+	// of whether the user is signed in. False both when it genuinely only
+	// runs while signed in and when this platform cannot say -- callers use
+	// it to soften a claim, never to make one.
+	RunsWhenSignedOut bool
 }
 
 // ErrUnsupported is wrapped into the error every function in this package
@@ -104,6 +110,44 @@ type Runner func(ctx context.Context, name string, args ...string) ([]byte, erro
 func defaultRunner(ctx context.Context, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	return cmd.CombinedOutput()
+}
+
+// cmdError wraps a failed system command with what the command actually said.
+//
+// schtasks, systemctl and launchctl all explain themselves on stdout or
+// stderr, and run already captures both -- every call site simply threw the
+// text away. What a user got when Task Scheduler refused to register their
+// backup was
+//
+//	schedule: schtasks /create r2backup: exit status 1
+//
+// which says only that something went wrong, not what, and there is no second
+// place to go and look. The reason is the whole value of the error.
+func cmdError(op string, out []byte, err error) error {
+	if msg := tidyCommandOutput(out); msg != "" {
+		return fmt.Errorf("%s: %w: %s", op, err, msg)
+	}
+	return fmt.Errorf("%s: %w", op, err)
+}
+
+// tidyCommandOutput folds a command's output into one line short enough to
+// belong in an error. Blank lines go, the rest are joined, and a long tail is
+// cut -- schtasks in particular likes to print usage after its message.
+func tidyCommandOutput(out []byte) string {
+	var kept []string
+	for _, line := range strings.Split(string(out), "\n") {
+		if line = strings.TrimSpace(line); line != "" {
+			kept = append(kept, line)
+		}
+		if len(kept) == 4 {
+			break
+		}
+	}
+	msg := strings.Join(kept, "; ")
+	if len(msg) > 400 {
+		msg = msg[:400] + "..."
+	}
+	return msg
 }
 
 // run is package-level so every platform file shares one seam. Tests

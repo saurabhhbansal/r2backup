@@ -125,7 +125,21 @@ func windowsCommandLine(args []string) string {
 //
 // Every Settings value below is load-bearing -- see the table in the
 // package's task description for the failure each one prevents.
+// Logon types the task XML can be built with. S4U runs whether or not the
+// user is signed in and stores no password, which is what a backup wants --
+// but registering an S4U task needs the "Log on as a batch job" right, and
+// schtasks refuses without it. InteractiveToken asks for no privilege at all
+// and runs whenever the user is signed in, which is the honest second best.
+const (
+	logonS4U              = "S4U"
+	logonInteractiveToken = "InteractiveToken"
+)
+
 func windowsTaskXML(e Entry, userID string) (string, error) {
+	return windowsTaskXMLAs(e, userID, logonS4U)
+}
+
+func windowsTaskXMLAs(e Entry, userID, logonType string) (string, error) {
 	if err := e.validate(); err != nil {
 		return "", err
 	}
@@ -167,11 +181,9 @@ func windowsTaskXML(e Entry, userID string) (string, error) {
 	b.WriteString("  <Principals>\n")
 	b.WriteString("    <Principal id=\"Author\">\n")
 	fmt.Fprintf(&b, "      <UserId>%s</UserId>\n", user)
-	// LogonType=S4U: runs without storing the user's password (unlike
-	// Password logon), and without a console window flashing on screen
-	// every 30 minutes (unlike Interactive logon, which needs a logged-on
-	// session and a visible desktop to run against).
-	b.WriteString("      <LogonType>S4U</LogonType>\n")
+	// See logonS4U / logonInteractiveToken. Either way no password is
+	// stored, and Hidden=true below keeps a console off the screen.
+	fmt.Fprintf(&b, "      <LogonType>%s</LogonType>\n", logonType)
 	b.WriteString("      <RunLevel>LeastPrivilege</RunLevel>\n")
 	b.WriteString("    </Principal>\n")
 	b.WriteString("  </Principals>\n")
@@ -255,6 +267,22 @@ func decodeUTF16BOM(b []byte) (string, error) {
 }
 
 var repetitionIntervalRe = regexp.MustCompile(`<Interval>([^<]+)</Interval>`)
+
+// logonTypeRe pulls the Principal's LogonType back out of a task definition,
+// so the CLI can say which of the two Install actually got rather than
+// assuming the one it asked for first.
+// The character class has to allow digits: the value this exists to detect is
+// literally "S4U", and [A-Za-z]+ silently matched nothing at all.
+var logonTypeRe = regexp.MustCompile(`<LogonType>\s*([A-Za-z0-9]+)\s*</LogonType>`)
+
+// windowsParseTaskLogonType returns the LogonType of a task definition as
+// printed by `schtasks /query /xml`, or "" when there is none to read.
+func windowsParseTaskLogonType(xmlOutput string) string {
+	if m := logonTypeRe.FindStringSubmatch(xmlOutput); m != nil {
+		return m[1]
+	}
+	return ""
+}
 
 // windowsParseTaskInterval extracts and parses the Repetition/Interval
 // element from a task definition, as printed by `schtasks /query /xml`.

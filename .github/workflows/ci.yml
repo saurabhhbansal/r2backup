@@ -18,6 +18,12 @@ permissions:
 env:
   GOTOOLCHAIN: local
   R2BACKUP_REQUIRE_FULL_SUITE: "1"
+  # Registers a real scheduled task on the runner and removes it again.
+  # Everything about the schedulers was tested as generated strings, and all
+  # of it passed while `schedule --every 5` failed outright on a real Windows
+  # desktop -- nothing had ever called schtasks. The runners are ephemeral, so
+  # this is the cheapest place in the world to actually try it.
+  R2BACKUP_TEST_SCHEDULER: "1"
 
 jobs:
   # Feature branches get Linux only. Windows bills at 2x and macOS at 10x, so

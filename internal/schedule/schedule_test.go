@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -136,5 +137,54 @@ func TestDefaultRunnerSurfacesFailure(t *testing.T) {
 	_, err := defaultRunner(context.Background(), "false")
 	if err == nil {
 		t.Fatal("defaultRunner(false) returned nil error, want the nonzero exit surfaced")
+	}
+}
+
+// TestCmdErrorCarriesWhatTheCommandSaid is the difference between an error a
+// user can act on and one they cannot. Registering a scheduled backup failed
+// on a real Windows desktop with exactly this and nothing else:
+//
+//	schedule: schtasks /create r2backup: exit status 1
+//
+// The reason was on schtasks' own stdout, which run already captures and
+// every call site discarded.
+func TestCmdErrorCarriesWhatTheCommandSaid(t *testing.T) {
+	out := []byte("ERROR: Access is denied.\r\n")
+	err := cmdError("schedule: schtasks /create r2backup", out, errors.New("exit status 1"))
+	msg := err.Error()
+	for _, want := range []string{"schtasks /create r2backup", "exit status 1", "Access is denied"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error is missing %q: %s", want, msg)
+		}
+	}
+
+	// A command that failed silently still reports the exit status rather
+	// than a dangling colon.
+	quiet := cmdError("schedule: crontab /tmp/x", nil, errors.New("exit status 2"))
+	if !strings.Contains(quiet.Error(), "exit status 2") {
+		t.Errorf("silent failure lost its exit status: %s", quiet)
+	}
+	if strings.HasSuffix(quiet.Error(), ": ") {
+		t.Errorf("silent failure left a dangling separator: %q", quiet.Error())
+	}
+}
+
+func TestTidyCommandOutputFoldsAndCaps(t *testing.T) {
+	// schtasks prints its usage after the message; only the first few lines
+	// are worth carrying into an error.
+	many := strings.Repeat("a line of output\n", 50)
+	got := tidyCommandOutput([]byte(many))
+	if strings.Count(got, "a line of output") > 4 {
+		t.Errorf("kept more than four lines: %q", got)
+	}
+	if strings.Contains(got, "\n") {
+		t.Errorf("output was not folded onto one line: %q", got)
+	}
+	if got := tidyCommandOutput([]byte("  \n\n \n")); got != "" {
+		t.Errorf("whitespace-only output = %q, want empty", got)
+	}
+	long := tidyCommandOutput([]byte(strings.Repeat("x", 900)))
+	if len(long) > 410 {
+		t.Errorf("a very long single line was not capped: %d chars", len(long))
 	}
 }

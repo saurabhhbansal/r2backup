@@ -25,7 +25,27 @@ func Install(e Entry) error {
 	if u, err := user.Current(); err == nil {
 		userID = u.Username
 	}
-	content, err := windowsTaskXML(e, userID)
+	// S4U first, because a backup that only runs while you happen to be
+	// signed in is a worse backup. It is also the one Windows can refuse:
+	// registering an S4U task needs the "Log on as a batch job" right, which
+	// an ordinary account often does not have, and schtasks then fails --
+	// which is exactly what happened on a real desktop, with the reason
+	// thrown away. InteractiveToken needs no privilege at all, so it is
+	// tried second rather than leaving the user with no schedule.
+	ctx := context.Background()
+	firstErr := installAs(ctx, e, userID, logonS4U)
+	if firstErr == nil {
+		return nil
+	}
+	if err := installAs(ctx, e, userID, logonInteractiveToken); err != nil {
+		return firstErr // the S4U failure is the more informative one
+	}
+	return nil
+}
+
+// installAs registers e with one specific logon type. See Install.
+func installAs(ctx context.Context, e Entry, userID, logonType string) error {
+	content, err := windowsTaskXMLAs(e, userID, logonType)
 	if err != nil {
 		return fmt.Errorf("schedule: build task XML: %w", err)
 	}
@@ -40,9 +60,8 @@ func Install(e Entry) error {
 	if err := os.WriteFile(path, utf16BOMBytes(content), 0o600); err != nil {
 		return fmt.Errorf("schedule: write task XML: %w", err)
 	}
-	ctx := context.Background()
-	if _, err := run(ctx, "schtasks", "/create", "/tn", e.Name, "/xml", path, "/f"); err != nil {
-		return fmt.Errorf("schedule: schtasks /create %s: %w", e.Name, err)
+	if out, err := run(ctx, "schtasks", "/create", "/tn", e.Name, "/xml", path, "/f"); err != nil {
+		return cmdError(fmt.Sprintf("schedule: schtasks /create %s (%s)", e.Name, logonType), out, err)
 	}
 	return nil
 }
@@ -56,7 +75,7 @@ func Remove(name string) error {
 		if isTaskNotFound(string(out)) {
 			return nil
 		}
-		return fmt.Errorf("schedule: schtasks /delete %s: %w", name, err)
+		return cmdError(fmt.Sprintf("schedule: schtasks /delete %s", name), out, err)
 	}
 	return nil
 }
@@ -69,13 +88,14 @@ func Current(name string) (Status, error) {
 		if isTaskNotFound(string(out)) {
 			return Status{}, nil
 		}
-		return Status{}, fmt.Errorf("schedule: schtasks /query %s: %w", name, err)
+		return Status{}, cmdError(fmt.Sprintf("schedule: schtasks /query %s", name), out, err)
 	}
 	st := parseSchtasksListOutput(string(out))
 	// The Interval isn't in the /fo LIST view at all; only the /xml export
 	// has it, so it takes a second call. Best-effort: an unparsable or
 	// missing XML leaves Interval at zero rather than failing Current.
 	if xmlOut, err := run(ctx, "schtasks", "/query", "/tn", name, "/xml", "ONE"); err == nil {
+		st.RunsWhenSignedOut = windowsParseTaskLogonType(string(xmlOut)) == logonS4U
 		if d, perr := windowsParseTaskInterval(string(xmlOut)); perr == nil {
 			st.Interval = d
 		}
