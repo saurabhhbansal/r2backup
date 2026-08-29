@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/saurabhhbansal/r2backup/internal/backup"
@@ -20,12 +21,64 @@ import (
 	"github.com/saurabhhbansal/r2backup/internal/ui"
 )
 
-// dashboard implements ui.Backend on top of the same app every command uses.
+// dashboard implements ui.Backend on top of the same packages every command
+// uses.
 //
-// It holds no state of its own and duplicates no logic: a backup started from
-// the interface goes through runOne, exactly like `r2b backup`, so the two
-// cannot drift into recording different things about the same run.
-type dashboard struct{ opts *Options }
+// It holds the app open for the whole session, and that is not an
+// optimisation. Every method used to call openApp() itself, which opens the
+// bbolt index -- and bbolt takes a file lock that contends with itself inside
+// one process. A backup holds the index for its whole run, the interface
+// reloads once a second, and that reload blocked for bbolt's five-second
+// timeout and then failed with `open index at "...": timeout`. The progress
+// screen vanished mid-backup, replaced by an error about a file, and the
+// model then believed nothing was running -- so a second backup could be
+// started on top of the first. Measured: a second openApp in the same process
+// returns an error after 4.99s.
+//
+// One handle, opened once. bbolt is safe for concurrent use through a single
+// handle and sets.Store carries its own RWMutex; connect is the one piece of
+// shared state that is not, so it has a mutex here.
+//
+// Each method goes through the same package the matching command goes through
+// -- backup.Run, restore.Run, sets.Store, account.Client -- but not through
+// the command's own function, because those write to a terminal. Where a
+// command does something around the call that matters (parking a moved
+// folder, refusing a restore that matched nothing), that is reproduced here
+// and named in a comment, because nothing else will catch it drifting.
+type dashboard struct {
+	opts *Options
+	app  *app
+
+	// mu guards lazily building the R2 client. Load runs on the UI loop and
+	// a transfer runs on a worker, so two goroutines can reach connect at
+	// once.
+	mu sync.Mutex
+}
+
+// openDashboard opens the state the interface needs, once.
+func openDashboard(opts *Options) (*dashboard, error) {
+	a, err := openApp()
+	if err != nil {
+		return nil, err
+	}
+	return &dashboard{opts: opts, app: a}, nil
+}
+
+func (d *dashboard) close() {
+	if d.app != nil {
+		d.app.close()
+	}
+}
+
+// connected returns the app with an R2 client attached.
+func (d *dashboard) connected(ctx context.Context) (*app, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if err := d.app.connect(ctx); err != nil {
+		return nil, err
+	}
+	return d.app, nil
+}
 
 // scheduleName is the OS scheduler entry's identity, spelled once here rather
 // than at each call site. It is deliberately still "r2backup": an installed
@@ -34,11 +87,7 @@ type dashboard struct{ opts *Options }
 const scheduleName = "r2backup"
 
 func (d *dashboard) Load(ctx context.Context) ([]ui.SetView, ui.Overview, error) {
-	a, err := openApp()
-	if err != nil {
-		return nil, ui.Overview{}, err
-	}
-	defer a.close()
+	a := d.app
 
 	histPath, _ := historyPath()
 	hist, _ := runstate.ReadHistory(histPath)
@@ -54,9 +103,6 @@ func (d *dashboard) Load(ctx context.Context) ([]ui.SetView, ui.Overview, error)
 		if n, err := a.index.Count(s.Name); err == nil {
 			v.Objects = n
 		}
-		if s.Status == sets.StatusNeedsAttention {
-			v.State, v.Note = "needs attention", s.StatusNote
-		}
 		if last, ok := hist.Last(s.Name); ok {
 			v.HasRun, v.LastRun = true, last.FinishedAt
 			v.Uploaded, v.Unchanged = last.Uploaded, last.Unchanged
@@ -67,8 +113,18 @@ func (d *dashboard) Load(ctx context.Context) ([]ui.SetView, ui.Overview, error)
 			if last.Error != "" {
 				v.State, v.Note = "failed", last.Error
 			}
-		} else if v.State == "ok" {
+		} else {
 			v.State = "never run"
+		}
+		// Parked wins over failed, and is checked last for that reason. They
+		// arrive together -- a run against a folder that has moved both fails
+		// and parks the set -- and "failed" reads as something that might
+		// come right on its own, which this will not. It needs a person.
+		if s.Status == sets.StatusNeedsAttention {
+			v.State = "needs attention"
+			if s.StatusNote != "" {
+				v.Note = s.StatusNote
+			}
 		}
 		views = append(views, v)
 	}
@@ -145,12 +201,8 @@ func (o *uiObserver) Progress(s progress.Snapshot) {
 }
 
 func (d *dashboard) Backup(ctx context.Context, name string, phase func(string), snap func(progress.Snapshot)) error {
-	a, err := openApp()
+	a, err := d.connected(ctx)
 	if err != nil {
-		return err
-	}
-	defer a.close()
-	if err := a.connect(ctx); err != nil {
 		return err
 	}
 	s, err := a.sets.Get(name)
@@ -168,11 +220,25 @@ func (d *dashboard) Backup(ctx context.Context, name string, phase func(string),
 		Observer: obs, DetectMoves: true,
 	})
 	recordRun(s.Name, rep, runErr)
+
+	// A folder that has been moved or deleted must be parked, exactly as
+	// `r2b backup` parks it. Without this the set stays StatusOK, `status`
+	// never says "needs attention", and the scheduled run goes on failing
+	// every half hour with nobody told.
+	if errors.Is(runErr, backup.ErrRootMissing) {
+		_ = a.sets.MarkNeedsAttention(s.Name, runErr.Error())
+		return fmt.Errorf("%w\n  Press m on this folder to say where it went", runErr)
+	}
 	return runErr
 }
 
 // recordRun writes the history entry, so a run started from the interface
 // shows up in `r2b status` exactly like one started from the command line.
+//
+// It is a deliberate copy of runOne's tail rather than a call to runOne:
+// runOne opens its own observer and writes its own progress file, and the
+// interface needs a different observer. The two must be kept in step by hand,
+// which is what this comment is for.
 func recordRun(name string, rep *backup.Report, runErr error) {
 	past := runstate.Past{Set: name, FinishedAt: time.Now()}
 	if runErr != nil {
@@ -190,12 +256,8 @@ func recordRun(name string, rep *backup.Report, runErr error) {
 }
 
 func (d *dashboard) Trash(ctx context.Context, name string) ([]ui.TrashRow, error) {
-	a, err := openApp()
+	a, err := d.connected(ctx)
 	if err != nil {
-		return nil, err
-	}
-	defer a.close()
-	if err := a.connect(ctx); err != nil {
 		return nil, err
 	}
 	s, err := a.sets.Get(name)
@@ -219,11 +281,7 @@ func (d *dashboard) Trash(ctx context.Context, name string) ([]ui.TrashRow, erro
 }
 
 func (d *dashboard) Remove(ctx context.Context, name string, purge bool) error {
-	a, err := openApp()
-	if err != nil {
-		return err
-	}
-	defer a.close()
+	a := d.app
 	if purge {
 		return errors.New("purging from the interface is deliberately not offered; use: r2b remove " + name + " --purge")
 	}

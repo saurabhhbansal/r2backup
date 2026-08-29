@@ -240,7 +240,14 @@ func (m *Model) foldersView() string {
 	// A run started elsewhere -- by the scheduler, or another window -- is
 	// shown rather than hidden, because otherwise the numbers move on their
 	// own with no explanation.
-	if m.ov.Running != "" && !m.running {
+	switch {
+	case m.running:
+		// This window's own run, left with esc. Suppressing the banner here
+		// left a backup in flight with nothing on screen saying so and no way
+		// back to the progress screen.
+		head = m.spin.View() + " " + warnStyle.Render("backing up "+m.runWhat) + " " +
+			dimStyle.Render("· w to watch") + "\n"
+	case m.ov.Running != "":
 		head = m.spin.View() + " " + warnStyle.Render("running now: "+m.ov.Running) + " " +
 			dimStyle.Render(m.ov.RunETA) + "\n"
 	}
@@ -386,10 +393,18 @@ func (m *Model) buildTrashTable() {
 	if height < 3 {
 		height = 3
 	}
+	// layout() runs on every overlay change, so the table is rebuilt when the
+	// user opens help and closes it again. Carrying the cursor across is the
+	// difference between that and being thrown back to the first row every
+	// time -- which also happened on any window resize.
+	cursor := m.trash.Cursor()
 	m.trash = table.New(
 		table.WithColumns(cols), table.WithRows(rows),
 		table.WithFocused(true), table.WithHeight(height), table.WithStyles(st),
 	)
+	if cursor > 0 && cursor < len(rows) {
+		m.trash.SetCursor(cursor)
+	}
 }
 
 func (m *Model) trashView() string {
@@ -442,17 +457,25 @@ func (m *Model) accountView() string {
 		}
 	}
 
-	b.WriteString("\n" + dimStyle.Render("  i sign in · p save keys for other computers · k enter R2 keys · o sign out · u update"))
+	b.WriteString("\n" + dimStyle.Render("  i sign in · d download saved keys · p save keys for other computers\n  k enter R2 keys · o sign out · u check for an update"))
 	return b.String()
 }
 
 // --- overlays ---
 
 func (m *Model) browseView() string {
+	hidden := ". shows hidden folders"
+	if m.browse.ShowHidden {
+		hidden = ". hides them again"
+	}
+	// The hint used to say "enter opens a folder", which is not what enter
+	// does: with DirAllowed the filepicker reports a selection on enter, so
+	// enter chooses. Navigation is the right arrow. A hint that describes the
+	// wrong key is worse than none.
 	return titleStyle.Render("Which folder should be backed up?") + "\n" +
 		dimStyle.Render(m.browse.CurrentDirectory) + "\n\n" +
 		m.browse.View() + "\n" +
-		dimStyle.Render("enter opens a folder · space or u chooses the one you are in · esc cancels")
+		dimStyle.Render("→ opens · enter chooses · ← up · "+hidden+" · t types a path · esc cancels")
 }
 
 func (m *Model) pickerView() string {

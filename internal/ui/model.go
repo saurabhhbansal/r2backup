@@ -84,6 +84,9 @@ type (
 		// editing names the set when this scan is for `edit` rather than
 		// for a new folder.
 		editing string
+		// req is the request number this scan answers. A result whose number
+		// is no longer current is stale and dropped.
+		req int
 	}
 	phaseMsg    string
 	runSetMsg   string
@@ -92,6 +95,8 @@ type (
 		what string
 		err  error
 	}
+	// reopenRunMsg brings the progress screen back after esc.
+	reopenRunMsg   struct{}
 	restoreDoneMsg struct {
 		res RestoreResult
 		err error
@@ -99,6 +104,7 @@ type (
 	trashMsg struct {
 		set  string
 		rows []TrashRow
+		req  int
 	}
 	updateMsg struct {
 		version string
@@ -145,6 +151,10 @@ type Model struct {
 	runSnap   progress.Snapshot
 	runCancel context.CancelFunc
 	events    chan tea.Msg
+
+	// request counts the asynchronous jobs this model has started. A result
+	// carrying an older number is stale and dropped -- see scannedMsg.
+	request int
 
 	confirm    string
 	confirmYes func() tea.Cmd
@@ -248,6 +258,15 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
 		m.layout()
+		// The picker is a child model with its own geometry, and it is the
+		// one component layout() cannot resize by setting a field: it sizes
+		// itself from WindowSizeMsg. Without this it stays at its 80x20
+		// default forever -- a 15-row frame in a 45-row window, and rows
+		// wide enough to be truncated on a narrow one, losing the size and
+		// item counts the picker exists to show.
+		if m.picker != nil {
+			m.picker.Update(m.pickerSize())
+		}
 		return m, nil
 
 	case tea.KeyMsg:
@@ -264,11 +283,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case errMsg:
+		// An error from anywhere -- a refresh, a trash listing, the account
+		// service -- must not be read as "the backup stopped". It used to
+		// clear m.running and close the progress screen, which meant a
+		// failed background reload silently un-tracked a live transfer and
+		// let a second one start on top of it. Only runDoneMsg and
+		// restoreDoneMsg end a run.
 		m.err = msg.err
-		if m.overlay == overlayRunning {
-			m.overlay = overlayNone
-			m.running = false
-		}
 		return m, nil
 
 	case noticeMsg:
@@ -284,7 +305,20 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tick()
 
 	case scannedMsg:
+		// A scan of a large folder takes a while, and the user may have
+		// moved on -- cancelled the browser, changed tab, started a backup.
+		// Reopening the picker over whatever they are looking at now is
+		// worse than dropping a result they no longer asked for.
+		if msg.req != m.request {
+			return m, nil
+		}
 		return m, m.openPicker(msg)
+
+	case reopenRunMsg:
+		if m.running {
+			m.overlay = overlayRunning
+		}
+		return m, nil
 
 	case runSetMsg:
 		m.runWhat = string(msg)
@@ -322,6 +356,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, m.load()
 
 	case trashMsg:
+		if msg.req != m.request {
+			return m, nil
+		}
 		m.showTrash(msg)
 		return m, nil
 
@@ -340,6 +377,11 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.loadAccount(), m.afterSignIn())
 
 	case unlockNeededMsg:
+		m.askUnlock()
+		return m, nil
+
+	case unlockFailedMsg:
+		m.err = msg.err
 		m.askUnlock()
 		return m, nil
 
@@ -392,6 +434,21 @@ func (m *Model) selected() (SetView, bool) {
 		return SetView{}, false
 	}
 	return it.v, true
+}
+
+// pickerSize is the window the embedded picker should draw into. It is given
+// the panel's interior, not the terminal, because that is where it is drawn.
+func (m *Model) pickerSize() tea.WindowSizeMsg {
+	w, h := m.width-4, m.height-m.chromeHeight()
+	if w < 20 {
+		w = 20
+	}
+	if h < 6 {
+		h = 6
+	}
+	// The picker reserves its own header and footer rows out of what it is
+	// given, so it is handed the body budget plus that reservation.
+	return tea.WindowSizeMsg{Width: w, Height: h + 6}
 }
 
 func (m *Model) setByName(name string) (SetView, bool) {

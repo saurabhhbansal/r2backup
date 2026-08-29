@@ -21,7 +21,12 @@ func runDashboard(ctx context.Context, opts *Options) error {
 		return errors.New("r2b with no arguments opens the interface, which needs a terminal.\n" +
 			"  For a script or a scheduled run, name a command: r2b backup, r2b status")
 	}
-	return ui.Run(ctx, &dashboard{opts: opts})
+	d, err := openDashboard(opts)
+	if err != nil {
+		return err
+	}
+	defer d.close()
+	return ui.Run(ctx, d)
 }
 
 // attachDashboard makes the interface the default when no command is named,

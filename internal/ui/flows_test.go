@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -53,7 +54,7 @@ func TestAddingAFolderNeverLeavesTheWindow(t *testing.T) {
 	}
 
 	// Choosing the folder you are standing in, then the tree picker.
-	m.Update(scannedMsg{root: "/home/me/work", name: "work", res: b.mustScan()})
+	m.Update(scannedMsg{root: "/home/me/work", name: "work", res: b.mustScan(), req: m.request})
 	if m.overlay != overlayPicker {
 		t.Fatalf("a scanned folder should open the picker, got %v", m.overlay)
 	}
@@ -98,7 +99,7 @@ func TestEditingReopensThePickerOnTheCurrentSelection(t *testing.T) {
 	m.list.Select(1) // Code, which excludes "sub"
 
 	press(m, "e")
-	m.Update(scannedMsg{root: b.sets[1].Root, name: "Code", res: b.mustScan(), editing: "Code"})
+	m.Update(scannedMsg{root: b.sets[1].Root, name: "Code", res: b.mustScan(), editing: "Code", req: m.request})
 	if m.overlay != overlayPicker {
 		t.Fatalf("e should open the picker, got %v", m.overlay)
 	}
@@ -265,5 +266,210 @@ func TestTabsMoveBetweenModes(t *testing.T) {
 	press(m, "3")
 	if m.tab != tabTrash {
 		t.Errorf("3 should go to Trash, got %v", m.tab)
+	}
+}
+
+// A scan of a big folder takes a while, and the user may have moved on. A
+// result that arrives after they cancelled or changed tab must be dropped,
+// not painted over whatever they are looking at now.
+func TestAStaleScanResultIsDropped(t *testing.T) {
+	b := twoSets()
+	m := sized(b, 120, 40)
+
+	press(m, "a")                                  // browse
+	apply(t, m, m.scanFolder("/home/me/work", "")) // request 1 in flight
+	stale := m.request
+	press(m, "esc") // changed their mind
+	press(m, "4")   // and went to Account
+
+	m.Update(scannedMsg{root: "/home/me/work", res: b.mustScan(), req: stale - 1})
+	if m.overlay == overlayPicker {
+		t.Fatal("a scan the user had moved on from reopened the picker over them")
+	}
+	if m.tab != tabAccount {
+		t.Errorf("tab = %v, want the one the user chose", m.tab)
+	}
+}
+
+// Likewise a trash listing that lands after the user left the tab.
+func TestAStaleTrashListingDoesNotDragYouBack(t *testing.T) {
+	b := twoSets()
+	m := sized(b, 120, 40)
+	m.request = 5
+	m.tab = tabFolders
+
+	m.Update(trashMsg{set: "Documents", rows: b.trash, req: 4})
+	if m.tab == tabTrash {
+		t.Fatal("a stale trash listing pulled the user onto the Trash tab")
+	}
+}
+
+// An error from a background reload must not be read as "the backup stopped".
+// It used to clear m.running, which un-tracked a live transfer and let a
+// second one start on top of it.
+func TestABackgroundErrorDoesNotUntrackARunningJob(t *testing.T) {
+	b := twoSets()
+	m := sized(b, 120, 40)
+	press(m, "b")
+	if !m.running {
+		t.Fatal("b should have started a backup")
+	}
+
+	m.Update(errMsg{errors.New("open index: timeout")})
+
+	if !m.running {
+		t.Fatal("a refresh error cleared m.running while the backup was still going")
+	}
+	if m.runCancel == nil {
+		t.Fatal("the run's cancel was dropped, so q could never stop it")
+	}
+	// And a second job is still refused. Asserted on the refusal rather than
+	// on a call count: the first backup runs on a goroutine that may not
+	// have reached the fake yet, which would make a count flaky.
+	m.overlay = overlayNone
+	press(m, "b")
+	if !strings.Contains(m.notice, "already running") {
+		t.Fatalf("a second backup was not refused; notice = %q", m.notice)
+	}
+	drain(t, m)
+	if len(b.backups) != 1 {
+		t.Fatalf("backups = %v, want exactly one", b.backups)
+	}
+}
+
+// The detail screen prints its own list of keys. They have to work.
+func TestTheDetailScreenKeysDoWhatTheySay(t *testing.T) {
+	b := twoSets()
+	m := sized(b, 120, 40)
+	press(m, "enter")
+	if m.overlay != overlayDetail {
+		t.Fatalf("enter should open the detail screen, got %v", m.overlay)
+	}
+	if !strings.Contains(m.View(), "r restore") {
+		t.Fatal("the detail screen no longer advertises these keys; update this test")
+	}
+	press(m, "r")
+	if m.overlay != overlayForm {
+		t.Fatalf("r on the detail screen should open the restore form, got %v", m.overlay)
+	}
+	press(m, "esc")
+
+	press(m, "enter")
+	press(m, "n")
+	if m.overlay != overlayForm {
+		t.Fatalf("n on the detail screen should open the rename form, got %v", m.overlay)
+	}
+}
+
+// A restore must show the progress screen. The form's own "done" handling
+// used to overwrite the overlay the submit had just set, so every restore ran
+// invisibly behind the folder list.
+func TestARestoreShowsItsProgress(t *testing.T) {
+	b := twoSets()
+	m := sized(b, 120, 40)
+	press(m, "r")
+	typeIn(m, "/tmp/out")
+	enter(m)
+	enter(m)
+	enter(m) // submit
+	if m.overlay != overlayRunning {
+		t.Fatalf("overlay = %v, want the progress screen", m.overlay)
+	}
+	if !m.running {
+		t.Fatal("the restore is not tracked as running")
+	}
+	drain(t, m)
+}
+
+// ctrl+c has to leave from anywhere: bubbletea turns off ISIG, so it is an
+// ordinary key and an overlay that ignores it is one you cannot escape.
+func TestCtrlCLeavesFromEveryOverlay(t *testing.T) {
+	for _, open := range []struct {
+		name string
+		do   func(*Model)
+	}{
+		{"form", func(m *Model) { press(m, "r") }},
+		{"confirm", func(m *Model) { press(m, "x") }},
+		{"help", func(m *Model) { press(m, "?") }},
+		{"detail", func(m *Model) { press(m, "enter") }},
+		{"browse", func(m *Model) { press(m, "a") }},
+	} {
+		m := sized(twoSets(), 120, 40)
+		open.do(m)
+		if m.overlay == overlayNone {
+			t.Fatalf("%s: the overlay did not open", open.name)
+		}
+		m.Update(tea.KeyMsg{Type: tea.KeyCtrlC})
+		if !m.quit {
+			t.Errorf("%s: ctrl+c did not quit", open.name)
+		}
+	}
+}
+
+// A run left with esc must still be visible, and reachable again.
+func TestAnEscapedRunStaysVisible(t *testing.T) {
+	b := twoSets()
+	m := sized(b, 120, 40)
+	press(m, "b")
+	press(m, "esc")
+	if m.overlay != overlayNone {
+		t.Fatalf("esc should return to the list, got %v", m.overlay)
+	}
+	if !strings.Contains(m.View(), "backing up") {
+		t.Errorf("a running backup left the screen with no sign of it:\n%s", m.View())
+	}
+	press(m, "w")
+	if m.overlay != overlayRunning {
+		t.Errorf("w should return to the progress screen, got %v", m.overlay)
+	}
+	drain(t, m)
+}
+
+// Opening and closing an overlay rebuilds the trash table. The cursor must
+// survive it, and a window resize too.
+func TestTheTrashCursorSurvivesARebuild(t *testing.T) {
+	b := twoSets()
+	rows := make([]TrashRow, 8)
+	for i := range rows {
+		rows[i] = TrashRow{Key: "f" + string(rune('a'+i)) + ".txt", Size: 1, Deleted: time.Now(), Expires: time.Now()}
+	}
+	b.trash = rows
+	m := sized(b, 120, 40)
+	m.Update(trashMsg{set: "Documents", rows: rows, req: m.request})
+	m.trash.SetCursor(5)
+
+	press(m, "?")   // open help — triggers layout()
+	press(m, "esc") // and close it
+	if got := m.trash.Cursor(); got != 5 {
+		t.Errorf("cursor = %d after opening and closing help, want 5", got)
+	}
+	m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	if got := m.trash.Cursor(); got != 5 {
+		t.Errorf("cursor = %d after a resize, want 5", got)
+	}
+}
+
+// A name sets.ValidName will reject has to be caught while the form is still
+// open, not after it has closed and taken the whole flow with it.
+func TestABadNameIsCaughtInTheForm(t *testing.T) {
+	b := twoSets()
+	m := sized(b, 120, 40)
+	press(m, "a")
+	m.Update(scannedMsg{root: "/home/me/work", name: "work", res: b.mustScan(), req: m.request})
+	apply(t, m, enter(m))
+
+	m.Update(tea.KeyMsg{Type: tea.KeyCtrlU})
+	typeIn(m, "bad/name")
+	enter(m)
+	apply(t, m, enter(m))
+
+	if m.overlay != overlayForm {
+		t.Fatal("a bad name closed the form instead of saying so")
+	}
+	if len(b.added) != 0 {
+		t.Fatalf("a bad name reached the backend: %v", b.added)
+	}
+	if !strings.Contains(m.form.err, "will not work") {
+		t.Errorf("the form should explain the problem, got %q", m.form.err)
 	}
 }

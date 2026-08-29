@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/saurabhhbansal/r2backup/internal/progress"
 	"github.com/saurabhhbansal/r2backup/internal/sets"
@@ -40,7 +41,11 @@ func TestTheDashboardSeesAndDoesRealWork(t *testing.T) {
 	}
 	a.close()
 
-	d := &dashboard{opts: &Options{Out: os.Stderr, Err: os.Stderr}}
+	d, err := openDashboard(&Options{Out: os.Stderr, Err: os.Stderr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.close()
 	ctx := context.Background()
 
 	views, ov, err := d.Load(ctx)
@@ -117,3 +122,125 @@ func TestTheDashboardSeesAndDoesRealWork(t *testing.T) {
 
 // The interface must satisfy the seam it is written against.
 var _ ui.Backend = (*dashboard)(nil)
+
+// TestTheDashboardServesTwoCallersAtOnce is the regression for the defect
+// that made the whole interface unusable during a backup.
+//
+// Every method used to call openApp() for itself. bbolt takes a file lock
+// that contends with itself inside one process, so while a backup held the
+// index, the interface's once-a-second refresh blocked for bbolt's five
+// second timeout and then failed with `open index at "...": timeout`. The
+// progress screen was replaced by an error about a file, the model stopped
+// believing a backup was running, and a second one could be started on top of
+// the first.
+//
+// Measured before the fix: a second openApp returns an error after 4.99s.
+func TestTheDashboardServesTwoCallersAtOnce(t *testing.T) {
+	_, c := bucketWithABackupInIt(t)
+	dataDir := t.TempDir()
+	t.Setenv("R2BACKUP_DATA_DIR", dataDir)
+
+	root := t.TempDir()
+	for _, n := range []string{"a.txt", "b.txt", "c.txt"} {
+		if err := os.WriteFile(filepath.Join(root, n), []byte(n), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	setup, err := openApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := setup.creds.Save(c); err != nil {
+		t.Fatal(err)
+	}
+	if err := setup.sets.Add(sets.Set{
+		Name: "Notes", Root: root, Machine: "testpc",
+		Prefix: "machines/testpc/Notes", RetentionDays: 30,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	setup.close()
+
+	d, err := openDashboard(&Options{Out: os.Stderr, Err: os.Stderr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.close()
+	ctx := context.Background()
+
+	// Refresh on a ticker for as long as the backup runs, exactly as the
+	// interface does, and fail on the first error rather than at the end.
+	stop := make(chan struct{})
+	loadErr := make(chan error, 1)
+	go func() {
+		for {
+			select {
+			case <-stop:
+				loadErr <- nil
+				return
+			default:
+			}
+			if _, _, err := d.Load(ctx); err != nil {
+				loadErr <- err
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}()
+
+	backupErr := d.Backup(ctx, "Notes", func(string) {}, func(progress.Snapshot) {})
+	close(stop)
+
+	if backupErr != nil {
+		t.Fatalf("Backup: %v", backupErr)
+	}
+	if err := <-loadErr; err != nil {
+		t.Fatalf("a refresh during a backup failed: %v", err)
+	}
+}
+
+// A folder that has moved must be parked, exactly as `r2b backup` parks it.
+// Without it the set stays StatusOK, the interface never says "needs
+// attention", and the scheduled run keeps failing with nobody told.
+func TestAMovedFolderIsParkedByTheInterfaceToo(t *testing.T) {
+	_, c := bucketWithABackupInIt(t)
+	t.Setenv("R2BACKUP_DATA_DIR", t.TempDir())
+
+	gone := filepath.Join(t.TempDir(), "not-there")
+	setup, err := openApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := setup.creds.Save(c); err != nil {
+		t.Fatal(err)
+	}
+	if err := setup.sets.Add(sets.Set{
+		Name: "Gone", Root: gone, Machine: "testpc",
+		Prefix: "machines/testpc/Gone", RetentionDays: 30,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	setup.close()
+
+	d, err := openDashboard(&Options{Out: os.Stderr, Err: os.Stderr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.close()
+	ctx := context.Background()
+
+	if err := d.Backup(ctx, "Gone", func(string) {}, func(progress.Snapshot) {}); err == nil {
+		t.Fatal("backing up a folder that is not there should fail")
+	}
+	views, _, err := d.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(views) != 1 || views[0].State != "needs attention" {
+		t.Fatalf("state = %q, want \"needs attention\"", views[0].State)
+	}
+	if views[0].Note == "" {
+		t.Error("nothing says what is wrong with it")
+	}
+}

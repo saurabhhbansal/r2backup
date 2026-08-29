@@ -18,6 +18,13 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// else so that typing a folder name into a form is never read as a
 	// command -- "b" is the backup key and the first letter of a great many
 	// words someone might type.
+	// ctrl+c leaves, from anywhere. bubbletea puts the terminal in raw mode
+	// with ISIG off, so this is an ordinary key and not a signal: an overlay
+	// that does not handle it is an overlay you cannot ctrl+c out of. From a
+	// form, esc-then-q was the only way out.
+	if msg.Type == tea.KeyCtrlC {
+		return m.quitNow()
+	}
 	if m.overlay != overlayNone {
 		return m.overlayKey(msg)
 	}
@@ -37,7 +44,19 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case key.Matches(msg, keys.Refresh):
+		if m.tab == tabTrash && m.trashSet != "" {
+			return m, m.loadTrash(m.trashSet)
+		}
 		return m, tea.Batch(m.load(), m.loadAccount())
+
+	case key.Matches(msg, keys.Watch):
+		// Back to a run that esc was pressed on. Without this a backup left
+		// running has no screen and no way to get one -- the "running now"
+		// banner is suppressed for this window's own run.
+		if m.running {
+			m.overlay = overlayRunning
+		}
+		return m, nil
 
 	case key.Matches(msg, keys.NextTab):
 		return m, m.gotoTab((m.tab + 1) % numTabs)
@@ -50,6 +69,16 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// and the only discoverable one if you have not found tab yet.
 	if n, err := strconv.Atoi(msg.String()); err == nil && n >= 1 && n <= int(numTabs) {
 		return m, m.gotoTab(tab(n - 1))
+	}
+
+	// Refused up front on every tab, not after the form the key opens.
+	// Asking someone to browse to a folder, name it and choose a retention
+	// window and only then saying "something is already running" wastes the
+	// whole conversation -- and the guard used to exist only on Folders, so
+	// recovering a file from Trash mid-backup did exactly that.
+	if m.running && startsWork(msg) {
+		m.notice = busyNote
+		return m, nil
 	}
 
 	switch m.tab {
@@ -78,13 +107,16 @@ func startsWork(msg tea.KeyMsg) bool {
 }
 
 func (m *Model) quitNow() (tea.Model, tea.Cmd) {
-	if m.running {
-		// Cancelled deliberately rather than abandoned: the process is about
-		// to exit, and a half-written progress file would show a phantom run
-		// in every other window until it went stale.
+	// Keyed off runCancel, not off m.running: they are meant to move
+	// together and the whole point of cancelling here is the case where
+	// something has gone wrong. A live goroutine left uncancelled keeps
+	// rewriting progress.json, and every other window reads that as a run in
+	// flight until it goes stale.
+	if m.runCancel != nil {
 		m.runCancel()
-		m.running = false
+		m.runCancel = nil
 	}
+	m.running = false
 	m.quit = true
 	return m, tea.Quit
 }
@@ -119,11 +151,45 @@ func (m *Model) overlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case overlayHelp, overlayDetail:
+	case overlayHelp:
 		switch {
 		case key.Matches(msg, keys.Back), key.Matches(msg, keys.Quit), key.Matches(msg, keys.Help):
 			m.overlay = overlayNone
 			return m, nil
+		}
+		return m, m.forward(msg)
+
+	case overlayDetail:
+		switch {
+		case key.Matches(msg, keys.Back), key.Matches(msg, keys.Quit):
+			m.overlay = overlayNone
+			return m, nil
+		}
+		// The detail screen prints its own list of keys along the bottom.
+		// They did nothing: every key but esc went to the viewport. A screen
+		// that advertises five shortcuts and honours none of them is worse
+		// than one that advertises none.
+		if v, ok := m.selected(); ok {
+			if m.running && startsWork(msg) {
+				m.notice = busyNote
+				return m, nil
+			}
+			switch {
+			case key.Matches(msg, keys.Backup):
+				return m, m.startBackup([]string{v.Name})
+			case key.Matches(msg, keys.Edit):
+				m.overlay = overlayNone
+				return m, m.scanFolder(v.Root, v.Name)
+			case key.Matches(msg, keys.Restore):
+				m.askRestore(v)
+				return m, nil
+			case key.Matches(msg, keys.Rename):
+				m.askRename(v)
+				return m, nil
+			case key.Matches(msg, keys.Relink):
+				m.askRelink(v)
+				return m, nil
+			}
 		}
 		return m, m.forward(msg)
 
@@ -146,23 +212,45 @@ func (m *Model) overlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		cmd, done := m.form.Update(msg)
 		if done {
-			m.overlay, m.form = overlayNone, nil
+			m.form = nil
+			// Only close the form's own overlay. A submit that started a
+			// transfer has already moved us to the progress screen, and
+			// overwriting that back to overlayNone ran every restore with no
+			// bar, no phase and no title -- just the folder list, with
+			// nothing on it saying anything was happening.
+			if m.overlay == overlayForm {
+				m.overlay = overlayNone
+			}
 		}
 		return m, cmd
 
 	case overlayBrowse:
-		if key.Matches(msg, keys.Back) {
+		switch {
+		case key.Matches(msg, keys.Back):
 			m.overlay = overlayNone
 			return m, nil
+
+		case msg.String() == "t":
+			// Typing a path is the only way to reach some folders at all.
+			// filepicker's "up" is filepath.Dir, and on Windows
+			// filepath.Dir(`C:\`) is `C:\` -- it stops dead at the drive
+			// root, so a folder on D: could not be added from the interface
+			// at all. `r2b add D:\work` still worked, which is exactly the
+			// command-line fallback this is meant to remove.
+			m.askTypedPath()
+			return m, nil
+
+		case msg.String() == ".":
+			// Without this no dot-directory can be reached: ~/.config,
+			// ~/.ssh, ~/.local/share are all unbackupable from the browser.
+			m.browse.ShowHidden = !m.browse.ShowHidden
+			return m, m.browse.Init()
+
+		case msg.String() == " ":
+			return m, m.scanFolder(m.browse.CurrentDirectory, "")
 		}
 		var cmd tea.Cmd
 		m.browse, cmd = m.browse.Update(msg)
-		// The filepicker only reports a selection; "the directory I am
-		// standing in" is the answer wanted here, and enter on a directory
-		// descends into it. So the choice is made with a separate key.
-		if msg.String() == "u" || msg.String() == " " {
-			return m, m.scanFolder(m.browse.CurrentDirectory, "")
-		}
 		if picked, path := m.browse.DidSelectFile(msg); picked {
 			return m, m.scanFolder(path, "")
 		}
@@ -200,11 +288,6 @@ func (m *Model) foldersKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// the form it opens. Asking someone to browse to a folder, name it and
 	// choose a retention window, and only then saying "something is already
 	// running", wastes the whole conversation.
-	if m.running && startsWork(msg) {
-		m.notice = "Something is already running. Wait for it, or press q to stop it."
-		return m, nil
-	}
-
 	switch {
 	case key.Matches(msg, keys.Add):
 		return m, m.startBrowse()
@@ -283,6 +366,12 @@ func (m *Model) scheduleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func (m *Model) trashKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case key.Matches(msg, keys.Enter):
+		// Recovering a file is a restore, so it is refused while something
+		// is running -- and refused here, before the form, not after it.
+		if m.running {
+			m.notice = busyNote
+			return m, nil
+		}
 		row := m.trash.SelectedRow()
 		if len(row) == 0 || m.trashCount() == 0 {
 			return m, nil
@@ -330,6 +419,18 @@ func (m *Model) accountKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.askKeys()
 		return m, nil
 
+	case key.Matches(msg, keys.Unlock):
+		if !m.acct.SignedIn {
+			m.notice = "Sign in first, with i."
+			return m, nil
+		}
+		if !m.acct.VaultStored {
+			m.notice = "Nothing is stored for this account yet."
+			return m, nil
+		}
+		m.askUnlock()
+		return m, nil
+
 	case key.Matches(msg, keys.Update):
 		return m, m.checkUpdate()
 	}
@@ -355,9 +456,12 @@ func (m *Model) showForm(f *form) {
 //
 // The goroutine never touches the model. Everything it has to say arrives as
 // a message and is applied in Update, on bubbletea's own loop.
+// busyNote is the one sentence said whenever a second job is refused.
+const busyNote = "Something is already running. Wait for it, or press w to watch it."
+
 func (m *Model) startBackup(names []string) tea.Cmd {
 	if m.running {
-		m.notice = "Something is already running."
+		m.notice = busyNote
 		return nil
 	}
 	ctx, cancel := context.WithCancel(m.ctx)
@@ -395,7 +499,7 @@ func backedUpNote(names []string) string {
 
 func (m *Model) startRestore(req RestoreRequest) tea.Cmd {
 	if m.running {
-		m.notice = "Something is already running."
+		m.notice = busyNote
 		return nil
 	}
 	ctx, cancel := context.WithCancel(m.ctx)
@@ -456,12 +560,14 @@ func restoreSummary(r RestoreResult) string {
 
 func (m *Model) loadTrash(name string) tea.Cmd {
 	m.notice = "Reading trash..."
+	m.request++
+	req := m.request
 	return func() tea.Msg {
 		rows, err := m.backend.Trash(m.ctx, name)
 		if err != nil {
 			return errMsg{err}
 		}
-		return trashMsg{set: name, rows: rows}
+		return trashMsg{set: name, rows: rows, req: req}
 	}
 }
 

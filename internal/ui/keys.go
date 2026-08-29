@@ -29,7 +29,9 @@ type keyMap struct {
 	SignOut key.Binding
 	Share   key.Binding
 	Keys    key.Binding
+	Unlock  key.Binding
 	Update  key.Binding
+	Watch   key.Binding
 	Refresh key.Binding
 	Help    key.Binding
 	Quit    key.Binding
@@ -60,8 +62,10 @@ var keys = keyMap{
 	SignOut: key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "sign out")),
 	Share:   key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "save keys for other computers")),
 	Keys:    key.NewBinding(key.WithKeys("k"), key.WithHelp("k", "enter R2 keys")),
+	Unlock:  key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "download saved keys")),
 	Update:  key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "update")),
 
+	Watch:   key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "watch the running job")),
 	Refresh: key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "refresh")),
 	Help:    key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "keys")),
 	Quit:    key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
@@ -78,7 +82,7 @@ func tabKeys(t tab) []key.Binding {
 	case tabTrash:
 		return []key.Binding{keys.Recover}
 	case tabAccount:
-		return []key.Binding{keys.SignIn, keys.Share, keys.Keys, keys.SignOut, keys.Update}
+		return []key.Binding{keys.SignIn, keys.Unlock, keys.Share, keys.Keys, keys.SignOut}
 	}
 	return nil
 }
@@ -99,7 +103,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 		{k.Add, k.Backup, k.All, k.Edit, k.Restore},
 		{k.Rename, k.Relink, k.Remove},
 		{k.Toggle, k.Every},
-		{k.SignIn, k.Share, k.Keys, k.SignOut},
-		{k.Update, k.Refresh, k.Help, k.Quit},
+		{k.SignIn, k.Unlock, k.Share, k.Keys, k.SignOut},
+		{k.Watch, k.Update, k.Refresh, k.Help, k.Quit},
 	}
 }

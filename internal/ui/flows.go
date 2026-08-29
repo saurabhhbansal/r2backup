@@ -4,11 +4,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/saurabhhbansal/r2backup/internal/sets"
 	"github.com/saurabhhbansal/r2backup/internal/tui"
 )
 
@@ -34,11 +36,42 @@ func (m *Model) startBrowse() tea.Cmd {
 	return m.browse.Init()
 }
 
+// askTypedPath is the escape hatch out of the browser, and on Windows it is
+// not optional -- see the comment on the "t" key in overlayKey.
+func (m *Model) askTypedPath() {
+	f := newForm(
+		"Type the folder's path",
+		"For a folder the browser cannot reach — another drive, or one you already know the path of.",
+		[]field{{Label: "Path", Placeholder: exampleFolder()}},
+		func(vals []string) (string, tea.Cmd) {
+			p := cleanPath(vals[0])
+			info, err := os.Stat(p)
+			if err != nil {
+				return "There is nothing at that path.", nil
+			}
+			if !info.IsDir() {
+				return "That is a file, not a folder.", nil
+			}
+			return "", m.scanFolder(p, "")
+		})
+	f.SetValue(0, m.browse.CurrentDirectory)
+	m.showForm(f)
+}
+
+func exampleFolder() string {
+	if runtime.GOOS == "windows" {
+		return `D:\Work`
+	}
+	return "/mnt/data/work"
+}
+
 // scanFolder walks a folder and then opens the tree picker on it. Used for a
 // new folder (editing == "") and for changing an existing one.
 func (m *Model) scanFolder(root, editing string) tea.Cmd {
 	name := filepath.Base(root)
 	m.notice = "Scanning " + root + "..."
+	m.request++
+	req := m.request
 	return func() tea.Msg {
 		info, err := os.Stat(root)
 		if err != nil {
@@ -51,7 +84,7 @@ func (m *Model) scanFolder(root, editing string) tea.Cmd {
 		if err != nil {
 			return errMsg{err}
 		}
-		return scannedMsg{root: root, name: name, res: res, editing: editing}
+		return scannedMsg{root: root, name: name, res: res, editing: editing, req: req}
 	}
 }
 
@@ -76,6 +109,8 @@ func (m *Model) openPicker(msg scannedMsg) tea.Cmd {
 	m.overlay = overlayPicker
 	m.notice = ""
 	m.layout()
+	// Give it the terminal, once, before its first frame.
+	p.Update(m.pickerSize())
 	return nil
 }
 
@@ -83,9 +118,13 @@ func (m *Model) openPicker(msg scannedMsg) tea.Cmd {
 // then registers the folder and backs it up.
 func (m *Model) finishAdd(root string, excludes []string) tea.Cmd {
 	suggested := filepath.Base(root)
+	hint := "It will be backed up now, and from then on whenever backups run."
+	if other, ok := m.backend.Overlaps(root); ok {
+		hint = "Note: this overlaps " + other + ". Files in both are stored twice,\nand cost operations twice on every run."
+	}
 	f := newForm(
 		"Add "+root,
-		"It will be backed up now, and from then on whenever backups run.",
+		hint,
 		[]field{
 			{Label: "Name", Placeholder: suggested},
 			{Label: "Keep deleted files for", Placeholder: "30", Optional: true},
@@ -97,6 +136,15 @@ func (m *Model) finishAdd(root string, excludes []string) tea.Cmd {
 			}
 			if _, exists := m.setByName(name); exists {
 				return "There is already a folder called " + name + ".", nil
+			}
+			// Checked here, not only in the backend. sets.ValidName also
+			// rejects a slash, a dot, a control character and anything too
+			// long -- and reaching that check after the form has closed
+			// costs the user the whole flow again: browse, scan, pick, name.
+			// Choosing a drive root makes this the common case on Windows,
+			// where filepath.Base(`C:\`) is `\`.
+			if err := sets.ValidName(name); err != nil {
+				return "That name will not work: " + err.Error(), nil
 			}
 			retention := 30
 			if v[1] != "" {
@@ -174,6 +222,9 @@ func (m *Model) askRename(v SetView) {
 		func(vals []string) (string, tea.Cmd) {
 			if vals[0] == v.Name {
 				return "That is the name it already has.", nil
+			}
+			if err := sets.ValidName(vals[0]); err != nil {
+				return "That name will not work: " + err.Error(), nil
 			}
 			from, to := v.Name, vals[0]
 			return "", func() tea.Msg {
@@ -272,20 +323,28 @@ func (m *Model) askCode(email string) {
 type signedInMsg struct{}
 
 // askUnlock runs when signing in finds credentials already stored.
+// askUnlock is reachable from the Account tab as well as straight after
+// signing in. It was only reachable from the sign-in path, so one mistyped
+// password cost a full sign-out and a fresh emailed code.
 func (m *Model) askUnlock() {
 	m.showForm(newForm(
-		"Found your saved credentials",
-		"Enter the password you chose on the computer that stored them.",
+		"Unlock your saved credentials",
+		"The password you chose on the computer that stored them.",
 		[]field{{Label: "Password", Secret: true}},
 		func(vals []string) (string, tea.Cmd) {
+			pw := vals[0]
 			return "", func() tea.Msg {
-				if err := m.backend.UnlockVault(m.ctx, vals[0]); err != nil {
-					return errMsg{err}
+				if err := m.backend.UnlockVault(m.ctx, pw); err != nil {
+					return unlockFailedMsg{err}
 				}
 				return noticeMsg("Unlocked. This computer can reach your bucket.")
 			}
 		}))
 }
+
+// unlockFailedMsg reopens the password form rather than dropping the user
+// back on the tab with an error and no way to try again.
+type unlockFailedMsg struct{ err error }
 
 func (m *Model) askStorePassword() {
 	m.showForm(newForm(

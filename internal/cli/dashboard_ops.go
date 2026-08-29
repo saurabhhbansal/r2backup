@@ -30,11 +30,13 @@ func (d *dashboard) Scan(ctx context.Context, root string) (*scan.Result, error)
 }
 
 func (d *dashboard) Add(ctx context.Context, req ui.AddRequest) error {
-	a, err := openApp()
+	// Connected first, like `r2b add`. Otherwise the whole flow -- browse,
+	// scan, pick, name -- succeeds on a machine with no credentials and only
+	// the backup afterwards fails, telling the user to go and run a command.
+	a, err := d.connected(ctx)
 	if err != nil {
 		return err
 	}
-	defer a.close()
 	if err := sets.ValidName(req.Name); err != nil {
 		return fmt.Errorf("%q: %w", req.Name, err)
 	}
@@ -60,12 +62,25 @@ func (d *dashboard) Add(ctx context.Context, req ui.AddRequest) error {
 	return a.sets.Add(s)
 }
 
-func (d *dashboard) SetExcludes(ctx context.Context, name string, excludes []string) error {
-	a, err := openApp()
+// Overlaps reports another folder already covering root, so the interface can
+// say so before anything is uploaded.
+//
+// Overlapping folders are allowed -- each carries its own retention, so
+// wanting one is reasonable -- but every file in the overlap is stored under
+// two prefixes and paid for twice on every run that touches it. `r2b add`
+// says this once, and on a tool whose whole argument is the operations
+// budget, the interface has to as well.
+func (d *dashboard) Overlaps(root string) (string, bool) {
+	abs, err := filepath.Abs(root)
 	if err != nil {
-		return err
+		return "", false
 	}
-	defer a.close()
+	other, ok := d.app.sets.Overlapping(abs)
+	return other.Name, ok
+}
+
+func (d *dashboard) SetExcludes(ctx context.Context, name string, excludes []string) error {
+	a := d.app
 	s, err := a.sets.Get(name)
 	if err != nil {
 		return err
@@ -75,11 +90,7 @@ func (d *dashboard) SetExcludes(ctx context.Context, name string, excludes []str
 }
 
 func (d *dashboard) Rename(ctx context.Context, from, to string) error {
-	a, err := openApp()
-	if err != nil {
-		return err
-	}
-	defer a.close()
+	a := d.app
 	// The index is keyed by set name too. It moves first: that is one bbolt
 	// transaction and cannot half-happen, and if the set store then refuses
 	// the new name the index goes back. The other order has no recovery --
@@ -98,11 +109,7 @@ func (d *dashboard) Rename(ctx context.Context, from, to string) error {
 }
 
 func (d *dashboard) Relink(ctx context.Context, name, newRoot string) error {
-	a, err := openApp()
-	if err != nil {
-		return err
-	}
-	defer a.close()
+	a := d.app
 	return a.sets.Relink(name, newRoot)
 }
 
@@ -128,12 +135,8 @@ func (o *uiRestoreObserver) Phase(p restore.Phase, r *restore.Report) {
 func (o *uiRestoreObserver) Progress(s progress.Snapshot) { o.snap(s) }
 
 func (d *dashboard) Restore(ctx context.Context, req ui.RestoreRequest, phase func(string), snap func(progress.Snapshot)) (ui.RestoreResult, error) {
-	a, err := openApp()
+	a, err := d.connected(ctx)
 	if err != nil {
-		return ui.RestoreResult{}, err
-	}
-	defer a.close()
-	if err := a.connect(ctx); err != nil {
 		return ui.RestoreResult{}, err
 	}
 	// Local record first, bucket second -- the same lookup `r2b restore`
@@ -154,8 +157,26 @@ func (d *dashboard) Restore(ctx context.Context, req ui.RestoreRequest, phase fu
 		}
 		return ui.RestoreResult{}, err
 	}
+	// A restore that found nothing must not read as a restore that worked.
+	// This is the worst possible answer to "is my data there?", which is why
+	// the command errors on it -- and why the interface has to as well, since
+	// its result line is a muted notice that nobody reads twice.
 	if rep.ListedFiles == 0 {
 		return ui.RestoreResult{}, fmt.Errorf("nothing is stored for %q, so nothing was restored", s.Name)
+	}
+	if req.Only != "" && rep.Downloaded == 0 && rep.SkippedExisting == 0 && len(rep.Failures) == 0 {
+		return ui.RestoreResult{}, fmt.Errorf(
+			"%q matched none of the %s files stored for %s, so nothing was restored.\n"+
+				"  A bare name takes everything under it (docs), and * does not cross a / (use docs/**)",
+			req.Only, progress.FormatCount(rep.ListedFiles), s.Name)
+	}
+	if n := len(rep.Failures); n > 0 {
+		return ui.RestoreResult{}, fmt.Errorf("%s restored, but %d file(s) did not: %v",
+			progress.FormatCount(int64(rep.Downloaded)), n, rep.Failures[0].Err)
+	}
+	if n := len(rep.VerifyMismatches); n > 0 {
+		return ui.RestoreResult{}, fmt.Errorf("%d file(s) did NOT match after writing, starting with %s",
+			n, rep.VerifyMismatches[0])
 	}
 	return ui.RestoreResult{
 		Files: rep.Downloaded, Bytes: rep.Bytes, Target: rep.Target,
@@ -251,11 +272,7 @@ func (d *dashboard) UnlockVault(ctx context.Context, password string) error {
 	if err := json.Unmarshal(plain, &c); err != nil {
 		return fmt.Errorf("the saved credentials could not be read: %w", err)
 	}
-	a, err := openApp()
-	if err != nil {
-		return err
-	}
-	defer a.close()
+	a := d.app
 	if err := a.creds.Save(c); err != nil {
 		return err
 	}
@@ -267,17 +284,22 @@ func (d *dashboard) StoreVault(ctx context.Context, password string) error {
 	if err != nil {
 		return err
 	}
-	a, err := openApp()
+	a, err := d.connected(ctx)
 	if err != nil {
 		return err
 	}
-	defer a.close()
 	c, err := a.creds.Load()
 	if err != nil {
 		return errors.New("there are no credentials on this computer to save yet")
 	}
 	plain, err := json.Marshal(c)
 	if err != nil {
+		return err
+	}
+	// Checked before they are pushed, never after. Storing keys that do not
+	// work hands every later machine the same broken setup, and the failure
+	// surfaces there rather than here where it can still be corrected.
+	if err := checkBucketReachable(ctx, a); err != nil {
 		return err
 	}
 	vault, err := account.Encrypt(password, plain)
@@ -288,11 +310,7 @@ func (d *dashboard) StoreVault(ctx context.Context, password string) error {
 }
 
 func (d *dashboard) SaveKeys(ctx context.Context, k ui.Keys) error {
-	a, err := openApp()
-	if err != nil {
-		return err
-	}
-	defer a.close()
+	a := d.app
 	c := creds.Credentials{
 		AccountID:       strings.TrimSpace(k.AccountID),
 		AccessKeyID:     strings.TrimSpace(k.AccessKeyID),

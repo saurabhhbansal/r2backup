@@ -175,6 +175,15 @@ type Backend interface {
 	// that next, so the progress is visible.
 	Add(ctx context.Context, req AddRequest) error
 
+	// Overlaps names another folder already covering root.
+	//
+	// Overlapping folders are allowed -- each carries its own retention -- but
+	// every file in the overlap is stored under two prefixes and paid for
+	// twice on every run that touches it. `r2b add` says so once, and on a
+	// tool whose whole argument is the operations budget the interface has to
+	// as well.
+	Overlaps(root string) (string, bool)
+
 	// SetExcludes changes what a set includes.
 	SetExcludes(ctx context.Context, name string, excludes []string) error
 

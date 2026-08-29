@@ -37,6 +37,7 @@ type fakeBackend struct {
 	vaultPw   []string
 	signedOut bool
 
+	overlap    string
 	scanErr    error
 	restoreErr error
 }
@@ -63,6 +64,8 @@ func (f *fakeBackend) Add(_ context.Context, req AddRequest) error {
 	f.added = append(f.added, req)
 	return nil
 }
+
+func (f *fakeBackend) Overlaps(root string) (string, bool) { return f.overlap, f.overlap != "" }
 
 func (f *fakeBackend) SetExcludes(_ context.Context, name string, ex []string) error {
 	if f.excludes == nil {
