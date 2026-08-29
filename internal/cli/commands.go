@@ -137,6 +137,17 @@ func newAddCmd(opts *Options) *cobra.Command {
 			if _, err := a.sets.Get(name); err == nil {
 				return fmt.Errorf("a set called %q already exists; pass --name to choose another", name)
 			}
+			// Overlapping folders are allowed -- each set carries its own
+			// retention and schedule, so wanting one is reasonable -- but
+			// every file in the overlap is then stored under two prefixes and
+			// paid for twice on every run that touches it. Said once, here,
+			// rather than discovered on a bill. A note, not a prompt.
+			if other, ok := a.sets.Overlapping(root); ok {
+				fmt.Fprintf(opts.Out,
+					"Note: this folder overlaps the set %q (%s).\n"+
+						"      Files in both are stored twice and cost operations twice.\n",
+					other.Name, other.Root)
+			}
 
 			fmt.Fprintf(opts.Out, "Scanning %s...\n", root)
 			scanned, err := scan.Walk(cmd.Context(), scan.Options{Root: root})

@@ -179,6 +179,44 @@ func (s *Store) Add(set Set) error {
 	return s.save()
 }
 
+// Overlapping returns an existing set whose root contains root, or is
+// contained by it, and whether there was one.
+//
+// Nothing stops a user adding a folder that is already inside a set they
+// added -- and it is a legitimate thing to want, since each set carries its
+// own retention and schedule. But every file in the overlap is then stored
+// twice, under two prefixes, and paid for twice in Class A operations on
+// every run that touches it. That is worth one line of warning on a tool
+// whose whole argument is the operations budget. It is a note, not a prompt:
+// "no second prompts" is a design decision, and this does not become one.
+//
+// Comparison is on cleaned absolute paths, case-sensitively. On a
+// case-insensitive volume that can miss an overlap spelled differently --
+// which is the harmless direction for a warning to fail in, unlike claiming
+// an overlap that is not there.
+func (s *Store) Overlapping(root string) (Set, bool) {
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return Set{}, false
+	}
+	abs = filepath.Clean(abs)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, existing := range s.sets {
+		other := filepath.Clean(existing.Root)
+		if abs == other || under(abs, other) || under(other, abs) {
+			return existing, true
+		}
+	}
+	return Set{}, false
+}
+
+// under reports whether child sits inside parent. It compares whole path
+// components, so "/home/me/docs-old" is not inside "/home/me/docs".
+func under(child, parent string) bool {
+	return strings.HasPrefix(child, parent+string(filepath.Separator))
+}
+
 // Update replaces a set, matched by name.
 func (s *Store) Update(set Set) error {
 	s.mu.Lock()

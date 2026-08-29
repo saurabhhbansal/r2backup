@@ -258,3 +258,43 @@ func TestListIsSortedAndACopy(t *testing.T) {
 		t.Error("List handed out a reference; a caller mutated the store")
 	}
 }
+
+func TestOverlappingFindsANestedRootInEitherDirection(t *testing.T) {
+	s, _ := store(t)
+	base := t.TempDir()
+	docs := filepath.Join(base, "docs")
+	add(t, s, "Docs", docs)
+
+	cases := []struct {
+		what string
+		root string
+		want bool
+	}{
+		{"the very same folder", docs, true},
+		{"a folder inside the set", filepath.Join(docs, "invoices"), true},
+		{"a folder deep inside the set", filepath.Join(docs, "invoices", "2026", "q3"), true},
+		{"a folder that contains the set", base, true},
+		{"an unrelated sibling", filepath.Join(base, "music"), false},
+		// The one a naive strings.HasPrefix gets wrong: "docs-old" starts
+		// with "docs" as text but is not inside it as a path.
+		{"a sibling whose name starts with the set's", docs + "-old", false},
+		{"a sibling one character longer", docs + "2", false},
+	}
+	for _, tc := range cases {
+		got, ok := s.Overlapping(tc.root)
+		if ok != tc.want {
+			t.Errorf("Overlapping(%s) = %v, want %v", tc.what, ok, tc.want)
+			continue
+		}
+		if ok && got.Name != "Docs" {
+			t.Errorf("Overlapping(%s) named %q, want \"Docs\"", tc.what, got.Name)
+		}
+	}
+}
+
+func TestOverlappingIsQuietWhenThereAreNoSets(t *testing.T) {
+	s, _ := store(t)
+	if _, ok := s.Overlapping(t.TempDir()); ok {
+		t.Error("Overlapping reported an overlap against an empty store")
+	}
+}
