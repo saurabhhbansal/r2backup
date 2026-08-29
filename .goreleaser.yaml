@@ -20,8 +20,34 @@ builds:
       - -s -w -X main.version={{.Version}}
     mod_timestamp: "{{ .CommitTimestamp }}"
 
+  # Windows only: the launcher that gives a scheduled run no console window.
+  # -H=windowsgui makes it a GUI-subsystem binary, so Windows allocates no
+  # console for it at all -- which is the only way to not have one, since a
+  # console binary gets its console from the loader before any of its code
+  # runs. See cmd/r2backupw. It carries no version because it has no logic to
+  # go stale: it runs whichever r2backup.exe sits beside it.
+  - id: r2backupw
+    main: ./cmd/r2backupw
+    binary: r2backupw
+    env:
+      - CGO_ENABLED=0
+    goos: [windows]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -H=windowsgui
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
 archives:
   - id: default
+    # Both builds. On Linux and macOS only r2backup exists, so this is the
+    # same single-binary archive it always was; a Windows archive gains the
+    # launcher beside it.
+    ids: [r2backup, r2backupw]
+    # Windows archives hold two files and the others hold one, which
+    # goreleaser refuses by default as a likely packaging mistake. Here it is
+    # the intent: only Windows has a console window to avoid, so only Windows
+    # ships the launcher that avoids it.
+    allow_different_binary_count: true
     # The name the updater looks for. internal/selfupdate.AssetName builds the
     # same string; if these two ever disagree, `r2backup update` stops finding
     # its own releases.

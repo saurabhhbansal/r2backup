@@ -38,6 +38,19 @@ try {
   Expand-Archive -Path (Join-Path $tmp $asset) -DestinationPath $tmp -Force
   Copy-Item (Join-Path $tmp 'r2backup.exe') (Join-Path $installDir 'r2backup.exe') -Force
 
+  # r2backupw.exe is what a scheduled run is pointed at: it starts r2backup
+  # with no console window, which r2backup cannot do for itself because
+  # Windows creates its console before any of its code runs. Copying only
+  # r2backup.exe would install a working product whose scheduled backups pop a
+  # console window every time, and `schedule` would correctly tell the user so
+  # -- for a file that was in the archive all along.
+  #
+  # Tolerated when absent so this script still installs an older release.
+  $launcher = Join-Path $tmp 'r2backupw.exe'
+  if (Test-Path $launcher) {
+    Copy-Item $launcher (Join-Path $installDir 'r2backupw.exe') -Force
+  }
+
   # Add to the user's PATH if it is not already there.
   $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
   if ($userPath -notlike "*$installDir*") {

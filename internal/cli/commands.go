@@ -683,6 +683,47 @@ func newRemoveCmd(opts *Options) *cobra.Command {
 	return cmd
 }
 
+// LauncherName is the window-less companion beside r2backup on Windows.
+// See cmd/r2backupw.
+const LauncherName = "r2backupw.exe"
+
+// scheduledBinary picks what the OS scheduler should actually run, and
+// reports whether that choice puts nothing on screen.
+//
+// On Windows the answer is the launcher beside this binary when it is there.
+// Registering r2backup.exe directly means Task Scheduler starts a
+// console-subsystem program in the interactive session, and a console window
+// appears for the length of the backup -- measured on a real desktop, both
+// before and after r2backup started hiding its own console, because the
+// loader creates that console before any of its code runs.
+//
+// It falls back rather than failing. Someone running a build from `go build`,
+// or an install where only the one file was copied, still gets a working
+// schedule; they are told a window will appear, which is true, instead of
+// being told nothing and seeing one anyway.
+//
+// exists is a parameter so the fallback can be tested from any platform --
+// the case that matters is a Windows machine without the launcher, and there
+// is no Windows machine in CI that can be missing a file that CI just built.
+func scheduledBinary(goos, self string, exists func(string) bool) (path string, windowless bool) {
+	if goos != "windows" {
+		// systemd and launchd start a process with no terminal at all, so
+		// there was never a window to avoid.
+		return self, true
+	}
+	launcher := filepath.Join(filepath.Dir(self), LauncherName)
+	if exists(launcher) {
+		return launcher, true
+	}
+	return self, false
+}
+
+// fileExists is scheduledBinary's real-world lookup.
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
+}
+
 // scheduledRunArgs is the command line the OS scheduler is given.
 //
 // On Windows it carries --hidden. Task Scheduler cannot start a process
@@ -744,15 +785,28 @@ func newScheduleCmd(opts *Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			binary, windowless := scheduledBinary(runtime.GOOS, self, fileExists)
 			if err := schedule.Install(schedule.Entry{
 				Name:       "r2backup",
 				Interval:   time.Duration(every) * time.Minute,
-				BinaryPath: self,
+				BinaryPath: binary,
 				Args:       scheduledRunArgs(runtime.GOOS),
 			}); err != nil {
 				return err
 			}
-			fmt.Fprintf(opts.Out, "Registered. Backups run every %d minutes, out of sight, and survive a reboot.\n", every)
+			if windowless {
+				fmt.Fprintf(opts.Out, "Registered. Backups run every %d minutes, out of sight, and survive a reboot.\n", every)
+			} else {
+				// Said plainly rather than left to be discovered. A console
+				// window appearing every half hour on a tool sold as
+				// invisible is exactly the sort of thing a user assumes is
+				// broken.
+				fmt.Fprintf(opts.Out, "Registered. Backups run every %d minutes and survive a reboot.\n", every)
+				fmt.Fprintf(opts.Out,
+					"Note: a console window will appear briefly on each run. %s is missing\n"+
+						"      from %s; reinstall r2backup to get it back.\n",
+					LauncherName, filepath.Dir(self))
+			}
 			// On Windows the preferred registration can be refused and a
 			// second one used instead, and the difference matters: one runs
 			// whether or not you are signed in, the other does not. Read it

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -65,5 +66,51 @@ func TestTheHiddenFlagIsAcceptedNotJustWritten(t *testing.T) {
 	err := root.Execute()
 	if err != nil && strings.Contains(err.Error(), "unknown flag") {
 		t.Fatalf("the scheduled command line is not parseable: %v", err)
+	}
+}
+
+// What the scheduler is pointed at is the whole fix for the console window.
+// r2backup cannot hide its own console reliably -- the loader creates it
+// before any of its code runs, and a real desktop showed the window both
+// before and after that was attempted -- so the task has to run the
+// GUI-subsystem launcher instead.
+func TestWindowsSchedulesTheWindowlessLauncher(t *testing.T) {
+	const self = `C:\Users\me\AppData\Local\Programs\r2backup\r2backup.exe`
+	launcher := filepath.Join(filepath.Dir(self), LauncherName)
+
+	got, windowless := scheduledBinary("windows", self, func(p string) bool { return p == launcher })
+	if got != launcher {
+		t.Errorf("scheduled %q, want the launcher %q: pointing the task at the console binary is the bug", got, launcher)
+	}
+	if !windowless {
+		t.Error("reported that a window will appear when the launcher is present")
+	}
+}
+
+// A build straight from `go build`, or an install where only the one file was
+// copied, must still get a working schedule -- and must be told the truth
+// about it rather than promising something it cannot deliver.
+func TestAMissingLauncherFallsBackAndSaysSo(t *testing.T) {
+	const self = `C:\Users\me\r2backup.exe`
+	got, windowless := scheduledBinary("windows", self, func(string) bool { return false })
+	if got != self {
+		t.Errorf("scheduled %q, want a fallback to %q", got, self)
+	}
+	if windowless {
+		t.Error("claimed nothing appears on screen while pointing the task at a console binary")
+	}
+}
+
+// Off Windows there is no launcher and never was a window: systemd and
+// launchd start a process with no terminal at all.
+func TestOtherPlatformsScheduleTheBinaryItself(t *testing.T) {
+	for _, goos := range []string{"linux", "darwin"} {
+		got, windowless := scheduledBinary(goos, "/usr/local/bin/r2backup", func(string) bool {
+			t.Errorf("%s: looked for a launcher, which only exists on Windows", goos)
+			return true
+		})
+		if got != "/usr/local/bin/r2backup" || !windowless {
+			t.Errorf("scheduledBinary(%s) = %q, %v; want the binary itself and no window", goos, got, windowless)
+		}
 	}
 }
