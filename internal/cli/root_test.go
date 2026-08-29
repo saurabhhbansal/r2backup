@@ -72,3 +72,27 @@ func TestRestoreDocumentsThatItNeverGuesses(t *testing.T) {
 	}
 	t.Fatal("restore command not found")
 }
+
+// Moving a set's objects to a prefix matching a new name is deliberately not
+// offered. It is a server-side copy and a delete of every object -- two
+// operations each -- to change a name only the R2 dashboard shows, and the
+// prefix is the set's identity, assigned once and never rewritten. It was
+// offered once as `--remote` and never implemented; the flag was removed
+// rather than finished. This is here so it is not reintroduced by someone
+// reading the half-built version in the history and assuming it was wanted.
+func TestRenameOffersNoWayToMoveTheBucketPrefix(t *testing.T) {
+	root := NewRoot(&Options{})
+	for _, c := range root.Commands() {
+		if c.Name() != "rename" {
+			continue
+		}
+		if f := c.Flags().Lookup("remote"); f != nil {
+			t.Error("rename has a --remote flag again; moving a prefix is a decision that was made against")
+		}
+		if strings.Contains(c.Long, "--remote") {
+			t.Error("rename's help mentions --remote, which does not exist")
+		}
+		return
+	}
+	t.Fatal("rename command not found")
+}

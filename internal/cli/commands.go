@@ -468,10 +468,9 @@ func countOf(n int64, one, many string) string {
 //
 // --purge deletes permanently rather than routing through trash, which looks
 // like the kinder option and is not. Trash is reachable only through a live
-// set: `trash ls` and `restore --deleted` both resolve a set by name, and
-// Prune only ever runs as part of a backup of that set. Trashing the objects
-// and then removing the set would leave them unreachable by any command, never
-// pruned, and still billed every month -- recoverable in name only. The
+// set: `trash ls` and `restore --deleted` both resolve a set by name. Trashing
+// the objects and then removing the set would leave them unreachable by any
+// command and still billed every month -- recoverable in name only. The
 // recoverable option is the default, which keeps the live mirror intact and
 // restorable.
 func newRemoveCmd(opts *Options) *cobra.Command {
@@ -657,8 +656,23 @@ func newScheduleCmd(opts *Options) *cobra.Command {
 	return cmd
 }
 
+// newRenameCmd builds `rename`, which changes the display name and nothing
+// else.
+//
+// There is deliberately no way to move the set's objects to a prefix matching
+// the new name. It was offered once, as `--remote`, and never implemented; the
+// flag is gone rather than finished. Moving a prefix is a server-side copy and
+// a delete of every object -- two operations each, 122,408 of them for a set
+// of 61,204 files -- to change a name only visible in the R2 dashboard. The
+// prefix is the set's identity, assigned once and never rewritten, because
+// tying identity to something a user can edit is how the predecessor orphaned
+// data in a bucket.
+//
+// Nothing detects a situation where this would be the answer, either. The
+// case that looks like it -- a backed-up folder renamed or moved on disk -- is
+// `relink`, which points the set at the new path and moves nothing in the
+// bucket, because the objects there were never wrong.
 func newRenameCmd(opts *Options) *cobra.Command {
-	var remote bool
 	cmd := &cobra.Command{
 		Use:   "rename <set> <new-name>",
 		Short: "Change what a set is called",
@@ -674,17 +688,6 @@ func newRenameCmd(opts *Options) *cobra.Command {
 			s, err := a.sets.Get(args[0])
 			if err != nil {
 				return err
-			}
-			// Checked before anything is written. It used to be checked after
-			// the rename had already happened, so `rename x y --remote`
-			// renamed the set, printed that it had, and then exited 1 -- a
-			// command that both succeeded and failed.
-			if remote {
-				n, _ := a.index.Count(args[0])
-				return fmt.Errorf("--remote is not implemented yet, and nothing has been changed. "+
-					"It would copy %s objects from %q to a new prefix and delete the originals, "+
-					"one operation each way, for a change only you can see",
-					progress.FormatCount(int64(n)), s.Prefix)
 			}
 			// The index is keyed by set name too. Move it first: it is one
 			// bbolt transaction and so cannot half-happen, and if the set
@@ -705,13 +708,12 @@ func newRenameCmd(opts *Options) *cobra.Command {
 			n, _ := a.index.Count(args[1])
 			fmt.Fprintf(opts.Out, "Renamed to %q.\n", args[1])
 			fmt.Fprintf(opts.Out,
-				"The bucket still stores it under %q. Moving it would copy %s objects,\n"+
-					"one operation each, for a cosmetic change.\n", s.Prefix, progress.FormatCount(int64(n)))
+				"The bucket still stores it under %q, and keeps that name for good. Moving\n"+
+					"%s objects to match would cost two operations each, to change a name\n"+
+					"only the R2 dashboard shows.\n", s.Prefix, progress.FormatCount(int64(n)))
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&remote, "remote", false,
-		"also move the objects in the bucket, at one operation each")
 	return cmd
 }
 
