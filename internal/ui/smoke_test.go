@@ -240,31 +240,50 @@ func apply(t *testing.T, m *Model, cmd tea.Cmd) {
 func TestHomeShowsEverySetAndItsState(t *testing.T) {
 	m := sized(twoSets(), 120, 40)
 	view := m.View()
-	for _, want := range []string{"Documents", "Code", "never run", "backups", "automatic"} {
+	for _, want := range []string{"Documents", "Code", "never run", "backups"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("home view is missing %q\n---\n%s", want, view)
 		}
 	}
 }
 
-// The art is 139 columns wide. Drawn into an 80-column terminal every line
-// would wrap in the middle and the logo would become noise, so a narrow
-// window gets the plain title instead.
+// Whether backups are automatic used to be a standing line in the footer,
+// on every screen. It is one of this computer's answers, not one of the
+// folder list's, so it moved to the Account tab -- and the assertion moved
+// with it rather than being dropped, because "it is said somewhere" is the
+// part that matters and "it is said in the footer" was never the point.
+func TestTheAccountTabAnswersHowThisComputerIsSetUp(t *testing.T) {
+	m := sized(twoSets(), 120, 40)
+	m.tab = tabAccount
+	view := m.View()
+	for _, want := range []string{"This computer", "automatic", "operations this month", "Account"} {
+		if !strings.Contains(strings.ToLower(view), strings.ToLower(want)) {
+			t.Errorf("account tab is missing %q\n---\n%s", want, view)
+		}
+	}
+	if strings.Contains(m.footer(), "operations") {
+		t.Errorf("the footer should carry keys only, not standing status:\n%s", m.footer())
+	}
+}
+
+// Banner is now a ladder of five rungs rather than one piece of art and a
+// fallback, so the narrow-terminal behaviour it used to guard here is
+// exercised in much more depth by TestBannerFitsEveryRealisticSize and its
+// neighbours in banner_test.go. What is left to check from here is the
+// shape of the API a caller outside banner.go sees: something wide and tall
+// enough gets art, and something genuinely tiny still falls back to a word
+// rather than printing a scrap of a rung that would not read as anything.
 func TestTheBannerGivesWayOnANarrowTerminal(t *testing.T) {
-	wide := Banner(bannerWidth+10, bannerHeight+20)
+	wide := Banner(200, 60)
 	if !strings.Contains(wide, "#") {
-		t.Error("a terminal wide enough should get the art")
+		t.Error("a terminal wide and tall enough should get art")
 	}
-	narrow := Banner(80, 40)
-	if strings.Contains(narrow, "#") {
-		t.Errorf("an 80-column terminal should not get 139-column art:\n%s", narrow)
+	tiny := Banner(15, 8)
+	if strings.Contains(tiny, "#") {
+		t.Errorf("a 15x8 terminal should not fit even the smallest rung:\n%s", tiny)
 	}
-	if !strings.Contains(narrow, "r2backup") {
+	if !strings.Contains(tiny, "r2backup") {
 		t.Error("the fallback should still say what this is")
-	}
-	short := Banner(200, 10)
-	if strings.Contains(short, "#") {
-		t.Error("a short window should not spend every row on the banner")
 	}
 }
 

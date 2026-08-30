@@ -161,7 +161,7 @@ func TestSchedulingIsAModeYouCanLookAt(t *testing.T) {
 	m.layout()
 
 	view := m.View()
-	for _, want := range []string{"Automatic backups", "every 30m", "turn off", "change how often"} {
+	for _, want := range []string{"Automatic backups", "every 30 minutes", "turn off", "change how often"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("the schedule mode is missing %q\n---\n%s", want, view)
 		}

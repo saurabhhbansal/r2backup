@@ -118,11 +118,15 @@ func (m *Model) syncList() {
 // pointed.
 func (m *Model) header() string {
 	var b strings.Builder
-	// The art is nineteen rows. That is a reasonable opening and an
-	// unreasonable permanent cost, so it greets you on the folder list and
-	// stands aside the moment you are doing something.
+	// Banner now has a rung for nearly any size, not just the nineteen-row
+	// original, so the cost that used to confine the art to the folder list
+	// is mostly gone -- every overlay-free screen picks whatever rung fits.
+	// An overlay is a different kind of screen: a form, a confirmation, a
+	// running backup. It is a focused, momentary interaction rather than a
+	// place to greet, so it keeps the plain word rather than competing with
+	// the art for attention.
 	art := bannerStyle.Render("r2backup")
-	if m.overlay == overlayNone && m.tab == tabFolders {
+	if m.overlay == overlayNone {
 		art = Banner(m.width, m.height)
 	}
 	b.WriteString(m.fit(art))
@@ -161,37 +165,29 @@ func (m *Model) tabBar() string {
 	return lipgloss.JoinHorizontal(lipgloss.Top, parts...)
 }
 
-// footer carries what a person checks without asking, the mode's own keys,
-// and whatever just happened.
+// footer is the keys, and whatever just happened. Nothing else.
+//
+// It used to carry a standing status line above the keys as well -- whether
+// backups were automatic, and how many operations the month had used. Both
+// are real answers to questions a person asks, but neither is a question
+// they are asking *while reading the keys for the screen they are on*, and
+// paying a permanent row of the window for them on every screen is how the
+// list ended up a row shorter than it needed to be everywhere. They live on
+// the Account tab now, next to the rest of this computer's standing state,
+// where they can be read together instead of one at a time.
 //
 // Every line goes through fit. lipgloss does not wrap and JoinVertical pads
 // every line to the widest, so one line a column too long does not overflow
 // itself -- it widens the whole frame and staircases the border.
 func (m *Model) footer() string {
-	var parts []string
-	if m.ov.Scheduled {
-		parts = append(parts, goodStyle.Render("● automatic")+dimStyle.Render(" every "+m.ov.Interval.Round(time.Minute).String()))
-	} else {
-		parts = append(parts, warnStyle.Render("○ manual only"))
-	}
-	if m.ov.OpsLimit > 0 {
-		parts = append(parts, dimStyle.Render(fmt.Sprintf("%s / %s operations this month",
-			progress.FormatCount(int64(m.ov.OpsUsed)), progress.FormatCount(int64(m.ov.OpsLimit)))))
-	}
-
-	var b strings.Builder
-	b.WriteString(m.fit(strings.Join(parts, dimStyle.Render("  ·  "))))
-	b.WriteString("\n")
-
 	switch {
 	case m.err != nil:
-		b.WriteString(m.fit(errorStyle.Render("! " + m.err.Error())))
+		return m.fit(errorStyle.Render("! " + m.err.Error()))
 	case m.notice != "":
-		b.WriteString(m.fit(statusStyle.Render(m.notice)))
+		return m.fit(statusStyle.Render(m.notice))
 	default:
-		b.WriteString(m.fit(m.help.ShortHelpView(m.shortHelp())))
+		return m.fit(m.help.ShortHelpView(m.shortHelp()))
 	}
-	return b.String()
 }
 
 // shortHelp is the footer's binding list, trimmed for the room there is.
@@ -388,7 +384,7 @@ func (m *Model) scheduleView() string {
 
 	if m.ov.Scheduled {
 		b.WriteString("  " + goodStyle.Render("● On") + dimStyle.Render(" — every ") +
-			titleStyle.Render(m.ov.Interval.Round(time.Minute).String()) + "\n\n")
+			titleStyle.Render(humanEvery(m.ov.Interval)) + "\n\n")
 		if !m.ov.NextRun.IsZero() {
 			b.WriteString(labelStyle.Render("  next run") + m.ov.NextRun.Format("Mon 2 Jan, 15:04") + "\n")
 		}
@@ -465,12 +461,19 @@ func (m *Model) trashView() string {
 	if m.trashSet == "" {
 		return "\n" + dimStyle.Render("  Choose a folder on the Folders tab first.") + "\n"
 	}
-	head := titleStyle.Render("Recoverable · "+m.trashSet) + "\n"
+	// "Trash · <folder>", not "Recoverable · <folder>". The heading names
+	// which folder's trash is being shown, but a folder's own name printed
+	// after the word "Recoverable" reads as a claim about the folder -- that
+	// it has been deleted and can be brought back -- which is alarming and
+	// wrong, and it is shown the moment you tab across here whether or not
+	// anything is in it. The word still belongs on this screen; it belongs
+	// attached to a count of files, where it is a fact rather than a verdict.
+	head := titleStyle.Render("Trash · "+m.trashSet) + "\n"
 	if len(m.trashRows) == 0 {
 		return head + "\n" + dimStyle.Render("  Nothing deleted or overwritten. Every file here is the current one.") + "\n"
 	}
 	return head + m.trash.View() + "\n" +
-		dimStyle.Render("enter recovers the highlighted file")
+		dimStyle.Render(countOf(int64(len(m.trashRows)), "file", "files")+" recoverable · enter recovers the highlighted one")
 }
 
 // interruptedNote says how far a stopped run got and what happens next.
@@ -583,6 +586,42 @@ func (m *Model) remoteView() string {
 
 // --- Account ---
 
+// humanEvery says how often a scheduled backup runs, in words.
+//
+// time.Duration.String() renders half an hour as "30m0s", which is a
+// programmer's spelling of it: correct, and not what anybody would say out
+// loud. This is read in a sentence -- "Automatic, every ..." -- so it has to
+// finish that sentence the way a person would.
+func humanEvery(d time.Duration) string {
+	d = d.Round(time.Minute)
+	h, m := int(d/time.Hour), int(d%time.Hour/time.Minute)
+	switch {
+	case h > 0 && m > 0:
+		return fmt.Sprintf("%s %s", plural(h, "hour"), plural(m, "minute"))
+	case h > 0:
+		return plural(h, "hour")
+	case m > 0:
+		return plural(m, "minute")
+	default:
+		return "minute"
+	}
+}
+
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return fmt.Sprintf("%d %ss", n, noun)
+}
+
+// accountView is where this computer's standing state is answered in one
+// place: what it is pointed at, whether it backs itself up, what that has
+// cost this month, and who -- if anyone -- it is signed in as.
+//
+// The first three of those used to be scattered: the bucket here, automatic
+// or not in a permanent footer line on every screen, the operations count
+// beside it. Read one at a time they each raise the next question, which is
+// why they are read together now.
 func (m *Model) accountView() string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("This computer") + "\n\n")
@@ -591,11 +630,36 @@ func (m *Model) accountView() string {
 	} else {
 		b.WriteString("  " + badStyle.Render("● No credentials yet") + dimStyle.Render(" — sign in, or press k to enter your R2 keys.") + "\n")
 	}
+	if m.ov.Scheduled {
+		b.WriteString("  " + goodStyle.Render("● Automatic") + dimStyle.Render(" — every "+humanEvery(m.ov.Interval)))
+		if !m.ov.NextRun.IsZero() {
+			b.WriteString(dimStyle.Render(", next " + m.ov.NextRun.Format("Mon 2 Jan 15:04")))
+		}
+		b.WriteString("\n")
+	} else {
+		b.WriteString("  " + warnStyle.Render("○ Manual") + dimStyle.Render(" — backups run only when you run them. 2 Schedule turns this on.") + "\n")
+	}
+	// The allowance is worth showing even at nought used, because the number
+	// people want is not what they have spent -- it is how much room is left
+	// before spending anything at all.
+	if m.ov.OpsLimit > 0 {
+		line := fmt.Sprintf("%s of %s operations this month",
+			progress.FormatCount(int64(m.ov.OpsUsed)), progress.FormatCount(int64(m.ov.OpsLimit)))
+		if !m.ov.OpsResetAt.IsZero() {
+			line += ", resets " + m.ov.OpsResetAt.Format("2 Jan")
+		}
+		b.WriteString("  " + dimStyle.Render(line) + "\n")
+	}
 
 	b.WriteString("\n" + titleStyle.Render("Account") + "\n\n")
+	// Signed in is checked before the error, not after. It used to be the
+	// other way round, and the two are not alternatives: the device list and
+	// the vault are fetched separately, so a perfectly good session whose
+	// vault check happened to fail rendered as nothing but a raw error --
+	// indistinguishable, to the person reading it, from having been signed
+	// out. Whatever went wrong is worth saying, underneath, but it does not
+	// get to overwrite the answer to "am I signed in".
 	switch {
-	case m.acct.Err != "":
-		b.WriteString("  " + badStyle.Render(m.acct.Err) + "\n")
 	case m.acct.SignedIn:
 		b.WriteString("  " + goodStyle.Render("● Signed in") + dimStyle.Render(" as ") + m.acct.Email + "\n")
 		if m.acct.VaultStored {
@@ -603,6 +667,11 @@ func (m *Model) accountView() string {
 		} else {
 			b.WriteString("  " + warnStyle.Render("Your keys are not saved yet") + dimStyle.Render(" — press p to save them.") + "\n")
 		}
+		if m.acct.Err != "" {
+			b.WriteString("  " + warnStyle.Render(m.acct.Err) + "\n")
+		}
+	case m.acct.Err != "":
+		b.WriteString("  " + badStyle.Render(m.acct.Err) + "\n")
 	default:
 		b.WriteString("  " + dimStyle.Render("Not signed in. An account lets your other computers pick up these") + "\n")
 		b.WriteString("  " + dimStyle.Render("credentials without you typing them again. It is optional.") + "\n")
