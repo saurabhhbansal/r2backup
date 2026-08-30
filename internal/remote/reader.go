@@ -41,18 +41,18 @@ func (p *progressReader) Read(b []byte) (int, error) {
 // is why this was only ever seen in bursts, on a loaded runner, in a
 // twenty-thousand-file backup: it takes a first failure to reach at all.
 //
-// What that costs depends on where the rewind is refused. Against MinIO the
-// SDK gives up cleanly -- "failed to rewind transport stream for retry,
-// request stream is not seekable", which is what the test asserts. Against
-// R2 the same runs reported instead:
+// The SDK refuses cleanly -- "failed to rewind transport stream for retry,
+// request stream is not seekable" -- which is what the test asserts against
+// the unfixed code.
 //
-//	IncompleteBody: You did not provide the number of bytes specified by
-//	the Content-Length HTTP header
-//
-// -- a short body sent against a Content-Length still describing the whole
-// file. That second form has not been reproduced here and the exact path to
-// it is not established; it is recorded because it is what the failure looks
-// like in production, and both are the same unseekable body.
+// Scope, honestly: this was found while chasing repeated bursts of
+// IncompleteBody 400s out of the e2e suite's twenty-thousand-file upload,
+// and it is NOT established that this is their cause. IncompleteBody means a
+// body shorter than its own Content-Length reached the server, and a rewind
+// the SDK refuses never reaches the server at all. So the two may be
+// unrelated and the burst may still be waiting to be explained. This is
+// fixed on its own merits: an upload that cannot be retried is a real defect
+// whatever else is true.
 //
 // The hazard was half-known. client.go already explains that a
 // progress-counting wrapper around a file is not seekable, and swaps in
