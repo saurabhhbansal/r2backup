@@ -159,6 +159,14 @@ func summarise(out io.Writer, r *backup.Report) {
 			progress.FormatCount(int64(r.Moved)), progress.FormatCount(int64(r.Deleted)),
 			progress.FormatCount(int64(r.Unchanged)), r.Elapsed.Round(time.Second))
 	}
+	// Said rather than left to be wondered about. Parts of an upload nobody
+	// finished are billed and show up in no object listing, so a user who
+	// noticed the charge would have had nothing to connect it to -- and this
+	// is the line that says the charge has stopped.
+	if r.Abandoned > 0 {
+		fmt.Fprintf(out, "  Gave up on %s left unfinished for over a week. The space they held is freed.\n",
+			countOf(int64(r.Abandoned), "part-uploaded file", "part-uploaded files"))
+	}
 	if n := len(r.Problems); n > 0 {
 		fmt.Fprintf(out, "  %d file(s) could not be read:\n", n)
 		for i, p := range r.Problems {
