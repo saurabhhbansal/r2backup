@@ -22,25 +22,25 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// The mark is drawn at five sizes rather than one. A single 139-column,
+// The mark is shown at five sizes rather than one. A single 139-column,
 // 19-row piece of art only fits a maximised terminal -- everything smaller
 // used to fall straight through to the bare word "r2backup", which is what
-// happened on nearly every real window.
+// happened on nearly every real window. That is not a fallback, it is an
+// absence.
 //
-// Every rung is the same logo: the stacked cube from assets/logo.png with
-// the shell prompt knocked out of it, set beside the wordmark. None of them
-// is a mechanical shrink of the one above. Sampling a 139-column drawing
-// down to 50 destroys exactly the parts that carry the likeness -- the
-// counters inside the letters, the prompt's negative space, the gaps
-// between the cube's layers -- and what survives is speckle, so each rung
-// was drawn at the size it is actually shown at and then read back line by
-// line. Two details fall away as the mark shrinks, deliberately: below
-// twenty columns the prompt's underscore lands on the hexagon's bottom
-// taper and reads as a nick in the edge rather than as part of the mark, so
-// the narrow rungs carry the chevron alone; and at three rows there is no
-// mark left to draw, so the smallest rung shows the silhouette beside the
-// name set as plain text. That is still a mark beside a name, which is the
-// thing the fallback word alone is missing.
+// Every rung below is the same drawing as banner.txt, reduced from it: the
+// art is read as a bitmap, one cell per character, and area-averaged down to
+// the target width with the row count scaled to match, so the logo keeps its
+// proportions and its identity all the way down the ladder. Nothing here is
+// a different mark drawn to look similar.
+//
+// How far down that can go is set by the wordmark, not by the badge. The
+// badge is solid and survives almost any reduction; the letters beside it
+// stop being letters somewhere below eighty columns, and a wordmark reduced
+// past legibility is worse than no wordmark at all. So the smallest rung
+// keeps the badge -- reduced from the same drawing -- and sets the name
+// beside it as plain text. That is still a mark beside a name, which is the
+// thing the bare fallback word is missing.
 //
 //go:embed banner.txt
 var bannerArtXL string

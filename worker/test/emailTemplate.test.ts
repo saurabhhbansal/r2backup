@@ -35,7 +35,17 @@ describe("the sign-in email", () => {
   // your data is yours.
   it("asks the reader's mail client to fetch nothing", () => {
     const html = renderCodeEmail("482913", 10).html;
-    expect(html).not.toMatch(/<img\b/i);
+
+    // Images are allowed; images the reader has to go and get are not. The
+    // logo is carried in the message as a data: URI, so every src here must
+    // be one -- an http(s) src would cost a request and would report that
+    // the mail had been opened, which is the whole thing this guards.
+    const srcs = [...html.matchAll(/<img\b[^>]*\ssrc="([^"]*)"/gi)].map((m) => m[1]);
+    expect(srcs.length).toBe(1);
+    for (const src of srcs) expect(src.startsWith("data:image/")).toBe(true);
+    // And it must still say something useful with images stripped entirely.
+    expect(html).toMatch(/<img\b[^>]*\salt="r2backup"/i);
+
     expect(html).not.toMatch(/background-image/i);
     expect(html).not.toMatch(/@font-face/i);
     expect(html).not.toMatch(/@import/i);
