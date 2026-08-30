@@ -53,9 +53,40 @@ func (c *Client) Put(ctx context.Context, in PutInput) error {
 	metaMap := meta.ToS3()
 
 	if in.Size > multipartThreshold {
-		return c.putMultipart(ctx, in.Key, body, in.Size, metaMap, in.ContentType)
+		return explain(c.putMultipart(ctx, in.Key, body, in.Size, metaMap, in.ContentType), body, in.Size)
 	}
-	return c.putSingle(ctx, in.Key, body, in.Size, metaMap, in.ContentType)
+	return explain(c.putSingle(ctx, in.Key, body, in.Size, metaMap, in.ContentType), body, in.Size)
+}
+
+// explain adds what the request itself could not say.
+//
+// A body that stops early is truncated by Go's transport, and an S3 server
+// then answers on its own terms -- a 400 IncompleteBody, because it was
+// promised a Content-Length it never received. That is what the SDK returns,
+// and it describes the symptom from the far end of a wire: it names neither
+// the file that would not read nor how far it got. Both are known here.
+//
+// Size comes from a Stat taken before the file was opened, so the honest
+// reading of a short body is usually that the file shrank underneath us --
+// which is a thing that happens to a backup tool constantly, and a thing the
+// caller can act on. It should not arrive dressed as a protocol error.
+func explain(err error, body io.Reader, size int64) error {
+	if err == nil {
+		return nil
+	}
+	c, ok := body.(counter)
+	if !ok {
+		return err
+	}
+	switch n, readErr := c.sent(); {
+	case readErr != nil:
+		return fmt.Errorf("%w (the source stopped reading after %d of %d bytes: %v)", err, n, size, readErr)
+	case n < size:
+		return fmt.Errorf("%w (only %d of the %d bytes promised could be read; the file was most likely "+
+			"changed or truncated while it was being uploaded)", err, n, size)
+	default:
+		return err
+	}
 }
 
 func (c *Client) putSingle(ctx context.Context, key string, body io.Reader, size int64, meta map[string]string, contentType string) error {

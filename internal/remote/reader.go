@@ -17,6 +17,18 @@ type progressReader struct {
 	// second time -- see progressSeeker.
 	pos  int64
 	high int64
+
+	// readErr is the last non-EOF error the source gave, kept because
+	// nothing else will ever see it.
+	//
+	// When a request body stops early, Go's transport truncates the request
+	// and the server answers on its own terms -- for an S3 server, a 400
+	// IncompleteBody, because it was promised a Content-Length it did not
+	// receive. The SDK surfaces that response, and the read error that
+	// actually caused it is gone. An unreadable file then reports as a
+	// protocol complaint about byte counts, which is a sentence nobody can
+	// act on. Put reads this back to say what really happened.
+	readErr error
 }
 
 func (p *progressReader) Read(b []byte) (int, error) {
@@ -28,8 +40,15 @@ func (p *progressReader) Read(b []byte) (int, error) {
 			p.high = p.pos
 		}
 	}
+	if err != nil && err != io.EOF {
+		p.readErr = err
+	}
 	return n, err
 }
+
+// sent reports how far the body was read and what stopped it, for an error
+// message that would otherwise only be able to say the server was unhappy.
+func (p *progressReader) sent() (int64, error) { return p.pos, p.readErr }
 
 // progressSeeker is a progressReader that has kept the body seekable.
 //
@@ -81,12 +100,19 @@ func (p *progressSeeker) Seek(offset int64, whence int) (int64, error) {
 	return n, nil
 }
 
+// counter is what Put reads back off a wrapped body when a request fails.
+type counter interface {
+	sent() (int64, error)
+}
+
 // withProgress wraps body so bytes are counted as they go out, keeping the
 // body seekable when it already was.
+//
+// It wraps even when there is no progress callback. The count and the read
+// error are worth having on their own: they are the difference between "the
+// server rejected this" and "this file stopped being readable four megabytes
+// in".
 func withProgress(body io.Reader, cb func(n int64)) io.Reader {
-	if cb == nil {
-		return body
-	}
 	if s, ok := body.(io.Seeker); ok {
 		return &progressSeeker{progressReader: progressReader{r: body, cb: cb}, s: s}
 	}

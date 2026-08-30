@@ -117,3 +117,193 @@ func TestARetriedUploadSendsTheWholeFile(t *testing.T) {
 		t.Errorf("progress reported %d bytes for a %d-byte file", n, len(content))
 	}
 }
+
+// shortReader gives up partway, the way a file that is being rewritten
+// underneath a backup does.
+type shortReader struct {
+	data []byte
+	pos  int
+	stop int
+	err  error
+}
+
+func (s *shortReader) Read(b []byte) (int, error) {
+	if s.pos >= s.stop {
+		return 0, s.err
+	}
+	n := copy(b, s.data[s.pos:s.stop])
+	s.pos += n
+	return n, nil
+}
+
+// A body that stops early has to say so in the words of the thing that went
+// wrong, not in the words of the server's complaint about it.
+//
+// Go's transport truncates a request whose body stops, and an S3 server then
+// answers 400 IncompleteBody -- it was promised a Content-Length it never
+// received. That is a true sentence about the wire and a useless one to the
+// person whose backup just failed: it names neither the file nor how far it
+// got, and it reads like a protocol fault rather than "this file changed
+// while it was being copied", which is what it nearly always is.
+//
+// This is also the diagnostic that was missing when a twenty-thousand-file
+// upload produced sixty-two of these at once and nothing could say why.
+func TestAShortBodySaysWhatActuallyStopped(t *testing.T) {
+	c := newClient(t)
+	ctx := context.Background()
+
+	content := bytes.Repeat([]byte("abcdefgh"), 4096) // 32 KiB
+	body := &shortReader{data: content, stop: 4096, err: io.ErrUnexpectedEOF}
+
+	err := c.Put(ctx, remote.PutInput{
+		Key:  "short/body.bin",
+		Body: body,
+		Size: int64(len(content)), // promised more than the reader will give
+	})
+	if err == nil {
+		t.Fatal("a body that stopped short must not report success")
+	}
+	got := err.Error()
+	for _, want := range []string{"4096", "32768", "unexpected EOF"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("error should mention %q, got: %v", want, err)
+		}
+	}
+}
+
+// The same, for a source that simply ends early with no error of its own --
+// a file that was truncated between the stat that sized it and the read.
+func TestAFileThatShrankIsNamedAsSuch(t *testing.T) {
+	c := newClient(t)
+	ctx := context.Background()
+
+	content := bytes.Repeat([]byte("x"), 32*1024)
+	body := &shortReader{data: content, stop: 8192, err: io.EOF}
+
+	err := c.Put(ctx, remote.PutInput{
+		Key:  "short/shrank.bin",
+		Body: body,
+		Size: int64(len(content)),
+	})
+	if err == nil {
+		t.Fatal("a file that shrank must not report success")
+	}
+	if !strings.Contains(err.Error(), "changed or truncated") {
+		t.Errorf("error should say the file changed under it, got: %v", err)
+	}
+}
+
+// A successful upload must not gain an explanation it does not need.
+func TestAnUploadThatWorkedIsNotAnnotated(t *testing.T) {
+	c := newClient(t)
+	ctx := context.Background()
+	content := []byte("all of it")
+	if err := c.Put(ctx, remote.PutInput{
+		Key:  "short/whole.bin",
+		Body: bytes.NewReader(content),
+		Size: int64(len(content)),
+	}); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+}
+
+// incompleteBodyOnce answers the first PutObject with the 400 an S3 server
+// sends when it was promised more bytes than it received.
+//
+// A synthetic response rather than a real truncation: a body genuinely cut
+// short on the way out makes Go's transport fail the round trip with an error
+// of its own, which the SDK already retries for other reasons. That would
+// pass this test without the classifier under test ever being consulted --
+// which is exactly what the first version of it did.
+type incompleteBodyOnce struct {
+	next http.RoundTripper
+	left int32
+}
+
+const incompleteBodyXML = `<?xml version="1.0" encoding="UTF-8"?>` +
+	`<Error><Code>IncompleteBody</Code>` +
+	`<Message>You did not provide the number of bytes specified by the Content-Length HTTP header</Message>` +
+	`</Error>`
+
+func (f *incompleteBodyOnce) RoundTrip(r *http.Request) (*http.Response, error) {
+	if r.Method == http.MethodPut && atomic.AddInt32(&f.left, -1) >= 0 {
+		if r.Body != nil {
+			_, _ = io.Copy(io.Discard, r.Body)
+			_ = r.Body.Close()
+		}
+		h := make(http.Header)
+		h.Set("Content-Type", "application/xml")
+		return &http.Response{
+			StatusCode: http.StatusBadRequest,
+			Status:     "400 Bad Request",
+			Body:       io.NopCloser(strings.NewReader(incompleteBodyXML)),
+			Header:     h,
+			Request:    r,
+		}, nil
+	}
+	return f.next.RoundTrip(r)
+}
+
+// A body the server found short is worth sending again.
+//
+// IncompleteBody is a 400, and the standard retryer calls every 4xx final --
+// right for a malformed request, wrong for this one. It means the server was
+// promised a Content-Length it did not receive, which is what happens when
+// the writer stalls long enough for the server to stop waiting. Nothing about
+// the request is wrong and sending it again is the answer.
+//
+// It only became a safe thing to say once the body was rewindable, but this
+// test does not prove that half: it passes no Progress callback, and the
+// unfixed code only wrapped -- and so only hid the file's Seek -- when there
+// was one to report to. TestARetriedUploadSendsTheWholeFile is the one that
+// covers the rewind, and it passes a callback for exactly that reason.
+// Production always does: internal/backup hands Put the engine's byte
+// counter on every upload.
+//
+// Verified against the unfixed code: without the classifier this fails with
+// the same sentence the twenty-thousand-file run produced -- "api error
+// IncompleteBody: You did not provide the number of bytes specified by the
+// Content-Length HTTP header".
+func TestAShortSendIsRetriedRatherThanFailed(t *testing.T) {
+	transport := &incompleteBodyOnce{next: http.DefaultTransport, left: 1}
+	client, cleanup := minio.StartWithConfig(t, func(c *remote.Config) {
+		c.HTTPClient = &http.Client{Transport: transport}
+	})
+	t.Cleanup(cleanup)
+	ctx := context.Background()
+
+	content := bytes.Repeat([]byte("payload!"), 2048) // 16 KiB
+	path := filepath.Join(t.TempDir(), "stalled.bin")
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+
+	if err := client.Put(ctx, remote.PutInput{
+		Key:  "stalled/payload.bin",
+		Body: f,
+		Size: int64(len(content)),
+	}); err != nil {
+		t.Fatalf("Put after one IncompleteBody: %v", err)
+	}
+	if atomic.LoadInt32(&transport.left) >= 0 {
+		t.Fatal("the injected 400 never fired")
+	}
+
+	obj, err := client.Get(ctx, "stalled/payload.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer obj.Body.Close()
+	got, err := io.ReadAll(obj.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, content) {
+		t.Fatalf("stored %d bytes, want the original %d", len(got), len(content))
+	}
+}

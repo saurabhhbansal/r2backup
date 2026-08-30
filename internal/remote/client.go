@@ -9,6 +9,7 @@ package remote
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/aws/smithy-go"
 )
 
 // region is the only region string R2 accepts. Unlike S3, an R2 bucket is
@@ -73,6 +75,33 @@ func (c Config) endpoint() string {
 	return fmt.Sprintf("https://%s.r2.cloudflarestorage.com", c.AccountID)
 }
 
+// retryIncompleteBody makes a short upload body worth another attempt.
+//
+// IncompleteBody is a 400, and the standard retryer treats every 4xx as the
+// caller's fault and final. That is right for a malformed request and wrong
+// for this one: it means the server was promised a Content-Length it did not
+// receive, which happens when the *writer* stalls long enough for the server
+// to stop waiting -- a slow disk, a starved CPU, a saturated link. Nothing
+// about the request is wrong, and sending it again is exactly the answer.
+//
+// It is only safe to say that because the body is rewindable now; see
+// progressSeeker in reader.go. Retrying an unrewindable body is how you turn
+// one short send into six.
+//
+// A body that really is short -- a file truncated underneath the upload --
+// fails all six attempts and is then reported with Put's own explanation of
+// how far it got, so this costs a doomed upload some backoff and nothing
+// else.
+type retryIncompleteBody struct{}
+
+func (retryIncompleteBody) IsErrorRetryable(err error) aws.Ternary {
+	var api smithy.APIError
+	if errors.As(err, &api) && api.ErrorCode() == "IncompleteBody" {
+		return aws.TrueTernary
+	}
+	return aws.UnknownTernary
+}
+
 // Client is an S3 client wrapper configured for R2: region "auto",
 // path-style addressing forced, and a retryer tuned for R2's throttling
 // behavior.
@@ -111,6 +140,7 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 			return retry.NewStandard(func(o *retry.StandardOptions) {
 				o.MaxAttempts = 6
 				o.MaxBackoff = 30 * time.Second
+				o.Retryables = append(o.Retryables, retryIncompleteBody{})
 			})
 		}),
 	)
