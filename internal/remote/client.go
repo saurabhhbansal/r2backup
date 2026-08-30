@@ -30,13 +30,29 @@ import (
 const region = "auto"
 
 const (
-	// multipartThreshold is the size above which Put switches from a
-	// single PutObject call to a multipart upload.
-	multipartThreshold = 64 << 20 // 64 MiB
-
 	// defaultPartSize is used for multipart uploads as long as it keeps the
 	// part count under maxParts; see partSizeFor.
 	defaultPartSize = 16 << 20 // 16 MiB
+
+	// multipartThreshold is the size above which Put switches from a single
+	// PutObject call to a multipart upload.
+	//
+	// It is deliberately the same as defaultPartSize, which gives the
+	// product one property worth stating plainly: an interruption can never
+	// cost more than 16MiB of re-uploading, whatever the file's size. Above
+	// the threshold a file goes up in parts, and parts already accepted
+	// survive an interruption; at or below it, the whole file is 16MiB
+	// anyway.
+	//
+	// It was 64MiB, which was the right choice while nothing could be
+	// resumed -- a single PUT is one Class A operation and a multipart
+	// upload is one per part plus two, and on a tool whose whole argument is
+	// the operations budget that difference is the thing to protect. What
+	// changed is that the parts are now worth something: they are what a
+	// resumed upload starts from. A 40MiB file costs four operations instead
+	// of one, and stops being sent from the beginning every time a
+	// connection drops.
+	multipartThreshold = defaultPartSize
 
 	// maxParts is R2's hard cap on parts in a single multipart upload.
 	maxParts = 10000

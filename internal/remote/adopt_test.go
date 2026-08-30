@@ -87,3 +87,25 @@ func TestAFileThatDividesExactlyHasAFullLastPart(t *testing.T) {
 		t.Fatalf("adopted %v, want both parts", keysOf(got))
 	}
 }
+
+// The property the threshold exists to give: an interruption can never cost
+// more than one part's worth of re-uploading, whatever the file's size.
+//
+// Above the threshold a file goes up in parts of at most defaultPartSize, and
+// parts already accepted survive an interruption. At or below it, the whole
+// file is no bigger than a part anyway. Both halves depend on the threshold
+// never being larger than the part size, which is easy to break by tuning one
+// of the two and forgetting the other.
+func TestAnInterruptionCannotCostMoreThanOnePart(t *testing.T) {
+	if multipartThreshold > defaultPartSize {
+		t.Fatalf("multipartThreshold %d is larger than defaultPartSize %d, so a file between the two "+
+			"is sent as one PUT and an interruption costs all of it",
+			multipartThreshold, defaultPartSize)
+	}
+	// partSizeFor only ever grows the part size, and only to stay under the
+	// part-count cap -- so the worst case is a very large file, and even
+	// there the loss is bounded by that grown part.
+	if got := partSizeFor(multipartThreshold+1, defaultPartSize); got != defaultPartSize {
+		t.Errorf("a file just over the threshold uses part size %d, want %d", got, defaultPartSize)
+	}
+}

@@ -21,10 +21,11 @@ import (
 // where multipart limits, throttling, and error shapes can legitimately
 // differ.
 //
-// The tree is kept small and the large file modest (a little over R2's own
-// 64MiB single-PUT boundary, see internal/remote's multipartThreshold) on
-// purpose -- this suite is meant to run before a release, not to spend
-// minutes and real egress on every invocation.
+// The tree is kept small and the large file modest -- comfortably past
+// internal/remote's multipartThreshold, so a real multipart upload against
+// real R2 is exercised, and no further -- on purpose: this suite is meant to
+// run before a release, not to spend minutes and real egress on every
+// invocation.
 func TestRealR2FullCycle(t *testing.T) {
 	h := newHarness(t, "full-cycle")
 
@@ -34,7 +35,7 @@ func TestRealR2FullCycle(t *testing.T) {
 		ZeroByteFiles: 2,
 		EmptyDirs:     2,
 		AwkwardNames:  true,
-		LargeFileSize: 80 << 20, // past the multipart threshold on real R2, not just MinIO
+		LargeFileSize: 80 << 20, // five parts against real R2, not just MinIO
 		Seed:          1,
 	})
 	if err != nil {

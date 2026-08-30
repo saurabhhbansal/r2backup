@@ -386,3 +386,43 @@ func TestALargeUploadStillWorksWithNowhereToRecordIt(t *testing.T) {
 		t.Fatal("the object does not match the file")
 	}
 }
+
+// The threshold is a claim about which files can be resumed, so it is worth
+// one test that the boundary is real rather than a constant somebody moved.
+// A file one byte over goes up in parts, and therefore leaves something to
+// resume from; a file at the threshold goes up as one PUT and does not.
+func TestTheThresholdDecidesWhatCanBeResumed(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		size       int
+		wantRecord bool
+	}{
+		{"one byte over the threshold", testThreshold + 1, true},
+		{"exactly the threshold", testThreshold, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			content := make([]byte, tc.size)
+			if _, err := rand.Read(content); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(t.TempDir(), "f.bin")
+			if err := os.WriteFile(path, content, 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			store := newMemStore()
+			// Nothing gets through, so whatever record exists is the one
+			// made before any part was sent.
+			cut := &cutAfter{next: http.DefaultTransport, allow: 0}
+			client, cleanup := resumeClient(t, store, cut)
+			t.Cleanup(cleanup)
+
+			_ = putFile(t, client, "boundary/f.bin", path, nil)
+
+			_, ok, _ := store.Resumable("boundary/f.bin")
+			if ok != tc.wantRecord {
+				t.Errorf("a %d-byte file left a resume record = %v, want %v", tc.size, ok, tc.wantRecord)
+			}
+		})
+	}
+}

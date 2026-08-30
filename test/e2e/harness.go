@@ -49,15 +49,26 @@ func newHarness(t *testing.T, name string) *harness {
 // test/minio.StartWithConfig.
 func newHarnessWithClient(t *testing.T, name string, mutate func(*remote.Config)) *harness {
 	t.Helper()
-	client, cleanup := tminio.StartWithConfig(t, mutate)
-	t.Cleanup(cleanup)
-
 	root := t.TempDir()
 	db, err := index.Open(filepath.Join(t.TempDir(), "index.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
+
+	// The index is attached as the place unfinished uploads are recorded,
+	// because app.connect does it for every real command and this suite is
+	// here to run what the product runs. Without it the large-file cases --
+	// the only ones that go up in parts at all -- would exercise a multipart
+	// path no user has. The caller's mutate runs afterwards so a test can
+	// still take it away deliberately.
+	client, cleanup := tminio.StartWithConfig(t, func(cfg *remote.Config) {
+		cfg.Resume = backup.ResumeStoreFor(db)
+		if mutate != nil {
+			mutate(cfg)
+		}
+	})
+	t.Cleanup(cleanup)
 
 	return &harness{
 		client: client,

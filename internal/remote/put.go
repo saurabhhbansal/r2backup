@@ -136,7 +136,7 @@ func (c *Client) putMultipart(ctx context.Context, key string, body io.Reader, s
 		input.ContentType = aws.String(contentType)
 	}
 
-	partSize := partSizeFor(size, defaultPartSize)
+	partSize := partSizeFor(size, c.partSize())
 	_, err := c.uploader.Upload(ctx, input, func(u *manager.Uploader) {
 		u.PartSize = partSize
 		u.Concurrency = uploadConcurrency

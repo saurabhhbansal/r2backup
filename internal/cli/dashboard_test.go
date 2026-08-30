@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/saurabhhbansal/r2backup/internal/index"
 	"github.com/saurabhhbansal/r2backup/internal/progress"
 	"github.com/saurabhhbansal/r2backup/internal/sets"
 	"github.com/saurabhhbansal/r2backup/internal/ui"
@@ -361,5 +362,118 @@ func TestTheInterfaceReachesTheRestOfTheCommandLine(t *testing.T) {
 	}
 	if ov.Version != Version {
 		t.Errorf("overview version = %q, want %q", ov.Version, Version)
+	}
+}
+
+// The store an interrupted upload is written down in has to be attached to
+// the client the real commands build, not just to one a test wired up.
+//
+// app.connect is where that join lives, and nothing exercised it: the resume
+// tests in internal/remote and internal/backup both construct their own
+// client. A feature that works everywhere except in the program is the
+// failure this catches.
+//
+// Proved through the sweep rather than through a 64MiB upload: abandoning a
+// stale record is something only a client that was given a store can do, and
+// it costs a few kilobytes instead of a few hundred megabytes.
+func TestTheRealClientIsGivenSomewhereToRecordUnfinishedUploads(t *testing.T) {
+	_, c := bucketWithABackupInIt(t)
+	t.Setenv("R2BACKUP_DATA_DIR", t.TempDir())
+	t.Setenv("R2BACKUP_MACHINE", "testpc")
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	setup, err := openApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := setup.creds.Save(c); err != nil {
+		t.Fatal(err)
+	}
+	if err := setup.sets.Add(sets.Set{
+		Name: "Notes", Root: root, Machine: "testpc",
+		Prefix: "machines/testpc/Notes", RetentionDays: 30,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// A record from an upload that was abandoned long ago. Its parts are
+	// being billed and appear in no object listing, which is why a run is
+	// expected to let it go.
+	stale := index.PendingUpload{
+		Key: "machines/testpc/Notes/current/old.bin", UploadID: "long-gone",
+		PartSize: 16 << 20, Size: 100 << 20, ModTime: 1,
+		StartedAt: time.Now().Add(-30 * 24 * time.Hour).UnixNano(),
+	}
+	if err := setup.index.SavePendingUpload(stale); err != nil {
+		t.Fatal(err)
+	}
+	setup.close()
+
+	d, err := openDashboard(&Options{Out: os.Stderr, Err: os.Stderr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.close()
+	ctx := context.Background()
+
+	if err := d.Backup(ctx, "Notes", func(string) {}, func(progress.Snapshot) {}); err != nil {
+		t.Fatalf("Backup: %v", err)
+	}
+
+	if _, ok, err := d.app.index.PendingUploadFor(stale.Key); err != nil {
+		t.Fatal(err)
+	} else if ok {
+		t.Error("a month-old unfinished upload survived a run, so the client has nowhere to read them from")
+	}
+}
+
+// A set that is removed must not leave its unfinished uploads behind: the
+// sweep would go on asking the bucket about parts of a folder nobody backs
+// up any more.
+func TestRemovingASetTakesItsUnfinishedUploadsWithIt(t *testing.T) {
+	_, c := bucketWithABackupInIt(t)
+	t.Setenv("R2BACKUP_DATA_DIR", t.TempDir())
+	t.Setenv("R2BACKUP_MACHINE", "testpc")
+
+	root := t.TempDir()
+	setupApp, err := openApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := setupApp.creds.Save(c); err != nil {
+		t.Fatal(err)
+	}
+	if err := setupApp.sets.Add(sets.Set{
+		Name: "Notes", Root: root, Machine: "testpc",
+		Prefix: "machines/testpc/Notes", RetentionDays: 30,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := setupApp.index.SavePendingUpload(index.PendingUpload{
+		Key: "machines/testpc/Notes/current/big.bin", UploadID: "u",
+		PartSize: 16 << 20, Size: 100 << 20, StartedAt: time.Now().UnixNano(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	setupApp.close()
+
+	d, err := openDashboard(&Options{Out: os.Stderr, Err: os.Stderr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.close()
+
+	if err := d.Remove(context.Background(), "Notes", false); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	all, err := d.app.index.AllPendingUploads()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 0 {
+		t.Errorf("removing the set left %+v behind", all)
 	}
 }
