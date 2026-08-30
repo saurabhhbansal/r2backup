@@ -42,20 +42,39 @@ func (c *Client) Put(ctx context.Context, in PutInput) error {
 		return fmt.Errorf("remote: put %q: negative size %d", in.Key, in.Size)
 	}
 
+	meta := in.Metadata
+	meta.Size = in.Size
+	metaMap := meta.ToS3()
+
+	if in.Size > c.threshold() {
+		// Resumable when there is somewhere to write the upload id down and
+		// the source can be read out of order -- an *os.File, which is what
+		// the engine passes. Without both, the old all-or-nothing path,
+		// which is correct and merely wasteful after an interruption.
+		if c.resume != nil && canSeek(in.Body) {
+			return c.putResumable(ctx, in.Key, in.Body, in.Size, in.Metadata.ModTime.UnixNano(),
+				metaMap, in.ContentType, in.Progress)
+		}
+		body := withProgress(in.Body, in.Progress)
+		return explain(c.putMultipart(ctx, in.Key, body, in.Size, metaMap, in.ContentType), body, in.Size)
+	}
+
 	// Seekability is preserved where the caller had it: the SDK rewinds a
 	// body to retry a request, and a wrapper that hides *os.File's Seek
 	// turns every retry into a short send against a Content-Length that
 	// still describes the whole file. See progressSeeker.
 	body := withProgress(in.Body, in.Progress)
-
-	meta := in.Metadata
-	meta.Size = in.Size
-	metaMap := meta.ToS3()
-
-	if in.Size > multipartThreshold {
-		return explain(c.putMultipart(ctx, in.Key, body, in.Size, metaMap, in.ContentType), body, in.Size)
-	}
 	return explain(c.putSingle(ctx, in.Key, body, in.Size, metaMap, in.ContentType), body, in.Size)
+}
+
+// canSeek reports whether a body can be read out of order, which is what
+// sending part seven without first sending parts one to six requires.
+func canSeek(body io.Reader) bool {
+	if _, ok := body.(io.ReaderAt); ok {
+		return true
+	}
+	_, ok := body.(io.Seeker)
+	return ok
 }
 
 // explain adds what the request itself could not say.
@@ -117,7 +136,7 @@ func (c *Client) putMultipart(ctx context.Context, key string, body io.Reader, s
 		input.ContentType = aws.String(contentType)
 	}
 
-	partSize := partSizeFor(size)
+	partSize := partSizeFor(size, defaultPartSize)
 	_, err := c.uploader.Upload(ctx, input, func(u *manager.Uploader) {
 		u.PartSize = partSize
 		u.Concurrency = uploadConcurrency
@@ -135,8 +154,11 @@ func (c *Client) putMultipart(ctx context.Context, key string, body io.Reader, s
 // and R2 would reject the upload outright, so the part size grows instead
 // of failing: bigger parts, same cap, same number of round trips it would
 // have taken at the boundary.
-func partSizeFor(size int64) int64 {
-	partSize := int64(defaultPartSize)
+func partSizeFor(size, base int64) int64 {
+	partSize := base
+	if partSize <= 0 {
+		partSize = defaultPartSize
+	}
 	if size <= 0 {
 		return partSize
 	}

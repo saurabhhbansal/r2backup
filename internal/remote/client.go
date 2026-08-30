@@ -44,6 +44,11 @@ const (
 	// uploadConcurrency is how many parts are in flight at once for a
 	// multipart upload.
 	uploadConcurrency = 4
+
+	// defaultMaxAttempts is how many times a failed request is tried before
+	// it is reported. Six, with backoff, is roughly a minute of patience --
+	// which is what a domestic connection dropping for a moment needs.
+	defaultMaxAttempts = 6
 )
 
 // Config configures a Client.
@@ -63,6 +68,26 @@ type Config struct {
 
 	// HTTPClient, if set, replaces the SDK's default HTTP client.
 	HTTPClient *http.Client
+
+	// Resume, if set, is where unfinished multipart uploads are recorded so
+	// a later run can continue one. See ResumeStore.
+	Resume ResumeStore
+
+	// MultipartThreshold and PartSize override the defaults for how a large
+	// object is cut up. Zero means the default.
+	//
+	// They are configuration rather than constants because the sizes that
+	// matter here are not universal -- and, plainly, because the resume path
+	// is worth testing without writing a 64MiB file for every case. S3's own
+	// floor of 5MiB per part (bar the last) still applies; a smaller PartSize
+	// is refused by the server, not by us.
+	MultipartThreshold int64
+	PartSize           int64
+
+	// MaxRetryAttempts overrides how many times a failed request is tried.
+	// Zero means the default. A test that means to fail does not want to
+	// wait out six attempts and thirty seconds of backoff first.
+	MaxRetryAttempts int
 }
 
 func (c Config) endpoint() string {
@@ -109,7 +134,40 @@ type Client struct {
 	s3       *s3.Client
 	uploader *manager.Uploader
 	bucket   string
+
+	// resume, when set, is where in-progress multipart uploads are written
+	// down so a later run can carry one on instead of starting it again.
+	// nil keeps the old behaviour, which is what every test that does not
+	// care about resuming gets.
+	resume ResumeStore
+
+	// multipartThresholdOverride and partSizeOverride are zero unless the
+	// caller asked for something other than the package defaults.
+	multipartThresholdOverride int64
+	partSizeOverride           int64
 }
+
+// threshold is the size above which an object goes up in parts.
+func (c *Client) threshold() int64 {
+	if c.multipartThresholdOverride > 0 {
+		return c.multipartThresholdOverride
+	}
+	return multipartThreshold
+}
+
+// partSize is the base part size, before partSizeFor grows it to stay under
+// the part-count cap.
+func (c *Client) partSize() int64 {
+	if c.partSizeOverride > 0 {
+		return c.partSizeOverride
+	}
+	return defaultPartSize
+}
+
+// UseResumeStore attaches the place unfinished multipart uploads are
+// recorded. Without one, a large upload interrupted partway is started again
+// from the beginning on the next run.
+func (c *Client) UseResumeStore(s ResumeStore) { c.resume = s }
 
 // New builds a Client from cfg.
 func New(ctx context.Context, cfg Config) (*Client, error) {
@@ -138,7 +196,10 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 		// tunes how many attempts and how long it is willing to back off.
 		awsconfig.WithRetryer(func() aws.Retryer {
 			return retry.NewStandard(func(o *retry.StandardOptions) {
-				o.MaxAttempts = 6
+				o.MaxAttempts = defaultMaxAttempts
+				if cfg.MaxRetryAttempts > 0 {
+					o.MaxAttempts = cfg.MaxRetryAttempts
+				}
 				o.MaxBackoff = 30 * time.Second
 				o.Retryables = append(o.Retryables, retryIncompleteBody{})
 			})
@@ -189,7 +250,11 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 		u.LeavePartsOnError = false
 	})
 
-	return &Client{s3: s3Client, uploader: uploader, bucket: cfg.Bucket}, nil
+	return &Client{
+		s3: s3Client, uploader: uploader, bucket: cfg.Bucket, resume: cfg.Resume,
+		multipartThresholdOverride: cfg.MultipartThreshold,
+		partSizeOverride:           cfg.PartSize,
+	}, nil
 }
 
 // Bucket returns the bucket this client is configured for.

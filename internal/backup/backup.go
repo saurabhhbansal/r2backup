@@ -55,6 +55,10 @@ type Report struct {
 	// way a backup can be incomplete without anything having failed.
 	Collisions []plan.Collision
 
+	// Abandoned is how many unfinished uploads this run gave up on and
+	// aborted, freeing the parts the bucket was billing for.
+	Abandoned int
+
 	// Pruned is the expired trash this run cleared.
 	Pruned Pruned
 	// PruneErr is why expired trash could not be cleared, if it could not.
@@ -315,6 +319,16 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 	// After the uploads, so a run that fails partway has not also spent
 	// operations tidying.
 	expireTrash(ctx, opts, rep)
+
+	// Parts of an upload nobody ever finished are billed, and they appear in
+	// no object listing -- a charge with nothing on screen to explain it. A
+	// run that got this far is the right moment to let them go: the handful
+	// of requests is noise beside the ones it just spent, and only uploads
+	// older than remote.ResumeMaxAge are touched, so work that is genuinely
+	// being resumed each day is never swept out from under itself.
+	if n, err := opts.Client.AbandonStaleUploads(ctx); err == nil {
+		rep.Abandoned = n
+	}
 
 	rep.Operations = p.Operations(set.TrashEnabled()) + rep.Pruned.Ops
 	if err := opts.Index.AddOps(rep.Operations); err != nil {

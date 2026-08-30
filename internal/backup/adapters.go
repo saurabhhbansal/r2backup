@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/saurabhhbansal/r2backup/internal/engine"
+	"github.com/saurabhhbansal/r2backup/internal/index"
 	"github.com/saurabhhbansal/r2backup/internal/progress"
 	"github.com/saurabhhbansal/r2backup/internal/remote"
 	"github.com/saurabhhbansal/r2backup/internal/scan"
@@ -131,3 +132,73 @@ func NewTrash(client *remote.Client, retentionDays int) Trash {
 	}
 	return trashAdapter{t: trash.New(client, trash.Clock{}), retentionDays: retentionDays}
 }
+
+// resumeStore joins the index's unfinished-upload bucket to what the R2
+// client needs from one.
+//
+// The two types are deliberately separate -- index.PendingUpload is an
+// on-disk format and remote.Upload is a wire concern -- so this is the one
+// place they meet, and a change to either fails to compile here rather than
+// quietly changing what is written to disk. The same reasoning as the
+// uploader and reporter adapters above.
+type resumeStore struct{ db *index.DB }
+
+func (r resumeStore) Resumable(key string) (remote.Upload, bool, error) {
+	u, ok, err := r.db.PendingUploadFor(key)
+	if err != nil || !ok {
+		return remote.Upload{}, false, err
+	}
+	return remote.Upload{
+		Key: u.Key, UploadID: u.UploadID, PartSize: u.PartSize,
+		Size: u.Size, ModTime: u.ModTime, StartedAt: u.StartedAt,
+		Parts: toRemoteParts(u.Parts),
+	}, true, nil
+}
+
+func (r resumeStore) SaveResumable(u remote.Upload) error {
+	return r.db.SavePendingUpload(index.PendingUpload{
+		Key: u.Key, UploadID: u.UploadID, PartSize: u.PartSize,
+		Size: u.Size, ModTime: u.ModTime, StartedAt: u.StartedAt,
+		Parts: toIndexParts(u.Parts),
+	})
+}
+
+func (r resumeStore) ForgetResumable(key string) error {
+	return r.db.ForgetPendingUpload(key)
+}
+
+func (r resumeStore) AllResumable() ([]remote.Upload, error) {
+	all, err := r.db.AllPendingUploads()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]remote.Upload, 0, len(all))
+	for _, u := range all {
+		out = append(out, remote.Upload{
+			Key: u.Key, UploadID: u.UploadID, PartSize: u.PartSize,
+			Size: u.Size, ModTime: u.ModTime, StartedAt: u.StartedAt,
+			Parts: toRemoteParts(u.Parts),
+		})
+	}
+	return out, nil
+}
+
+func toRemoteParts(in []index.PendingPart) []remote.PartRecord {
+	out := make([]remote.PartRecord, 0, len(in))
+	for _, p := range in {
+		out = append(out, remote.PartRecord{Number: p.Number, ETag: p.ETag, Size: p.Size})
+	}
+	return out
+}
+
+func toIndexParts(in []remote.PartRecord) []index.PendingPart {
+	out := make([]index.PendingPart, 0, len(in))
+	for _, p := range in {
+		out = append(out, index.PendingPart{Number: p.Number, ETag: p.ETag, Size: p.Size})
+	}
+	return out
+}
+
+// ResumeStoreFor is how a caller attaches the index to a client so large
+// uploads can be picked up where they stopped.
+func ResumeStoreFor(db *index.DB) remote.ResumeStore { return resumeStore{db: db} }

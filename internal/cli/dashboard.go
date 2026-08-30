@@ -319,6 +319,9 @@ func (d *dashboard) Remove(ctx context.Context, name string, purge bool) error {
 	if err := a.index.ForgetDailyPrune(s.Name); err != nil {
 		return err
 	}
+	if err := a.index.DropSetUploads(s.KeyScope()); err != nil {
+		return err
+	}
 	return a.sets.Remove(s.Name)
 }
 

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/saurabhhbansal/r2backup/internal/backup"
 	"github.com/saurabhhbansal/r2backup/internal/config"
 	"github.com/saurabhhbansal/r2backup/internal/creds"
 	"github.com/saurabhhbansal/r2backup/internal/index"
@@ -77,6 +78,12 @@ func (a *app) connect(ctx context.Context) error {
 		Bucket:          c.Bucket,
 		AccessKeyID:     c.AccessKeyID,
 		SecretAccessKey: c.SecretAccessKey,
+		// Attached here, once, so every command that reaches the bucket can
+		// pick up a large upload where the last one stopped. Without it a
+		// file interrupted partway starts again from the beginning, which on
+		// a connection bad enough to interrupt it once may mean it never
+		// finishes at all.
+		Resume: backup.ResumeStoreFor(a.index),
 	})
 	if err != nil {
 		return fmt.Errorf("connect to R2: %w", err)

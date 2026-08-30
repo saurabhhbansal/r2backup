@@ -818,6 +818,11 @@ func newRemoveCmd(opts *Options) *cobra.Command {
 			if err := a.index.ForgetDailyPrune(s.Name); err != nil {
 				return err
 			}
+			// And its unfinished uploads: left behind, the sweep would keep
+			// asking the bucket about parts of a folder nobody backs up.
+			if err := a.index.DropSetUploads(s.KeyScope()); err != nil {
+				return err
+			}
 			if err := a.sets.Remove(s.Name); err != nil {
 				return err
 			}
