@@ -2,8 +2,10 @@ package account
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -161,6 +163,88 @@ func TestGetVaultUnauthorized(t *testing.T) {
 	_, err := c.GetVault(context.Background(), "a-bad-token")
 	if !errors.Is(err, ErrUnauthorized) {
 		t.Errorf("err = %v, want ErrUnauthorized", err)
+	}
+}
+
+// TestGetVaultDecodesBothKDFParamsWireShapes is the test for the bug a user
+// actually hit: sign-in failing with "account: decode response: json:
+// cannot unmarshal string into Go struct field EncryptedVault.kdf_params".
+//
+// worker/src/handlers/vault.ts stores kdf_params as a JSON string in D1
+// (handlePutVault re-serialises it -- see the comment there) and, until the
+// matching worker fix, handed that stored string straight back on GET
+// /vault instead of parsing it first. Querying the live production D1
+// confirmed the exact shape a real, already-signed-up account's vault row
+// travels the wire in today:
+//
+//	{"salt":"...","ciphertext":"...","nonce":"...",
+//	 "kdf_params":"{\"time\":1,\"memory_kib\":65536,\"threads\":4,\"key_len\":32}",
+//	 "updated_at":1788036275}
+//
+// -- kdf_params double-encoded, plus an updated_at field the Go struct has
+// no field for at all. This test builds exactly that shape (byte-for-byte
+// modulo the actual ciphertext, which this test supplies its own copy of so
+// it can prove the round trip by decrypting the result, something a fixture
+// built from someone else's real vault could never do) alongside the fixed
+// worker's plain-object shape, and asserts GetVault turns both into a
+// KDFParams a real passphrase still opens. Losing tolerance for the first
+// shape would break every client already in the wild the moment it talks to
+// a server that hasn't redeployed yet, or reads a vault row nobody has
+// rewritten -- which per the production query is exactly this user's row.
+func TestGetVaultDecodesBothKDFParamsWireShapes(t *testing.T) {
+	const passphrase = "correct horse battery staple"
+	plaintext := []byte(`{"account_id":"abc","access_key_id":"AKIA...","secret_access_key":"shh","bucket":"my-bucket"}`)
+
+	sealed, err := Encrypt(passphrase, plaintext)
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	saltB64 := base64.StdEncoding.EncodeToString(sealed.Salt)
+	nonceB64 := base64.StdEncoding.EncodeToString(sealed.Nonce)
+	ctB64 := base64.StdEncoding.EncodeToString(sealed.Ciphertext)
+	kdfJSON, err := json.Marshal(sealed.KDFParams)
+	if err != nil {
+		t.Fatalf("marshal kdf_params: %v", err)
+	}
+
+	// The production shape: kdf_params double-encoded as a JSON string, plus
+	// the updated_at column the Go struct doesn't declare a field for --
+	// confirmed against the live vaults table, so this is not a guess.
+	stringified := fmt.Sprintf(
+		`{"salt":%q,"ciphertext":%q,"nonce":%q,"kdf_params":%q,"updated_at":1788036275}`,
+		saltB64, ctB64, nonceB64, string(kdfJSON),
+	)
+	// The fixed shape: kdf_params as a plain object, same extra column.
+	object := fmt.Sprintf(
+		`{"salt":%q,"ciphertext":%q,"nonce":%q,"kdf_params":%s,"updated_at":1788036275}`,
+		saltB64, ctB64, nonceB64, string(kdfJSON),
+	)
+
+	for name, body := range map[string]string{
+		"stringified kdf_params (today's production shape)": stringified,
+		"object kdf_params (the fixed worker shape)":         object,
+	} {
+		t.Run(name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(body))
+			}))
+			defer server.Close()
+
+			c := NewClient(server.URL, nil)
+			got, err := c.GetVault(context.Background(), "a-token")
+			if err != nil {
+				t.Fatalf("GetVault: %v", err)
+			}
+
+			plain, err := Decrypt(passphrase, got)
+			if err != nil {
+				t.Fatalf("Decrypt on a vault fetched over this wire shape: %v", err)
+			}
+			if string(plain) != string(plaintext) {
+				t.Errorf("plaintext = %q, want %q", plain, plaintext)
+			}
+		})
 	}
 }
 

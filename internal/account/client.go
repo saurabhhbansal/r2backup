@@ -31,6 +31,20 @@ var (
 	ErrNotFound = errors.New("account: not found")
 	// ErrServer wraps any 5xx response.
 	ErrServer = errors.New("account: server error")
+	// ErrBadResponse means the response was valid HTTP with a 2xx status,
+	// but its body was not JSON this client's types could make sense of --
+	// in practice, so far, always the same class of bug: the Worker and
+	// this binary are on separate release schedules, so the field a struct
+	// here expects and the field a deployed Worker actually sends can
+	// disagree even though neither side, in isolation, is behaving wrongly
+	// by its own version's contract. The original decode error is wrapped
+	// in (via %w below), not discarded, so anything that wants the full
+	// diagnostic -- a bug report, a future --verbose flag -- can still get
+	// it with errors.Unwrap or fmt's %+v. Nothing that only needs to tell a
+	// person what to do has to look at it, which is the point: a raw
+	// encoding/json message ("cannot unmarshal string into Go struct
+	// field...") is not something anyone signing in can act on.
+	ErrBadResponse = errors.New("account: could not understand the server's response")
 )
 
 // Client speaks to the account Worker over plain HTTP(S) JSON. It holds no
@@ -169,7 +183,7 @@ func (c *Client) do(ctx context.Context, method, path, token string, body, out a
 	case resp.StatusCode >= 200 && resp.StatusCode < 300:
 		if out != nil {
 			if err := json.Unmarshal(respBody, out); err != nil {
-				return resp, fmt.Errorf("account: decode response: %w", err)
+				return resp, fmt.Errorf("%w: %v", ErrBadResponse, err)
 			}
 		}
 		return resp, nil

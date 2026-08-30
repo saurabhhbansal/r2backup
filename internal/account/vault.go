@@ -16,6 +16,7 @@ package account
 
 import (
 	"crypto/rand"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -41,6 +42,48 @@ type KDFParams struct {
 	Threads uint8 `json:"threads"`
 	// KeyLen is the derived key length in bytes (32 for XChaCha20-Poly1305).
 	KeyLen uint32 `json:"key_len"`
+}
+
+// UnmarshalJSON accepts kdf_params as either a JSON object -- the shape the
+// account Worker sends today -- or a JSON string containing one, which is
+// what GET /vault used to send: the Worker stores kdf_params re-serialised
+// as a D1 string column (see the comment in worker/src/handlers/vault.ts on
+// why) and, for a while, handed that stored string back on the wire
+// unparsed instead of decoding it first. That has been fixed server-side,
+// but this client cannot assume the fix has reached whatever server it
+// happens to be talking to: a Worker deploy and a client's own update run
+// on entirely separate schedules, and a copy of this binary built before
+// today has no way to know the server-side bug even existed, let alone that
+// it was fixed. Tolerating both shapes here means a stale server, an old
+// vault row nobody has rewritten, and a client that hasn't been updated yet
+// can all still land on a KDFParams that decrypts, instead of failing with
+// a raw JSON decode error at the one moment -- signing in -- where a person
+// has no way to act on it.
+func (k *KDFParams) UnmarshalJSON(data []byte) error {
+	// A local named type, not KDFParams itself, so this doesn't recurse into
+	// the very UnmarshalJSON being defined.
+	type plain KDFParams
+
+	var direct plain
+	if err := json.Unmarshal(data, &direct); err == nil {
+		*k = KDFParams(direct)
+		return nil
+	}
+
+	// Not an object. The only other shape worth trying is a string that
+	// itself holds one -- anything else is just a malformed response, and
+	// that should fail exactly as loudly as it would have before this
+	// method existed.
+	var asString string
+	if err := json.Unmarshal(data, &asString); err != nil {
+		return fmt.Errorf("account: kdf_params is neither an object nor a string: %w", err)
+	}
+	var nested plain
+	if err := json.Unmarshal([]byte(asString), &nested); err != nil {
+		return fmt.Errorf("account: kdf_params string does not contain a valid object: %w", err)
+	}
+	*k = KDFParams(nested)
+	return nil
 }
 
 // DefaultKDFParams returns the parameters new vaults are encrypted with.

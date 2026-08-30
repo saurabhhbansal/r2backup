@@ -283,7 +283,7 @@ func (d *dashboard) Account(ctx context.Context) (ui.AccountView, error) {
 	if _, err := c.GetVault(ctx, token); err == nil {
 		v.VaultStored = true
 	} else if !errors.Is(err, account.ErrNotFound) {
-		v.Err = err.Error()
+		v.Err = friendlyAccountErr(err).Error()
 	}
 	return v, nil
 }
@@ -319,7 +319,7 @@ func (d *dashboard) UnlockVault(ctx context.Context, password string) error {
 		if errors.Is(err, account.ErrNotFound) {
 			return errors.New("no credentials are stored for this account yet")
 		}
-		return err
+		return friendlyAccountErr(err)
 	}
 	plain, err := account.Decrypt(password, vault)
 	if err != nil {

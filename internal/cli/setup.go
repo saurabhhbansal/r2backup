@@ -80,7 +80,7 @@ func runSetup(ctx context.Context, a *app, opts *Options, keysOnly bool) error {
 	if token != "" && !keysOnly {
 		done, err := pullCredentials(ctx, a, p, client, token)
 		if err != nil {
-			return err
+			return friendlyAccountErr(err)
 		}
 		if done {
 			// Checked here too, not only on the path that typed them in.
@@ -138,7 +138,7 @@ func signIn(ctx context.Context, p *prompter, client *account.Client) (string, e
 	// --keys` after rotating R2 keys is.
 	if tok, err := account.LoadToken(); err == nil && tok != "" {
 		if ok, err := tokenWorks(ctx, client, tok); err != nil {
-			return "", err
+			return "", friendlyAccountErr(err)
 		} else if ok {
 			fmt.Fprintln(p.out, "Already signed in on this computer.")
 			return tok, nil
