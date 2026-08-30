@@ -126,13 +126,17 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 		//
 		// Two reasons, one correctness and one performance. Computing the hash
 		// requires the SDK to read the body to the end and then seek back to
-		// the start -- so a body that is not seekable, which is exactly what a
-		// progress-counting wrapper around a file produces, fails outright with
+		// the start -- so a body that is not seekable fails outright with
 		// "request stream is not seekable". And even when it succeeds it means
 		// reading every file off disk twice: once to hash, once to send. Over a
 		// 60,000-file backup that is double the disk I/O for no benefit, since
 		// the connection is already TLS-protected and S3 accepts unsigned
 		// payloads over HTTPS.
+		//
+		// This is not a licence to hand the SDK an unseekable body. Signing
+		// is one of two things that rewind one; retrying is the other, and
+		// nothing here can swap that away. See progressSeeker in reader.go,
+		// which is what keeps the upload body seekable now.
 		o.APIOptions = append(o.APIOptions, v4.SwapComputePayloadSHA256ForUnsignedPayloadMiddleware)
 		// R2 does not return the checksums the SDK would like to validate, so
 		// it logs a warning on every single object. Restoring 60,000 files

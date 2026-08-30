@@ -42,10 +42,11 @@ func (c *Client) Put(ctx context.Context, in PutInput) error {
 		return fmt.Errorf("remote: put %q: negative size %d", in.Key, in.Size)
 	}
 
-	var body io.Reader = in.Body
-	if in.Progress != nil {
-		body = &progressReader{r: in.Body, cb: in.Progress}
-	}
+	// Seekability is preserved where the caller had it: the SDK rewinds a
+	// body to retry a request, and a wrapper that hides *os.File's Seek
+	// turns every retry into a short send against a Content-Length that
+	// still describes the whole file. See progressSeeker.
+	body := withProgress(in.Body, in.Progress)
 
 	meta := in.Metadata
 	meta.Size = in.Size
