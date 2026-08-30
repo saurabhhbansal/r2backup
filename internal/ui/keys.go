@@ -135,5 +135,7 @@ func BoundKeys() []string {
 	// Bound in overlayBrowse and overlayPicker rather than in the keymap:
 	// they belong to a screen, not to the whole interface.
 	out = append(out, "t", ".", " ", "1", "2", "3", "4")
+	// y/n answer a confirmation, which is a screen rather than a mode.
+	out = append(out, "y", "n")
 	return out
 }

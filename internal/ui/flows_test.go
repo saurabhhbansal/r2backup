@@ -699,3 +699,74 @@ func TestAWideTerminalGetsEveryKeyForTheMode(t *testing.T) {
 		}
 	}
 }
+
+// `r2b add` ends by offering to run backups on a timer, because a folder
+// added and backed up exactly once is the opposite of what was asked for.
+// The window has to make the same offer: the Schedule tab exists, and
+// someone who has just added their first folder has no reason to go and look
+// at it.
+func TestAddingTheFirstFolderOffersASchedule(t *testing.T) {
+	b := twoSets()
+	b.sets = nil
+	b.ov.Scheduled = false
+	m := sized(b, 120, 40)
+
+	m.Update(addedMsg("Notes"))
+	drain(t, m)
+
+	if m.overlay != overlayConfirm {
+		t.Fatalf("overlay = %v, want the offer to schedule", m.overlay)
+	}
+	if !strings.Contains(m.confirm, "automatically") {
+		t.Errorf("question = %q", m.confirm)
+	}
+	apply(t, m, press(m, "y"))
+	if len(b.sched) != 1 || !b.sched[0] {
+		t.Fatalf("sched = %v, want one registration", b.sched)
+	}
+}
+
+// A second folder must not silently re-time the first, and a platform with
+// no scheduler must not be offered one.
+func TestTheScheduleOfferIsMadeOnlyWhenItWouldMeanSomething(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		scheduled bool
+		available bool
+	}{
+		{"already scheduled", true, true},
+		{"no scheduler on this platform", false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := twoSets()
+			b.ov.Scheduled, b.ov.SchedulerAvailable = tc.scheduled, tc.available
+			m := sized(b, 120, 40)
+
+			m.Update(addedMsg("Notes"))
+			drain(t, m)
+
+			if m.overlay == overlayConfirm {
+				t.Errorf("asked %q when it should not have", m.confirm)
+			}
+		})
+	}
+}
+
+// The offer follows a backup that worked. A first backup that failed has a
+// problem to show, not a question to ask.
+func TestAFailedFirstBackupIsNotFollowedByTheOffer(t *testing.T) {
+	b := twoSets()
+	b.sets = nil
+	b.ov.Scheduled = false
+	m := sized(b, 120, 40)
+
+	m.justAdded = true
+	m.Update(runDoneMsg{what: "Notes backed up.", err: errors.New("the bucket refused it")})
+
+	if m.overlay == overlayConfirm {
+		t.Errorf("asked about scheduling after a failure: %q", m.confirm)
+	}
+	if m.err == nil {
+		t.Error("the failure should be on screen")
+	}
+}

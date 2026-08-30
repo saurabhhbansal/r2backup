@@ -2,6 +2,7 @@ package ui
 
 import (
 	"context"
+	"strconv"
 	"time"
 
 	"github.com/charmbracelet/bubbles/filepicker"
@@ -16,6 +17,7 @@ import (
 
 	"github.com/saurabhhbansal/r2backup/internal/progress"
 	"github.com/saurabhhbansal/r2backup/internal/scan"
+	"github.com/saurabhhbansal/r2backup/internal/schedule"
 	"github.com/saurabhhbansal/r2backup/internal/tui"
 )
 
@@ -184,6 +186,11 @@ type Model struct {
 	// pendingUpdate is a version found by a check and not yet installed, so
 	// the same key can confirm it.
 	pendingUpdate string
+
+	// justAdded is set between registering a folder and the end of its first
+	// backup, so the offer to schedule is made once, after something has
+	// actually been uploaded -- the same place `r2b add` makes it.
+	justAdded bool
 
 	notice string
 	err    error
@@ -359,10 +366,23 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.running = false
 		m.runCancel = nil
 		m.overlay = overlayNone
+		first := m.justAdded
+		m.justAdded = false
 		if msg.err != nil {
 			m.err = msg.err
-		} else {
-			m.notice = msg.what
+			return m, m.load()
+		}
+		m.notice = msg.what
+		// The offer `r2b add` ends with, and for the same reason: a folder
+		// added and backed up exactly once is the opposite of what the person
+		// asked for, and nothing else says so again except the Schedule tab
+		// they have no reason to visit. Asked once, after the first backup
+		// has actually finished, and never when a schedule already exists --
+		// a second folder must not silently re-time the first.
+		if first && !m.ov.Scheduled && m.ov.SchedulerAvailable {
+			every := schedule.DefaultIntervalMinutes
+			m.ask("Back up automatically every "+strconv.Itoa(every)+" minutes from now on?",
+				func() tea.Cmd { return m.setSchedule(every, false) })
 		}
 		return m, m.load()
 
@@ -386,6 +406,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case addedMsg:
 		m.notice = ""
+		m.justAdded = true
 		return m, m.startBackup([]string{string(msg)})
 
 	case codeSentMsg:

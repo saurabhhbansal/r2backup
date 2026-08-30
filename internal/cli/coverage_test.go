@@ -50,7 +50,7 @@ var tuiSurface = map[string]surface{
 	"r2b add --all":       {Keys: []string{"enter"}, Where: "the picker opens with everything ticked; enter takes all of it"},
 	"r2b add --name":      {Keys: []string{"a"}, Where: "the form after the picker asks what to call it"},
 	"r2b add --retention": {Keys: []string{"a"}, Where: "the same form asks how long to keep deleted files"},
-	"r2b add --every":     {Keys: []string{"s", "e"}, Where: "Schedule: turn automatic backups on, and set the interval"},
+	"r2b add --every":     {Keys: []string{"y", "s", "e"}, Where: "the first folder added is followed by the same offer to schedule; Schedule: s and e after that"},
 
 	"r2b edit": {Keys: []string{"e"}, Where: "Folders: e reopens the picker on what is already chosen"},
 
