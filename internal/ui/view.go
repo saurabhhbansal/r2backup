@@ -455,27 +455,7 @@ func (m *Model) buildTrashTable() {
 			r.Expires.Format("2 Jan"),
 		})
 	}
-	st := table.DefaultStyles()
-	st.Header = st.Header.BorderStyle(lipgloss.NormalBorder()).
-		BorderForeground(subtle).BorderBottom(true).Bold(true)
-	st.Selected = st.Selected.Foreground(lipgloss.Color("0")).Background(accent)
-
-	height := m.height - m.chromeHeight() - 3
-	if height < 3 {
-		height = 3
-	}
-	// layout() runs on every overlay change, so the table is rebuilt when the
-	// user opens help and closes it again. Carrying the cursor across is the
-	// difference between that and being thrown back to the first row every
-	// time -- which also happened on any window resize.
-	cursor := m.trash.Cursor()
-	m.trash = table.New(
-		table.WithColumns(cols), table.WithRows(rows),
-		table.WithFocused(true), table.WithHeight(height), table.WithStyles(st),
-	)
-	if cursor > 0 && cursor < len(rows) {
-		m.trash.SetCursor(cursor)
-	}
+	m.trash = styledTable(cols, rows, m.tableHeight(), m.trash.Cursor())
 }
 
 func (m *Model) trashView() string {
