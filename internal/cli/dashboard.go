@@ -134,14 +134,38 @@ func (d *dashboard) Load(ctx context.Context) ([]ui.SetView, ui.Overview, error)
 	// once a second, and this must stay free.
 	if c, err := a.creds.Load(); err == nil {
 		ov.Bucket = c.Bucket
+		// Configured is what the Folders and Account tabs gate on, and it has
+		// to mean the same thing connect() would check: a credential set that
+		// is actually usable, not merely a file that exists. A bucket left
+		// blank -- half-finished setup, or a vault entry that arrived without
+		// one -- reads as configured today with Bucket empty, and every
+		// caller of Load would have to know to check for that too.
+		ov.Configured = c.Valid() == nil
 	} else if !errors.Is(err, creds.ErrNotFound) {
 		return views, ov, err
 	}
 	if used, resetAt, err := a.index.OpsThisMonth(); err == nil {
 		ov.OpsUsed, ov.OpsResetAt = used, resetAt
 	}
-	if st, err := schedule.Current(scheduleName); err == nil && st.Registered {
-		ov.Scheduled, ov.Interval = true, st.Interval
+	if st, err := schedule.Current(scheduleName); err == nil {
+		// A clean call means a scheduler exists on this platform, whether or
+		// not r2backup has registered with it yet -- Current only returns
+		// ErrUnsupported for the platforms with no implementation at all.
+		ov.SchedulerAvailable = true
+		if st.Registered {
+			ov.Scheduled, ov.Interval, ov.RunsWhenSignedOut = true, st.Interval, st.RunsWhenSignedOut
+			// NextRun and LastRun are best-effort -- some platforms can't say
+			// and leave them zero on Status itself -- but when the OS does
+			// report them, the Schedule tab should show them rather than the
+			// zero value Overview starts with regardless.
+			ov.NextRun, ov.LastRun = st.NextRun, st.LastRun
+		}
+	} else if !errors.Is(err, schedule.ErrUnsupported) {
+		// A one-off failure reading the scheduler's state -- a command that
+		// didn't run, a file that briefly wasn't there -- isn't the same
+		// claim as "nothing here can schedule a run", so it shouldn't hide
+		// the tab either.
+		ov.SchedulerAvailable = true
 	}
 	// A run in another process -- the scheduler's, typically -- is read from
 	// the same progress file `status --watch` reads, so the interface and the
