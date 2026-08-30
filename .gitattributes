@@ -1,0 +1,9 @@
+# The banner art is embedded and then measured character by character, so it
+# must reach a build exactly as it was drawn. Git on Windows rewrites text
+# files to CRLF on checkout by default, which appends a carriage return to
+# every line of the art -- and those lines are printed straight to the
+# terminal, so the stray character ships. Pinning the line ending here fixes
+# it at the source; banner.go strips any that survive anyway, because a
+# .gitattributes only governs this repository and says nothing about a file
+# that arrives some other way.
+internal/ui/banner*.txt text eol=lf

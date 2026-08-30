@@ -222,7 +222,7 @@ func TestGetVaultDecodesBothKDFParamsWireShapes(t *testing.T) {
 
 	for name, body := range map[string]string{
 		"stringified kdf_params (today's production shape)": stringified,
-		"object kdf_params (the fixed worker shape)":         object,
+		"object kdf_params (the fixed worker shape)":        object,
 	} {
 		t.Run(name, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

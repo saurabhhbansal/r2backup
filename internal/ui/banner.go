@@ -86,6 +86,14 @@ func widestLine(s string) int {
 }
 
 func newVariant(name, art string, minListRows int) variant {
+	// Carriage returns are stripped, not tolerated. The art is embedded from
+	// a .txt file and printed to the terminal a line at a time, so a CRLF
+	// checkout -- git's default on Windows, which is the platform this
+	// mostly ships to -- would put a stray control character at the end of
+	// every line of the logo. .gitattributes pins the line ending for this
+	// repository; this is what covers a copy of the file that arrived any
+	// other way.
+	art = strings.ReplaceAll(art, "\r", "")
 	art = strings.TrimRight(art, "\n")
 	return variant{
 		name:        name,
