@@ -109,6 +109,11 @@ trash first, and `restore --deleted` brings it back.
 **Costs nothing when nothing changed.** A local index decides what to upload,
 so an unchanged folder makes no requests at all.
 
+**Picks up where it stopped.** A large file interrupted by a dropped
+connection or a shutdown keeps the parts already uploaded and carries on from
+there — at the next run, or a minute after you next sign in. `r2b status`
+shows what stopped and how far it got.
+
 **Tells you the truth about time.** If it says two hours, it means two hours.
 
 **Restores anywhere.** Sign in on another computer with the same email and it
