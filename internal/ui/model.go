@@ -61,6 +61,8 @@ const (
 	overlayConfirm         // a yes/no question
 	overlayHelp
 	overlayDetail
+	overlayObjects // what is stored for one set: `r2b ls <set>`
+	overlayRemote  // every backup in the bucket, this computer's and others'
 )
 
 // tickInterval is how often local state is re-read. A second, because that is
@@ -110,6 +112,17 @@ type (
 		version string
 		applied bool
 	}
+	objectsMsg struct {
+		set  string
+		rows []ObjectRow
+		req  int
+	}
+	remoteMsg struct {
+		rows []RemoteSet
+		req  int
+	}
+	// repairedMsg reports whether there was a schedule to re-point.
+	repairedMsg bool
 )
 
 // Model is the whole interface: four tabs and the flows that run over them.
@@ -144,6 +157,15 @@ type Model struct {
 	detailBody string
 	trashSet   string
 	trashRows  []TrashRow
+
+	// objects and remotes each own a table, for the same reason trash does:
+	// bubbles/table does not resize its columns, so the table is rebuilt
+	// whenever the space changes and the rows have to outlive it.
+	objects    table.Model
+	objectSet  string
+	objectRows []ObjectRow
+	remotes    table.Model
+	remoteRows []RemoteSet
 
 	running   bool
 	runWhat   string
@@ -399,6 +421,34 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case objectsMsg:
+		if msg.req != m.request {
+			return m, nil
+		}
+		m.objectSet, m.objectRows = msg.set, msg.rows
+		m.notice = ""
+		m.overlay = overlayObjects
+		m.buildObjectTable()
+		return m, nil
+
+	case remoteMsg:
+		if msg.req != m.request {
+			return m, nil
+		}
+		m.remoteRows = msg.rows
+		m.notice = ""
+		m.overlay = overlayRemote
+		m.buildRemoteTable()
+		return m, nil
+
+	case repairedMsg:
+		if bool(msg) {
+			m.notice = "Re-pointed the scheduled task at this copy of r2b. Its interval is unchanged."
+		} else {
+			m.notice = "Nothing is scheduled, so there was nothing to repair."
+		}
+		return m, m.load()
+
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spin, cmd = m.spin.Update(msg)
@@ -418,6 +468,10 @@ func (m *Model) forward(msg tea.Msg) tea.Cmd {
 		_, cmd = m.picker.Update(msg)
 	case m.overlay == overlayDetail:
 		m.detail, cmd = m.detail.Update(msg)
+	case m.overlay == overlayObjects:
+		m.objects, cmd = m.objects.Update(msg)
+	case m.overlay == overlayRemote:
+		m.remotes, cmd = m.remotes.Update(msg)
 	case m.overlay != overlayNone:
 		return nil
 	case m.tab == tabFolders:

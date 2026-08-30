@@ -181,13 +181,23 @@ func (m *Model) overlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.overlay = overlayNone
 				return m, m.scanFolder(v.Root, v.Name)
 			case key.Matches(msg, keys.Restore):
-				m.askRestore(v)
+				m.askRestore(v, "")
 				return m, nil
 			case key.Matches(msg, keys.Rename):
 				m.askRename(v)
 				return m, nil
 			case key.Matches(msg, keys.Relink):
 				m.askRelink(v)
+				return m, nil
+			case key.Matches(msg, keys.Files):
+				return m, m.loadObjects(v.Name)
+			case key.Matches(msg, keys.Remove):
+				name := v.Name
+				m.ask("Stop backing up "+name+"? What is already stored stays in the bucket.",
+					func() tea.Cmd { return m.removeSet(name, false) })
+				return m, nil
+			case key.Matches(msg, keys.Purge):
+				m.askPurge(v)
 				return m, nil
 			}
 		}
@@ -256,6 +266,43 @@ func (m *Model) overlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, cmd
 
+	case overlayObjects:
+		if key.Matches(msg, keys.Back) {
+			m.overlay = overlayNone
+			return m, nil
+		}
+		return m, m.forward(msg)
+
+	case overlayRemote:
+		switch {
+		case key.Matches(msg, keys.Back):
+			m.overlay = overlayNone
+			return m, nil
+		case key.Matches(msg, keys.Enter):
+			if m.running {
+				m.notice = busyNote
+				return m, nil
+			}
+			i := m.remotes.Cursor()
+			if i < 0 || i >= len(m.remoteRows) {
+				return m, nil
+			}
+			r := m.remoteRows[i]
+			// A set this computer already keeps knows where it came from, so
+			// restoring it needs neither a destination nor a machine. One it
+			// only has in the bucket knows neither.
+			v := SetView{Name: r.Name}
+			machine := r.Machine
+			if r.Here {
+				if local, ok := m.setByName(r.Name); ok {
+					v, machine = local, ""
+				}
+			}
+			m.askRestore(v, machine)
+			return m, nil
+		}
+		return m, m.forward(msg)
+
 	case overlayPicker:
 		if m.picker == nil {
 			m.overlay = overlayNone
@@ -292,6 +339,12 @@ func (m *Model) foldersKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.Add):
 		return m, m.startBrowse()
 
+	case key.Matches(msg, keys.Remote):
+		// Deliberately not behind a selected row. A computer that has just
+		// signed in has an empty list, and that is precisely when someone
+		// needs to see what is in the bucket.
+		return m, m.loadRemote()
+
 	case key.Matches(msg, keys.Enter):
 		if v, ok := m.selected(); ok {
 			m.showDetail(v)
@@ -322,7 +375,7 @@ func (m *Model) foldersKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, m.scanFolder(v.Root, v.Name)
 
 	case key.Matches(msg, keys.Restore):
-		m.askRestore(v)
+		m.askRestore(v, "")
 		return m, nil
 
 	case key.Matches(msg, keys.Rename):
@@ -333,10 +386,17 @@ func (m *Model) foldersKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.askRelink(v)
 		return m, nil
 
+	case key.Matches(msg, keys.Files):
+		return m, m.loadObjects(v.Name)
+
 	case key.Matches(msg, keys.Remove):
 		name := v.Name
 		m.ask("Stop backing up "+name+"? What is already stored stays in the bucket.",
-			func() tea.Cmd { return m.removeSet(name) })
+			func() tea.Cmd { return m.removeSet(name, false) })
+		return m, nil
+
+	case key.Matches(msg, keys.Purge):
+		m.askPurge(v)
 		return m, nil
 	}
 	return m, m.forward(msg)
@@ -357,6 +417,9 @@ func (m *Model) scheduleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case key.Matches(msg, keys.Every):
 		m.askInterval()
 		return m, nil
+
+	case key.Matches(msg, keys.Repair):
+		return m, m.repairSchedule()
 	}
 	return m, nil
 }
@@ -571,12 +634,52 @@ func (m *Model) loadTrash(name string) tea.Cmd {
 	}
 }
 
-func (m *Model) removeSet(name string) tea.Cmd {
+func (m *Model) removeSet(name string, purge bool) tea.Cmd {
 	return func() tea.Msg {
-		if err := m.backend.Remove(m.ctx, name, false); err != nil {
+		if err := m.backend.Remove(m.ctx, name, purge); err != nil {
 			return errMsg{err}
 		}
+		if purge {
+			return noticeMsg(name + " is no longer backed up, and its copy has been deleted from the bucket.")
+		}
 		return noticeMsg(name + " is no longer backed up. What was stored is still in the bucket.")
+	}
+}
+
+func (m *Model) loadObjects(name string) tea.Cmd {
+	m.notice = "Reading what is stored..."
+	m.request++
+	req := m.request
+	return func() tea.Msg {
+		rows, err := m.backend.Objects(m.ctx, name)
+		if err != nil {
+			return errMsg{err}
+		}
+		return objectsMsg{set: name, rows: rows, req: req}
+	}
+}
+
+func (m *Model) loadRemote() tea.Cmd {
+	m.notice = "Asking the bucket what is in it..."
+	m.request++
+	req := m.request
+	return func() tea.Msg {
+		rows, err := m.backend.RemoteSets(m.ctx)
+		if err != nil {
+			return errMsg{err}
+		}
+		return remoteMsg{rows: rows, req: req}
+	}
+}
+
+func (m *Model) repairSchedule() tea.Cmd {
+	m.notice = "Checking the scheduled task..."
+	return func() tea.Msg {
+		found, err := m.backend.RepairSchedule(m.ctx)
+		if err != nil {
+			return errMsg{err}
+		}
+		return repairedMsg(found)
 	}
 }
 

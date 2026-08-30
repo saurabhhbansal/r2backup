@@ -174,18 +174,28 @@ func (m *Model) finishAdd(root string, excludes []string) tea.Cmd {
 	return nil
 }
 
-func (m *Model) askRestore(v SetView) {
+// askRestore opens the restore form. machine names another computer's copy,
+// and is empty for this computer's own -- the same distinction
+// `restore --machine` draws, made by which row you pressed enter on rather
+// than by remembering a flag.
+func (m *Model) askRestore(v SetView, machine string) {
+	title := "Restore " + v.Name
 	hint := "Leave blank to put it back where it came from (" + v.Root + ")."
-	if v.Root == "" {
+	switch {
+	case machine != "":
+		title += " from " + machine
+		hint = machine + " backed this up, so this computer has no original path for it. Give it somewhere to go."
+	case v.Root == "":
 		hint = "This folder was backed up from another computer, so it needs a destination."
 	}
 	m.showForm(newForm(
-		"Restore "+v.Name,
+		title,
 		hint,
 		[]field{
 			{Label: "Into folder", Placeholder: v.Root, Optional: true},
 			{Label: "Only paths matching", Placeholder: "everything", Optional: true},
 			{Label: "Replace existing files", Placeholder: "no", Optional: true},
+			{Label: "Re-read each file after writing", Placeholder: "no", Optional: true},
 		},
 		func(vals []string) (string, tea.Cmd) {
 			to := cleanPath(vals[0])
@@ -196,9 +206,39 @@ func (m *Model) askRestore(v SetView) {
 			if err != nil {
 				return "Answer yes or no.", nil
 			}
+			verify, err := yesNo(vals[3])
+			if err != nil {
+				return "Answer yes or no.", nil
+			}
 			return "", m.startRestore(RestoreRequest{
-				Set: v.Name, To: to, Only: vals[1], Overwrite: overwrite,
+				Set: v.Name, To: to, Only: vals[1], Machine: machine,
+				Overwrite: overwrite, Verify: verify,
 			})
+		}))
+}
+
+// askPurge is `r2b remove <set> --purge`: the most destructive thing this
+// program does.
+//
+// The command makes typing --purge the confirmation, on the grounds that a
+// y/N everyone learns to answer "y" to is not a safety feature. That
+// reasoning holds here, so the confirmation is not a y/N either: the folder's
+// name has to be typed back. It is the same bar the flag sets -- you cannot
+// do this without saying which -- and it is the reason the interface can
+// offer this at all instead of sending people to a command line.
+func (m *Model) askPurge(v SetView) {
+	name := v.Name
+	m.showForm(newForm(
+		"Delete "+name+" from the bucket",
+		"This stops backing it up AND deletes every object stored for it. It cannot be undone,\n"+
+			"and trash will not have it either. Your files on this computer are not touched.\n"+
+			"Type "+name+" to confirm.",
+		[]field{{Label: "Folder name"}},
+		func(vals []string) (string, tea.Cmd) {
+			if strings.TrimSpace(vals[0]) != name {
+				return "That is not the name. Type " + name + ", or press esc to leave it alone.", nil
+			}
+			return "", m.removeSet(name, true)
 		}))
 }
 

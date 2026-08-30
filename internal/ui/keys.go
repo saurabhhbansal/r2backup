@@ -21,10 +21,14 @@ type keyMap struct {
 	Restore key.Binding
 	Recover key.Binding
 	Remove  key.Binding
+	Purge   key.Binding
 	Rename  key.Binding
 	Relink  key.Binding
+	Files   key.Binding
+	Remote  key.Binding
 	Toggle  key.Binding
 	Every   key.Binding
+	Repair  key.Binding
 	SignIn  key.Binding
 	SignOut key.Binding
 	Share   key.Binding
@@ -52,11 +56,15 @@ var keys = keyMap{
 	Restore: key.NewBinding(key.WithKeys("r"), key.WithHelp("r", "restore")),
 	Recover: key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "recover this file")),
 	Remove:  key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "stop backing up")),
+	Purge:   key.NewBinding(key.WithKeys("X"), key.WithHelp("X", "stop and delete the stored copy")),
 	Rename:  key.NewBinding(key.WithKeys("n"), key.WithHelp("n", "rename")),
 	Relink:  key.NewBinding(key.WithKeys("m"), key.WithHelp("m", "folder moved")),
+	Files:   key.NewBinding(key.WithKeys("f"), key.WithHelp("f", "what is stored")),
+	Remote:  key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "another computer's backups")),
 
 	Toggle: key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "turn automatic backups on/off")),
 	Every:  key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "change how often")),
+	Repair: key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "re-point it at this copy of r2b")),
 
 	SignIn:  key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "sign in")),
 	SignOut: key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "sign out")),
@@ -78,7 +86,7 @@ func tabKeys(t tab) []key.Binding {
 	case tabFolders:
 		return []key.Binding{keys.Add, keys.Backup, keys.Restore, keys.Edit, keys.Remove}
 	case tabSchedule:
-		return []key.Binding{keys.Toggle, keys.Every}
+		return []key.Binding{keys.Toggle, keys.Every, keys.Repair}
 	case tabTrash:
 		return []key.Binding{keys.Recover}
 	case tabAccount:
@@ -101,9 +109,31 @@ func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
 		{k.Up, k.Down, k.Enter, k.Back, k.NextTab},
 		{k.Add, k.Backup, k.All, k.Edit, k.Restore},
-		{k.Rename, k.Relink, k.Remove},
-		{k.Toggle, k.Every},
+		{k.Files, k.Remote, k.Rename, k.Relink},
+		{k.Remove, k.Purge},
+		{k.Toggle, k.Every, k.Repair},
 		{k.SignIn, k.Unlock, k.Share, k.Keys, k.SignOut},
 		{k.Watch, k.Update, k.Refresh, k.Help, k.Quit},
 	}
+}
+
+// BoundKeys is every keystroke the interface binds, in no particular order.
+//
+// It exists for the coverage test in internal/cli, which checks that each
+// command and flag on the command line has something in the interface that
+// reaches it -- and that the key it names is a key that is actually bound,
+// rather than a line in a table that was true when it was written.
+func BoundKeys() []string {
+	var out []string
+	for _, row := range keys.FullHelp() {
+		for _, b := range row {
+			out = append(out, b.Keys()...)
+		}
+	}
+	out = append(out, keys.Recover.Keys()...)
+	out = append(out, keys.Refresh.Keys()...)
+	// Bound in overlayBrowse and overlayPicker rather than in the keymap:
+	// they belong to a screen, not to the whole interface.
+	out = append(out, "t", ".", " ", "1", "2", "3", "4")
+	return out
 }

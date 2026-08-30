@@ -105,6 +105,31 @@ type TrashRow struct {
 	Expires time.Time
 }
 
+// ObjectRow is one object stored for a set: what `r2b ls <set>` prints.
+//
+// It comes from the local index rather than a LIST of the bucket. The index is
+// the record of what was uploaded, reading it costs nothing, and a listing that
+// spends operations every time someone presses a key is not a listing anyone
+// should press twice.
+type ObjectRow struct {
+	Key  string
+	Size int64
+}
+
+// RemoteSet is a backup found in the bucket, from the bucket.
+//
+// A computer that has just signed in has credentials and an empty sets.json,
+// so nothing on the Folders tab names the data that is already stored. This is
+// how it is named: `machines/<machine>/<set>` is the only manifest there is,
+// and two delimited LISTs recover both halves of it.
+type RemoteSet struct {
+	Name    string
+	Machine string
+	// Here is true when this computer already keeps its own record of this
+	// set, so restoring it needs no destination and no machine.
+	Here bool
+}
+
 // AddRequest is a new folder to back up.
 type AddRequest struct {
 	Name      string
@@ -197,11 +222,25 @@ type Backend interface {
 	// which is why it happens on a keystroke and never on a timer.
 	Trash(ctx context.Context, name string) ([]TrashRow, error)
 
-	// Remove stops backing up a folder. purge also deletes what is stored.
+	// Objects lists what is stored for a set, largest first.
+	Objects(ctx context.Context, name string) ([]ObjectRow, error)
+
+	// RemoteSets lists every backup in the bucket, including other
+	// computers'. It reaches the network, so it runs on a keystroke.
+	RemoteSets(ctx context.Context) ([]RemoteSet, error)
+
+	// Remove stops backing up a folder. purge also deletes what is stored,
+	// permanently.
 	Remove(ctx context.Context, name string, purge bool) error
 
 	// Schedule registers or unregisters automatic runs.
 	Schedule(ctx context.Context, everyMinutes int, off bool) error
+
+	// RepairSchedule re-points an existing schedule at this copy of the
+	// program, keeping its interval. It reports what it found: false means
+	// there was no schedule to repair, which is left alone rather than
+	// created.
+	RepairSchedule(ctx context.Context) (bool, error)
 
 	// Account reads the sign-in state. It reaches the network, so it is
 	// called when the Account tab is opened, not on the refresh timer.

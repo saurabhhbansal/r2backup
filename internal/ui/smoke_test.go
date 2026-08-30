@@ -40,6 +40,13 @@ type fakeBackend struct {
 	overlap    string
 	scanErr    error
 	restoreErr error
+
+	objects     []ObjectRow
+	remoteSets  []RemoteSet
+	remoteErr   error
+	purged      []string
+	repaired    int
+	hasSchedule bool
 }
 
 func (f *fakeBackend) Load(context.Context) ([]SetView, Overview, error) {
@@ -97,9 +104,25 @@ func (f *fakeBackend) Relink(_ context.Context, name, root string) error {
 
 func (f *fakeBackend) Trash(context.Context, string) ([]TrashRow, error) { return f.trash, nil }
 
-func (f *fakeBackend) Remove(_ context.Context, name string, _ bool) error {
+func (f *fakeBackend) Remove(_ context.Context, name string, purge bool) error {
 	f.removed = append(f.removed, name)
+	if purge {
+		f.purged = append(f.purged, name)
+	}
 	return nil
+}
+
+func (f *fakeBackend) Objects(context.Context, string) ([]ObjectRow, error) {
+	return f.objects, nil
+}
+
+func (f *fakeBackend) RemoteSets(context.Context) ([]RemoteSet, error) {
+	return f.remoteSets, f.remoteErr
+}
+
+func (f *fakeBackend) RepairSchedule(context.Context) (bool, error) {
+	f.repaired++
+	return f.hasSchedule, nil
 }
 
 func (f *fakeBackend) Schedule(_ context.Context, _ int, off bool) error {

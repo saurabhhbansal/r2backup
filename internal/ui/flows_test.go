@@ -122,6 +122,7 @@ func TestRestoreAsksWhereAndThenRuns(t *testing.T) {
 	typeIn(m, "/tmp/out")
 	enter(m) // to "only"
 	enter(m) // to "replace existing"
+	enter(m) // to "re-read each file after writing"
 	enter(m) // submit
 	drain(t, m)
 
@@ -371,6 +372,7 @@ func TestARestoreShowsItsProgress(t *testing.T) {
 	typeIn(m, "/tmp/out")
 	enter(m)
 	enter(m)
+	enter(m)
 	enter(m) // submit
 	if m.overlay != overlayRunning {
 		t.Fatalf("overlay = %v, want the progress screen", m.overlay)
@@ -471,5 +473,193 @@ func TestABadNameIsCaughtInTheForm(t *testing.T) {
 	}
 	if !strings.Contains(m.form.err, "will not work") {
 		t.Errorf("the form should explain the problem, got %q", m.form.err)
+	}
+}
+
+// The rest of the command line, reached from the window. Each of these was a
+// command with no key: `r2b ls`, `r2b restore --machine`, `r2b restore
+// --verify`, `r2b remove --purge`, `r2b schedule --repair`. internal/cli's
+// coverage test asserts the mapping exists; these assert it works.
+
+func TestFListsWhatIsStored(t *testing.T) {
+	b := twoSets()
+	b.objects = []ObjectRow{
+		{Key: "notes/big.psd", Size: 900_000},
+		{Key: "a.txt", Size: 12},
+	}
+	m := sized(b, 120, 40)
+
+	apply(t, m, press(m, "f"))
+	if m.overlay != overlayObjects {
+		t.Fatalf("f should list what is stored, got overlay %v", m.overlay)
+	}
+	if m.objectSet != "Documents" {
+		t.Errorf("listed %q, want the highlighted folder", m.objectSet)
+	}
+	body := m.bodyView()
+	for _, want := range []string{"notes/big.psd", "a.txt", "2 objects"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the listing does not mention %q:\n%s", want, body)
+		}
+	}
+	press(m, "esc")
+	if m.overlay != overlayNone {
+		t.Error("esc should close the listing")
+	}
+}
+
+// The case this exists for: a computer that has just signed in has working
+// credentials and an empty folder list, and the data it wants is in the
+// bucket under another machine's name. Nothing on screen used to say so.
+func TestCFindsAnotherComputersBackupAndRestoresIt(t *testing.T) {
+	b := twoSets()
+	b.sets = nil
+	b.remoteSets = []RemoteSet{{Name: "Documents", Machine: "laptop"}}
+	m := sized(b, 120, 40)
+
+	apply(t, m, press(m, "c"))
+	if m.overlay != overlayRemote {
+		t.Fatalf("c should list the bucket, got overlay %v", m.overlay)
+	}
+	if !strings.Contains(m.bodyView(), "laptop") {
+		t.Fatalf("the listing does not name the machine:\n%s", m.bodyView())
+	}
+
+	press(m, "enter")
+	if m.overlay != overlayForm {
+		t.Fatalf("enter should open the restore form, got overlay %v", m.overlay)
+	}
+	// It has no original path on this computer, so submitting with no
+	// destination has to be refused rather than guessed at.
+	for i := 0; i < 4; i++ {
+		enter(m)
+	}
+	if m.overlay != overlayForm {
+		t.Fatal("a restore with nowhere to go should not have started")
+	}
+	if len(b.restores) != 0 {
+		t.Fatalf("a restore ran with nowhere to put it: %v", b.restores)
+	}
+
+	// Back up to the first field, the way a person would after being told.
+	for i := 0; i < 3; i++ {
+		m.Update(tea.KeyMsg{Type: tea.KeyUp})
+	}
+	typeIn(m, "/tmp/from-laptop")
+	for i := 0; i < 4; i++ {
+		enter(m)
+	}
+	drain(t, m)
+
+	if len(b.restores) != 1 {
+		t.Fatalf("restores = %v, want one", b.restores)
+	}
+	got := b.restores[0]
+	if got.Machine != "laptop" || got.To != "/tmp/from-laptop" || got.Set != "Documents" {
+		t.Errorf("restored %+v, want Documents from laptop into /tmp/from-laptop", got)
+	}
+}
+
+func TestTheRestoreFormCanAskForVerification(t *testing.T) {
+	b := twoSets()
+	m := sized(b, 120, 40)
+
+	press(m, "r")
+	typeIn(m, "/tmp/out")
+	enter(m) // to "only"
+	enter(m) // to "replace existing"
+	enter(m) // to "re-read each file after writing"
+	typeIn(m, "yes")
+	enter(m) // submit
+	drain(t, m)
+
+	if len(b.restores) != 1 {
+		t.Fatalf("restores = %v, want one", b.restores)
+	}
+	if !b.restores[0].Verify {
+		t.Errorf("restored %+v, want Verify set", b.restores[0])
+	}
+}
+
+// Purging is the most destructive thing the program does, and the command
+// makes typing --purge the confirmation. The window asks for the folder's
+// name for the same reason: a y/N everyone learns to answer "y" to is not a
+// safety feature.
+func TestPurgeNeedsTheNameTypedBack(t *testing.T) {
+	b := twoSets()
+	m := sized(b, 120, 40)
+
+	press(m, "X")
+	if m.overlay != overlayForm {
+		t.Fatalf("X should ask for confirmation, got overlay %v", m.overlay)
+	}
+	typeIn(m, "Documnets") // a typo
+	apply(t, m, enter(m))
+	if len(b.purged) != 0 {
+		t.Fatalf("a mistyped name purged %v", b.purged)
+	}
+	if m.overlay != overlayForm {
+		t.Fatal("the form should still be open after a mistyped name")
+	}
+
+	for range "Documnets" {
+		m.Update(tea.KeyMsg{Type: tea.KeyBackspace})
+	}
+	typeIn(m, "Documents")
+	apply(t, m, enter(m))
+
+	if len(b.purged) != 1 || b.purged[0] != "Documents" {
+		t.Fatalf("purged = %v, want [Documents]", b.purged)
+	}
+}
+
+// x is still the one that keeps what is in the bucket. The two must not be
+// the same key with a different question.
+func TestXRemovesWithoutPurging(t *testing.T) {
+	b := twoSets()
+	m := sized(b, 120, 40)
+
+	press(m, "x")
+	apply(t, m, press(m, "y"))
+
+	if len(b.removed) != 1 || b.removed[0] != "Documents" {
+		t.Fatalf("removed = %v, want [Documents]", b.removed)
+	}
+	if len(b.purged) != 0 {
+		t.Errorf("x purged %v, and it must not", b.purged)
+	}
+}
+
+func TestPRepairsTheSchedule(t *testing.T) {
+	b := twoSets()
+	b.hasSchedule = true
+	m := sized(b, 120, 40)
+
+	press(m, "2")
+	apply(t, m, press(m, "p"))
+
+	if b.repaired != 1 {
+		t.Fatalf("repaired %d times, want once", b.repaired)
+	}
+	if !strings.Contains(m.notice, "Re-pointed") {
+		t.Errorf("notice = %q, want it to say what happened", m.notice)
+	}
+}
+
+// A machine with no schedule must be left with no schedule: repairing must
+// never quietly start backing things up on a timer nobody asked for.
+func TestRepairingNothingSaysSoAndSchedulesNothing(t *testing.T) {
+	b := twoSets()
+	b.hasSchedule = false
+	m := sized(b, 120, 40)
+
+	press(m, "2")
+	apply(t, m, press(m, "p"))
+
+	if len(b.sched) != 0 {
+		t.Fatalf("repair registered a schedule: %v", b.sched)
+	}
+	if !strings.Contains(m.notice, "nothing to repair") {
+		t.Errorf("notice = %q, want it to say there was nothing to repair", m.notice)
 	}
 }

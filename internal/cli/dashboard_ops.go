@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"time"
 
@@ -182,6 +183,66 @@ func (d *dashboard) Restore(ctx context.Context, req ui.RestoreRequest, phase fu
 		Files: rep.Downloaded, Bytes: rep.Bytes, Target: rep.Target,
 		Skipped: rep.SkippedExisting, Failed: len(rep.Failures),
 	}, nil
+}
+
+// Objects is `r2b ls <set>`: what is stored, and how big each one is.
+//
+// Read from the local index, which is the record of what was uploaded, so
+// opening this list costs nothing. Largest first, because the question people
+// actually bring to it is which files are worth the bill.
+func (d *dashboard) Objects(ctx context.Context, name string) ([]ui.ObjectRow, error) {
+	recs, err := d.app.index.All(name)
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]ui.ObjectRow, 0, len(recs))
+	for _, r := range recs {
+		rows = append(rows, ui.ObjectRow{Key: r.Key, Size: r.Size})
+	}
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].Size != rows[j].Size {
+			return rows[i].Size > rows[j].Size
+		}
+		return rows[i].Key < rows[j].Key
+	})
+	return rows, nil
+}
+
+// RemoteSets lists every backup in the bucket, this computer's and everyone
+// else's.
+//
+// It is what makes `restore --machine` reachable without a command. A machine
+// that has just signed in has working credentials and an empty sets.json, so
+// the Folders tab is empty and there is nothing on screen naming the data that
+// is sitting in the bucket -- which is the whole reason someone signs in on a
+// second computer. This asks the bucket.
+func (d *dashboard) RemoteSets(ctx context.Context) ([]ui.RemoteSet, error) {
+	a, err := d.connected(ctx)
+	if err != nil {
+		return nil, err
+	}
+	found, err := discoverBackups(ctx, a)
+	if err != nil {
+		return nil, err
+	}
+	me := machineName()
+	out := make([]ui.RemoteSet, 0, len(found))
+	for _, f := range found {
+		here := false
+		if f.Machine == me {
+			if _, err := a.sets.Get(f.Name); err == nil {
+				here = true
+			}
+		}
+		out = append(out, ui.RemoteSet{Name: f.Name, Machine: f.Machine, Here: here})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Machine != out[j].Machine {
+			return out[i].Machine < out[j].Machine
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out, nil
 }
 
 // --- account ---

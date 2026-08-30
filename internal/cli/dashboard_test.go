@@ -244,3 +244,122 @@ func TestAMovedFolderIsParkedByTheInterfaceToo(t *testing.T) {
 		t.Error("nothing says what is wrong with it")
 	}
 }
+
+// TestTheInterfaceReachesTheRestOfTheCommandLine covers the four things the
+// window could not do, against a real object store.
+//
+// `r2b ls`, `r2b restore --machine`, `r2b remove --purge` and `r2b schedule
+// --repair` all existed with no key to press, and the interface's own answer
+// to purge was an error telling the user to go and type the command -- which
+// is the one thing it exists to stop doing.
+func TestTheInterfaceReachesTheRestOfTheCommandLine(t *testing.T) {
+	client, c := bucketWithABackupInIt(t)
+	t.Setenv("R2BACKUP_DATA_DIR", t.TempDir())
+	t.Setenv("R2BACKUP_MACHINE", "testpc")
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	setup, err := openApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := setup.creds.Save(c); err != nil {
+		t.Fatal(err)
+	}
+	if err := setup.sets.Add(sets.Set{
+		Name: "Notes", Root: root, Machine: "testpc",
+		Prefix: "machines/testpc/Notes", RetentionDays: 30,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	setup.close()
+
+	d, err := openDashboard(&Options{Out: os.Stderr, Err: os.Stderr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.close()
+	ctx := context.Background()
+
+	if err := d.Backup(ctx, "Notes", func(string) {}, func(progress.Snapshot) {}); err != nil {
+		t.Fatalf("Backup: %v", err)
+	}
+
+	// `r2b ls Notes`
+	objects, err := d.Objects(ctx, "Notes")
+	if err != nil {
+		t.Fatalf("Objects: %v", err)
+	}
+	if len(objects) != 1 || objects[0].Key != "a.txt" {
+		t.Fatalf("Objects returned %+v, want the one file that was uploaded", objects)
+	}
+	if objects[0].Size != 5 {
+		t.Errorf("size = %d, want 5", objects[0].Size)
+	}
+
+	// `r2b restore --machine`: the bucket, not sets.json, is what names
+	// another computer's backup. Nothing local knows "desktop" exists.
+	remotes, err := d.RemoteSets(ctx)
+	if err != nil {
+		t.Fatalf("RemoteSets: %v", err)
+	}
+	var fromDesktop, mine *ui.RemoteSet
+	for i := range remotes {
+		switch remotes[i].Machine {
+		case "desktop":
+			fromDesktop = &remotes[i]
+		case "testpc":
+			mine = &remotes[i]
+		}
+	}
+	if fromDesktop == nil || fromDesktop.Name != "Documents" {
+		t.Fatalf("RemoteSets returned %+v, want desktop's Documents among them", remotes)
+	}
+	if fromDesktop.Here {
+		t.Error("desktop's Documents is not on this computer and must not say it is")
+	}
+	if mine == nil || !mine.Here {
+		t.Errorf("this computer's own Notes should be marked as being here: %+v", remotes)
+	}
+
+	// `r2b remove Notes --purge`
+	if err := d.Remove(ctx, "Notes", true); err != nil {
+		t.Fatalf("Remove --purge: %v", err)
+	}
+	left, err := client.List(ctx, "machines/testpc/Notes")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(left) != 0 {
+		t.Errorf("purge left %d object(s) in the bucket: %+v", len(left), left)
+	}
+	// Another computer's backup is not this computer's to delete.
+	others, err := client.List(ctx, "machines/desktop/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(others) == 0 {
+		t.Error("purging Notes deleted another computer's backup")
+	}
+	views, _, err := d.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(views) != 0 {
+		t.Errorf("the set is still listed after being purged: %+v", views)
+	}
+
+	// The version has to reach the header. It is declared on Overview and
+	// was never assigned, so the window never showed which build it was --
+	// including in the screenshot in the README.
+	_, ov, err := d.Load(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ov.Version != Version {
+		t.Errorf("overview version = %q, want %q", ov.Version, Version)
+	}
+}

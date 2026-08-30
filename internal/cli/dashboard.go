@@ -129,7 +129,7 @@ func (d *dashboard) Load(ctx context.Context) ([]ui.SetView, ui.Overview, error)
 		views = append(views, v)
 	}
 
-	ov := ui.Overview{Machine: machineName(), OpsLimit: index.FreeTierOpsPerMonth}
+	ov := ui.Overview{Machine: machineName(), Version: Version, OpsLimit: index.FreeTierOpsPerMonth}
 	// Read from the stored credentials rather than by connecting: Load runs
 	// once a second, and this must stay free.
 	if c, err := a.creds.Load(); err == nil {
@@ -280,22 +280,46 @@ func (d *dashboard) Trash(ctx context.Context, name string) ([]ui.TrashRow, erro
 	return rows, nil
 }
 
+// Remove stops backing up a folder, and with purge deletes what is stored.
+//
+// It used to refuse purge outright and tell the user to go and type
+// `r2b remove <set> --purge`, which is the one thing this interface exists to
+// stop doing. The refusal was standing in for a safeguard, so the safeguard is
+// now real: the interface makes the user type the folder's name back before it
+// will run this, which is a stronger confirmation than a flag anyone can
+// tab-complete.
+//
+// The order is `r2b remove`'s order, for `r2b remove`'s reasons: the objects
+// go first and the set is forgotten only if that worked, because the other way
+// round loses the only handle on them the moment the delete fails partway.
 func (d *dashboard) Remove(ctx context.Context, name string, purge bool) error {
 	a := d.app
+	s, err := a.sets.Get(name)
+	if err != nil {
+		return err
+	}
 	if purge {
-		return errors.New("purging from the interface is deliberately not offered; use: r2b remove " + name + " --purge")
+		conn, err := d.connected(ctx)
+		if err != nil {
+			return err
+		}
+		// KeyScope, never Prefix: a bare prefix also matches a set whose
+		// name merely starts with this one's.
+		if _, err := conn.client.DeletePrefix(ctx, s.KeyScope()); err != nil {
+			return fmt.Errorf("%q was not removed: %w", s.Name, err)
+		}
 	}
 	// The index goes first, and this order is load-bearing. The other way
 	// round, a partial failure leaves index records behind for a later set of
 	// the same name to inherit -- which would then skip every file it thought
 	// it had already uploaded.
-	if err := a.index.DropSet(name); err != nil {
+	if err := a.index.DropSet(s.Name); err != nil {
 		return err
 	}
-	if err := a.index.ForgetDailyPrune(name); err != nil {
+	if err := a.index.ForgetDailyPrune(s.Name); err != nil {
 		return err
 	}
-	return a.sets.Remove(name)
+	return a.sets.Remove(s.Name)
 }
 
 func (d *dashboard) Schedule(ctx context.Context, every int, off bool) error {
@@ -316,4 +340,31 @@ func (d *dashboard) Schedule(ctx context.Context, every int, off bool) error {
 		BinaryPath: binary,
 		Args:       scheduledRunArgs(runtime.GOOS),
 	})
+}
+
+// RepairSchedule is `r2b schedule --repair`.
+//
+// The OS scheduler stores an absolute path, so moving or renaming the binary
+// leaves the task aimed at a file that is not there any more -- and a backup
+// that silently stops running is the worst way for this to fail. The
+// installers call the command after replacing the files; this is the same
+// thing for someone who moved the binary themselves and has no idea a
+// command exists for it.
+//
+// A machine with no schedule is left with no schedule. Repairing must never
+// quietly start backing things up on a timer nobody asked for, which is why
+// this reports what it found rather than falling through to Install.
+func (d *dashboard) RepairSchedule(ctx context.Context) (bool, error) {
+	if !schedule.Supported() {
+		return false, errors.New("no scheduler is available on this platform")
+	}
+	st, err := schedule.Current(scheduleName)
+	if err != nil || !st.Registered {
+		return false, nil
+	}
+	every := int(st.Interval.Round(time.Minute) / time.Minute)
+	if every < 1 {
+		every = schedule.DefaultIntervalMinutes
+	}
+	return true, d.Schedule(ctx, every, false)
 }

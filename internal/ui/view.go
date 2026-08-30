@@ -49,6 +49,47 @@ func (m *Model) layout() {
 	if m.overlay == overlayNone && m.tab == tabTrash {
 		m.buildTrashTable()
 	}
+	// Same reason as the trash table: bubbles/table leaves its columns alone
+	// when the frame changes, so a resize has to rebuild them or the header
+	// wraps and takes the rule under it with it.
+	if m.overlay == overlayObjects {
+		m.buildObjectTable()
+	}
+	if m.overlay == overlayRemote {
+		m.buildRemoteTable()
+	}
+}
+
+// styledTable builds a table in the interface's own colours, keeping the
+// cursor where it was.
+//
+// Every table here is rebuilt rather than resized -- see buildTrashTable --
+// and rebuilding one is also what layout() does when the user opens help and
+// closes it again. Carrying the cursor across is the difference between that
+// and being thrown back to the first row every time.
+func styledTable(cols []table.Column, rows []table.Row, height, cursor int) table.Model {
+	st := table.DefaultStyles()
+	st.Header = st.Header.BorderStyle(lipgloss.NormalBorder()).
+		BorderForeground(subtle).BorderBottom(true).Bold(true)
+	st.Selected = st.Selected.Foreground(lipgloss.Color("0")).Background(accent)
+	t := table.New(
+		table.WithColumns(cols), table.WithRows(rows),
+		table.WithFocused(true), table.WithHeight(height), table.WithStyles(st),
+	)
+	if cursor > 0 && cursor < len(rows) {
+		t.SetCursor(cursor)
+	}
+	return t
+}
+
+// tableHeight is the room a full-width table has inside the panel, after its
+// own title and hint lines.
+func (m *Model) tableHeight() int {
+	h := m.height - m.chromeHeight() - 3
+	if h < 3 {
+		h = 3
+	}
+	return h
 }
 
 func min(a, b int) int {
@@ -211,6 +252,10 @@ func (m *Model) bodyView() string {
 		return m.browseView()
 	case overlayPicker:
 		return m.pickerView()
+	case overlayObjects:
+		return m.objectsView()
+	case overlayRemote:
+		return m.remoteView()
 	}
 	switch m.tab {
 	case tabFolders:
@@ -233,8 +278,12 @@ func (m *Model) foldersView() string {
 			dimStyle.Render("  Go to ") + titleStyle.Render("4 Account") + dimStyle.Render(" and either sign in, or enter your R2 keys.") + "\n"
 	}
 	if len(m.sets) == 0 {
+		// c is offered here and not only in the footer. An empty list on a
+		// computer that has just signed in is exactly the moment someone
+		// needs to be told their data is in the bucket and reachable.
 		return "\n" + titleStyle.Render("  Nothing is being backed up yet.") + "\n\n" +
-			dimStyle.Render("  Press ") + titleStyle.Render("a") + dimStyle.Render(" to choose a folder.") + "\n"
+			dimStyle.Render("  Press ") + titleStyle.Render("a") + dimStyle.Render(" to choose a folder, or ") +
+			titleStyle.Render("c") + dimStyle.Render(" to see what is already in your bucket.") + "\n"
 	}
 	var head string
 	// A run started elsewhere -- by the scheduler, or another window -- is
@@ -294,7 +343,7 @@ func (m *Model) showDetail(v SetView) {
 			b.WriteString("  " + dimStyle.Render(e) + "\n")
 		}
 	}
-	b.WriteString("\n" + dimStyle.Render("b back up · e change what is included · r restore · n rename · m moved · esc back"))
+	b.WriteString("\n" + dimStyle.Render("b back up · e change what is included · r restore · f what is stored\nn rename · m moved · x stop backing up · X stop and delete · esc back"))
 
 	m.detailBody = b.String()
 	m.detail.SetContent(m.detailBody)
@@ -341,6 +390,7 @@ func (m *Model) scheduleView() string {
 		b.WriteString(dimStyle.Render("on"))
 	}
 	b.WriteString(dimStyle.Render("    ") + titleStyle.Render("e") + dimStyle.Render(" change how often"))
+	b.WriteString(dimStyle.Render("    ") + titleStyle.Render("p") + dimStyle.Render(" re-point it at this copy of r2b"))
 	return b.String()
 }
 
@@ -417,6 +467,92 @@ func (m *Model) trashView() string {
 	}
 	return head + m.trash.View() + "\n" +
 		dimStyle.Render("enter recovers the highlighted file")
+}
+
+// --- What is stored (`r2b ls`) ---
+
+// buildObjectTable sizes the two columns to the window. The arithmetic is
+// exact, like the trash table's, because being two columns over wraps the
+// header rather than clipping it.
+func (m *Model) buildObjectTable() {
+	const sizeW = 12
+	const padding = 2 * 2
+	inner := m.width - 4
+	fileW := inner - sizeW - padding
+	if fileW < 12 {
+		fileW = 12
+	}
+	rows := make([]table.Row, 0, len(m.objectRows))
+	for _, r := range m.objectRows {
+		rows = append(rows, table.Row{truncate(r.Key, fileW), progress.FormatBytes(r.Size)})
+	}
+	m.objects = styledTable(
+		[]table.Column{{Title: "File", Width: fileW}, {Title: "Size", Width: sizeW}},
+		rows, m.tableHeight(), m.objects.Cursor())
+}
+
+func (m *Model) objectsView() string {
+	head := titleStyle.Render("Stored · "+m.objectSet) + "\n"
+	if len(m.objectRows) == 0 {
+		return head + "\n" + dimStyle.Render("  Nothing is stored for this folder yet. Press b on it to back it up.") + "\n"
+	}
+	var total int64
+	for _, r := range m.objectRows {
+		total += r.Size
+	}
+	return head + m.objects.View() + "\n" +
+		dimStyle.Render(fmt.Sprintf("%s · %s · largest first · esc back",
+			countOf(int64(len(m.objectRows)), "object", "objects"), progress.FormatBytes(total)))
+}
+
+// countOf renders a count with its noun, singular or plural, grouped the same
+// way every other number in the program is.
+func countOf(n int64, one, many string) string {
+	noun := many
+	if n == 1 {
+		noun = one
+	}
+	return progress.FormatCount(n) + " " + noun
+}
+
+// --- Another computer's backups (`restore --machine`) ---
+
+func (m *Model) buildRemoteTable() {
+	const whereW = 22
+	const padding = 2 * 3
+	inner := m.width - 4
+	nameW := (inner - whereW - padding) / 2
+	if nameW < 10 {
+		nameW = 10
+	}
+	machineW := inner - nameW - whereW - padding
+	if machineW < 8 {
+		machineW = 8
+	}
+	rows := make([]table.Row, 0, len(m.remoteRows))
+	for _, r := range m.remoteRows {
+		where := "in the bucket only"
+		if r.Here {
+			where = "on this computer"
+		}
+		rows = append(rows, table.Row{truncate(r.Name, nameW), truncate(r.Machine, machineW), where})
+	}
+	m.remotes = styledTable(
+		[]table.Column{
+			{Title: "Folder", Width: nameW},
+			{Title: "Backed up from", Width: machineW},
+			{Title: "", Width: whereW},
+		},
+		rows, m.tableHeight(), m.remotes.Cursor())
+}
+
+func (m *Model) remoteView() string {
+	head := titleStyle.Render("Everything in the bucket") + "\n"
+	if len(m.remoteRows) == 0 {
+		return head + "\n" + dimStyle.Render("  Nothing is backed up in this bucket yet.") + "\n"
+	}
+	return head + m.remotes.View() + "\n" +
+		dimStyle.Render("enter restores the highlighted one · esc back")
 }
 
 // --- Account ---
