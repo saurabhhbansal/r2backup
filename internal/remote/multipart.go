@@ -126,10 +126,12 @@ func (c *Client) putResumable(ctx context.Context, key string, src io.Reader, si
 		}
 	}
 
-	have := make(map[int32]PartRecord, len(upload.Parts))
-	for _, p := range upload.Parts {
-		have[p.Number] = p
+	total := int32((size + partSize - 1) / partSize)
+	if total < 1 {
+		total = 1
 	}
+
+	have := adoptable(upload.Parts, total, partSize, size)
 	// Bytes the server already holds are reported once, up front. Without
 	// this a resumed upload draws a progress bar that starts at zero and
 	// finishes early, and the run's total -- which counts every byte of
@@ -138,10 +140,6 @@ func (c *Client) putResumable(ctx context.Context, key string, src io.Reader, si
 		onBytes(done)
 	}
 
-	total := int32((size + partSize - 1) / partSize)
-	if total == 0 {
-		total = 1 // a zero-byte file is still one (empty) part
-	}
 	var todo []int32
 	for n := int32(1); n <= total; n++ {
 		if _, ok := have[n]; !ok {
@@ -461,6 +459,42 @@ func sortedParts(have map[int32]PartRecord) []PartRecord {
 func isNoSuchUpload(err error) bool {
 	var api smithy.APIError
 	return errors.As(err, &api) && api.ErrorCode() == "NoSuchUpload"
+}
+
+// adoptable picks out the parts on the server that can be kept, dropping any
+// that are the wrong size for their position or outside the file.
+//
+// A short part is not merely useless, it is poison: S3 refuses to complete an
+// upload whose non-final parts are under its 5MiB floor, so keeping one would
+// make every future attempt fail at the last step with the same complaint --
+// an upload that can never finish, and that no amount of resuming would fix.
+// The way to end up with one is exactly the way this file exists to survive:
+// a send cut off partway that the server nonetheless kept. Re-uploading it
+// costs one part. Keeping it costs the file.
+func adoptable(parts []PartRecord, total int32, partSize, size int64) map[int32]PartRecord {
+	have := make(map[int32]PartRecord, len(parts))
+	for _, p := range parts {
+		if p.Number < 1 || p.Number > total {
+			continue
+		}
+		if p.Size != expectedPartSize(p.Number, total, partSize, size) {
+			continue
+		}
+		have[p.Number] = p
+	}
+	return have
+}
+
+// expectedPartSize is how many bytes part n should hold: a full part, except
+// the last, which holds the remainder.
+func expectedPartSize(n, total int32, partSize, size int64) int64 {
+	if n < total {
+		return partSize
+	}
+	if rem := size - int64(total-1)*partSize; rem > 0 {
+		return rem
+	}
+	return size
 }
 
 func min64(a, b int64) int64 {
