@@ -84,7 +84,7 @@ var keys = keyMap{
 func tabKeys(t tab) []key.Binding {
 	switch t {
 	case tabFolders:
-		return []key.Binding{keys.Add, keys.Backup, keys.Restore, keys.Edit, keys.Remove}
+		return []key.Binding{keys.Add, keys.Backup, keys.Restore, keys.Edit, keys.Files, keys.Remote, keys.Remove}
 	case tabSchedule:
 		return []key.Binding{keys.Toggle, keys.Every, keys.Repair}
 	case tabTrash:

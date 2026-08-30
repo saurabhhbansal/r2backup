@@ -7,6 +7,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 )
 
 // type returns each character of s as its own key message, the way a person
@@ -661,5 +662,40 @@ func TestRepairingNothingSaysSoAndSchedulesNothing(t *testing.T) {
 	}
 	if !strings.Contains(m.notice, "nothing to repair") {
 		t.Errorf("notice = %q, want it to say there was nothing to repair", m.notice)
+	}
+}
+
+// The footer help is trimmed to the room there is, and the way out survives
+// every width. It used to be cut at two fixed widths, so every key added to
+// a mode made the line longer without moving where it was cut -- and
+// bubbles/help cuts the tail, which is where "q quit" lives.
+func TestTheFooterHelpAlwaysKeepsTheWayOut(t *testing.T) {
+	for _, w := range []int{60, 76, 80, 100, 110, 150, 200} {
+		m := sized(twoSets(), w, 40)
+		for tb := tab(0); tb < numTabs; tb++ {
+			m.tab = tb
+			line := m.help.ShortHelpView(m.shortHelp())
+			if !strings.Contains(line, "quit") {
+				t.Errorf("%d cols, %v: no way out in %q", w, tb, line)
+			}
+			if !strings.Contains(line, "next mode") {
+				t.Errorf("%d cols, %v: no way to another mode in %q", w, tb, line)
+			}
+			if got := lipgloss.Width(line); got > w {
+				t.Errorf("%d cols, %v: help is %d wide", w, tb, got)
+			}
+		}
+	}
+}
+
+// A wide terminal should be given the mode's whole keyboard, not a list
+// truncated for a terminal nobody is using.
+func TestAWideTerminalGetsEveryKeyForTheMode(t *testing.T) {
+	m := sized(twoSets(), 200, 40)
+	line := m.help.ShortHelpView(m.shortHelp())
+	for _, want := range []string{"add a folder", "what is stored", "another computer", "stop backing up"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("200 cols should offer %q:\n%s", want, line)
+		}
 	}
 }

@@ -198,21 +198,42 @@ func (m *Model) footer() string {
 //
 // bubbles/help cuts the tail, and on an 80-column terminal the full line was
 // a few columns too long -- which took "q quit" off the screen and left a
-// full-screen program with no visible way out. Narrow windows lose the
-// middle instead.
+// full-screen program with no visible way out. So the trimming happens here
+// and it takes from the middle: the way out and the way to the next mode are
+// the two that must survive any width.
+//
+// It measures rather than guesses. The list used to be cut at two fixed
+// widths, which meant every key added to a mode made the line longer without
+// changing where it was cut -- and the mode with the most to offer was the
+// one whose help fell off the end first.
 func (m *Model) shortHelp() []key.Binding {
 	if m.overlay != overlayNone {
 		return []key.Binding{keys.Back, keys.Quit}
 	}
 	base := append([]key.Binding{keys.NextTab}, tabKeys(m.tab)...)
 	base = append(base, keys.Help, keys.Quit)
-	if m.width < 76 {
+	// Two from the front, two from the back: tab and the mode's first key,
+	// then ? and q. Below that there is nothing left to drop.
+	for len(base) > 4 && helpWidth(base) > m.width {
+		cut := len(base) / 2
+		base = append(base[:cut:cut], base[cut+1:]...)
+	}
+	if helpWidth(base) > m.width {
 		return []key.Binding{keys.NextTab, keys.Help, keys.Quit}
 	}
-	if m.width < 110 && len(base) > 4 {
-		return append(base[:2:2], base[len(base)-2:]...)
-	}
 	return base
+}
+
+// measure renders the help line at its natural width.
+//
+// m.help cannot be asked: layout() gives it the terminal's width, and
+// bubbles/help truncates to that before returning -- so measuring through it
+// reports the width it was clipped to and the line is never found to be too
+// long. A help.Model with no width set does not truncate.
+var measure = help.New()
+
+func helpWidth(b []key.Binding) int {
+	return lipgloss.Width(measure.ShortHelpView(b))
 }
 
 func (m *Model) fit(s string) string {

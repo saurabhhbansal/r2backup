@@ -57,7 +57,8 @@ run every 30 minutes from then on.
 
 Run `r2b` on its own and everything is there — signing in, adding a folder,
 restoring, scheduling. There is nothing you have to drop back to the command
-line for.
+line for, and that is a test rather than a claim: every command and every flag
+has a key, and the build fails if one is added without.
 
 Four modes, on <kbd>1</kbd>–<kbd>4</kbd> or <kbd>tab</kbd>:
 
@@ -73,8 +74,10 @@ Four modes, on <kbd>1</kbd>–<kbd>4</kbd> or <kbd>tab</kbd>:
 | <kbd>a</kbd> | add a folder — browse to it, then tick what goes in |
 | <kbd>b</kbd> <kbd>B</kbd> | back up this folder · back up all of them |
 | <kbd>e</kbd> <kbd>r</kbd> | change what is included · restore |
+| <kbd>f</kbd> <kbd>c</kbd> | what is stored, with sizes · every backup in the bucket |
 | <kbd>n</kbd> <kbd>m</kbd> | rename · point at a folder that moved |
-| <kbd>x</kbd> <kbd>?</kbd> | stop backing a folder up · every key |
+| <kbd>x</kbd> <kbd>X</kbd> | stop backing a folder up · stop and delete the stored copy |
+| <kbd>?</kbd> | every key |
 
 Every command also still works on its own, unchanged — which is what the
 scheduler and your scripts use.
@@ -85,11 +88,11 @@ scheduler and your scripts use.
 | `r2b add <folder>` | Choose what to include, then back it up |
 | `r2b edit <set>` | Change what a folder includes |
 | `r2b backup [set]` | Back up now — all folders, or one |
-| `r2b restore <set>` | Bring a folder back. `--to`, `--only`, `--verify`, `--deleted` |
+| `r2b restore <set>` | Bring a folder back. `--to`, `--only`, `--verify`, `--deleted`, `--machine` |
 | `r2b status` | What ran, when, and what is next. `--watch` follows a run |
 | `r2b ls [set]` | What is stored |
 | `r2b trash ls [set]` | What is recoverable, and until when |
-| `r2b schedule` | Automatic runs. `--every`, `--remove` |
+| `r2b schedule` | Automatic runs. `--every`, `--remove`, `--repair` |
 | `r2b rename` · `r2b relink` | Rename a set · point one at a folder that moved |
 | `r2b remove <set>` | Stop backing a folder up. `--purge` deletes the copy too |
 | `r2b account` | The computers signed in. `devices`, `logout` |
