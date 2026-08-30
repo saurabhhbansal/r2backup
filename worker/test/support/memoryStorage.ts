@@ -65,14 +65,14 @@ export class MemoryStorage implements Storage {
 }
 
 export class FakeMailer {
-  sent: Array<{ email: string; code: string }> = [];
+  sent: Array<{ email: string; code: string; expiresInMinutes: number }> = [];
   failNext = false;
 
-  async sendCode(email: string, code: string): Promise<void> {
+  async sendCode(email: string, code: string, expiresInMinutes: number): Promise<void> {
     if (this.failNext) {
       this.failNext = false;
       throw new Error("simulated send failure");
     }
-    this.sent.push({ email, code });
+    this.sent.push({ email, code, expiresInMinutes });
   }
 }

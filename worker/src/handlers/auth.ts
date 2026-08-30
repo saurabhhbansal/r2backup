@@ -50,7 +50,7 @@ export async function handleRequestCode(request: Request, ctx: AppContext, clien
   await ctx.storage.putOtp(email, codeHash, now + OTP_TTL_SECONDS);
 
   try {
-    await ctx.mailer.sendCode(email, code);
+    await ctx.mailer.sendCode(email, code, OTP_TTL_SECONDS / 60);
   } catch {
     // Swallowed on purpose: surfacing "the email failed to send" here would
     // itself be a side channel (a domain with no MX record behaves

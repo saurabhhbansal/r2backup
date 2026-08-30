@@ -1,3 +1,5 @@
+import { renderCodeEmail } from "./emailTemplate";
+
 // Normalised before it's ever used as a lookup key: "Alice@Foo.com " and
 // "alice@foo.com" must be the same account, or a user retyping their email
 // slightly differently on a second computer silently lands on a fresh,
@@ -13,13 +15,20 @@ export function isValidEmail(email: string): boolean {
 }
 
 export interface Mailer {
-  sendCode(email: string, code: string): Promise<void>;
+  // expiresInMinutes travels with the code so the email cannot say one
+  // lifetime while the handler enforces another.
+  sendCode(email: string, code: string, expiresInMinutes: number): Promise<void>;
 }
 
 export class ResendMailer implements Mailer {
   constructor(private readonly apiKey: string) {}
 
-  async sendCode(email: string, code: string): Promise<void> {
+  async sendCode(email: string, code: string, expiresInMinutes: number): Promise<void> {
+    const mail = renderCodeEmail(code, expiresInMinutes);
+    // Both parts, every time. The HTML is what most people see; the text
+    // part is what terminal clients, notification previews and screen
+    // readers take, and a message sent without it is one those readers get
+    // as an attachment or as nothing.
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -29,8 +38,9 @@ export class ResendMailer implements Mailer {
       body: JSON.stringify({
         from: "r2backup <no-reply@flexpod.cc>",
         to: [email],
-        subject: "Your r2backup sign-in code",
-        text: `Your code is ${code}. It expires in 10 minutes. If you didn't request this, ignore this email.`,
+        subject: mail.subject,
+        html: mail.html,
+        text: mail.text,
       }),
     });
     if (!res.ok) {

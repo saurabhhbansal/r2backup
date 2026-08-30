@@ -52,6 +52,16 @@ describe("POST /auth/request — enumeration resistance", () => {
     expect(await storage.getOtp("brand-new@example.com")).not.toBeNull();
   });
 
+  // The email states a lifetime and the handler enforces one. They are the
+  // same number because the handler hands it over, not because both files
+  // happen to say ten.
+  it("tells the mailer the lifetime it actually enforces", async () => {
+    await handleRequestCode(postJson("/auth/request", { email: "someone@example.com" }), ctx, "5.5.5.5");
+    const otp = await storage.getOtp("someone@example.com");
+    expect(otp).not.toBeNull();
+    expect(mailer.sent[0].expiresInMinutes).toBe((otp!.expires_at - clock.now) / 60);
+  });
+
   it("normalises the email before using it as a key", async () => {
     await handleRequestCode(postJson("/auth/request", { email: "  MiXed@Example.COM " }), ctx, "4.4.4.4");
     expect(await storage.getOtp("mixed@example.com")).not.toBeNull();
