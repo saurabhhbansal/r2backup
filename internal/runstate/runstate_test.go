@@ -183,3 +183,68 @@ func TestWriteIsAtomic(t *testing.T) {
 		t.Fatalf("expected only progress.json, found %v -- a temp file was left for a reader to trip over", names)
 	}
 }
+
+// A run that was stopped rather than finished is a state of its own, and it
+// used to read as "no run at all": every reader checked Stale and then threw
+// away what it had found. This is what lets the interface say an upload is
+// paused instead of showing nothing.
+func TestAnInterruptedRunIsToldApartFromNoRunAndFromALiveOne(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "progress.json")
+	now := time.Now()
+
+	if _, ok := ReadInterrupted(path, now); ok {
+		t.Error("a machine that has never run anything has no interrupted run")
+	}
+
+	// A live run: this process, updated a moment ago.
+	if err := WriteLive(path, Live{Set: "Photos", BytesDone: 5, BytesTotal: 10}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := ReadInterrupted(path, now); ok {
+		t.Error("a run that is happening now is not an interrupted one")
+	}
+
+	// The same file left behind by a process that is gone.
+	l, err := ReadLive(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	l.PID = 0x7FFFFFFE // a pid that cannot exist
+	if err := writeJSON(path, l); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := ReadInterrupted(path, time.Now().Add(time.Minute))
+	if !ok {
+		t.Fatal("a progress file whose process is gone is an interrupted run")
+	}
+	if got.Set != "Photos" || got.BytesDone != 5 {
+		t.Errorf("read back %+v, want Photos at 5 of 10", got)
+	}
+
+	// And once the run is finished properly, there is nothing to report.
+	if err := ClearLive(path); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := ReadInterrupted(path, time.Now()); ok {
+		t.Error("a run that finished and cleared up is not interrupted")
+	}
+}
+
+// Pids are reused. After a reboot the number in an old progress file can
+// belong to something else entirely, and asking only whether a process holds
+// it would report a run that died with the machine as still going.
+func TestAReusedPidDoesNotHideAnInterruptedRun(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "progress.json")
+	// This process is certainly alive, standing in for whatever inherited
+	// the pid -- and the file has not been touched for an hour.
+	if err := writeJSON(path, Live{
+		Set: "Photos", PID: os.Getpid(),
+		UpdatedAt: time.Now().Add(-time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := ReadInterrupted(path, time.Now()); !ok {
+		t.Error("an hour-old progress file is an interrupted run whatever its pid resolves to")
+	}
+}

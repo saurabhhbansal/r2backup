@@ -71,6 +71,23 @@ type Overview struct {
 	Running    string
 	RunPercent float64
 	RunETA     string
+
+	// Interrupted names a run that stopped without finishing -- the machine
+	// was shut down, the lid closed, the process killed. It is a different
+	// thing from a run that failed, which had the chance to say why, and
+	// from no run at all, which is what it used to look like.
+	Interrupted      string
+	InterruptedAt    time.Time
+	InterruptedDone  int64
+	InterruptedTotal int64
+
+	// PendingDone and PendingTotal are the large uploads the bucket is
+	// already holding part of, read from the local record rather than by
+	// asking the bucket. This is what makes an interrupted upload's progress
+	// visible after the program has been closed and reopened.
+	PendingDone  int64
+	PendingTotal int64
+	PendingFiles int
 }
 
 // AccountView is the Account tab's state.

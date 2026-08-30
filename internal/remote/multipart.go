@@ -150,18 +150,22 @@ func (c *Client) putResumable(ctx context.Context, key string, src io.Reader, si
 	}
 
 	if len(todo) > 0 {
-		accepted, err := c.uploadParts(ctx, upload, src, size, todo, onBytes)
-		// Whatever was accepted is saved even when the run as a whole
-		// failed. That is the entire point: the next attempt starts from
-		// here rather than from nothing.
-		for _, p := range accepted {
+		// Each accepted part is written down as it lands, not at the end.
+		// The upload id alone would be enough to recover -- ListParts asks
+		// the server what it has -- but that is a request, and it is only
+		// made when a resume is actually attempted. Keeping the record
+		// current is what lets the interface say how far an interrupted
+		// upload got without asking the bucket anything.
+		var mu sync.Mutex
+		onPart := func(p PartRecord) {
+			mu.Lock()
 			have[p.Number] = p
+			upload.Parts = sortedParts(have)
+			snapshot := upload
+			mu.Unlock()
+			_ = c.saveResume(snapshot)
 		}
-		upload.Parts = sortedParts(have)
-		if serr := c.saveResume(upload); serr != nil && err == nil {
-			err = serr
-		}
-		if err != nil {
+		if err := c.uploadParts(ctx, upload, src, size, todo, onBytes, onPart); err != nil {
 			return fmt.Errorf("remote: multipart put %q: %w", key, err)
 		}
 	}
@@ -212,11 +216,11 @@ func (c *Client) findResumable(ctx context.Context, key string, size, modTime, p
 	return prev, true
 }
 
-// uploadParts sends the missing parts, returning every one the server
-// accepted -- including when it later returns an error, so the caller can
-// write down the progress that was made before it failed.
+// uploadParts sends the missing parts, reporting each one the server accepts
+// through onPart as it lands -- including the ones that land before a
+// sibling fails, because those are the progress the next attempt starts from.
 func (c *Client) uploadParts(ctx context.Context, u Upload, src io.Reader, size int64,
-	todo []int32, onBytes func(int64)) ([]PartRecord, error) {
+	todo []int32, onBytes func(int64), onPart func(PartRecord)) error {
 
 	ra, hasReaderAt := src.(io.ReaderAt)
 	concurrency := uploadConcurrency
@@ -229,7 +233,6 @@ func (c *Client) uploadParts(ctx context.Context, u Upload, src io.Reader, size 
 
 	var (
 		mu       sync.Mutex
-		accepted []PartRecord
 		firstErr error
 		stopped  atomic.Bool
 	)
@@ -262,16 +265,16 @@ func (c *Client) uploadParts(ctx context.Context, u Upload, src io.Reader, size 
 				if err == nil {
 					rec, err = c.uploadPart(ctx, u.Key, u.UploadID, n, body, length, onBytes)
 				}
-				mu.Lock()
 				if err != nil {
+					mu.Lock()
 					if firstErr == nil {
 						firstErr = err
 					}
+					mu.Unlock()
 					stopped.Store(true)
-				} else {
-					accepted = append(accepted, rec)
+					continue
 				}
-				mu.Unlock()
+				onPart(rec)
 			}
 		}()
 	}
@@ -284,8 +287,9 @@ func (c *Client) uploadParts(ctx context.Context, u Upload, src io.Reader, size 
 	close(work)
 	wg.Wait()
 
-	sort.Slice(accepted, func(i, j int) bool { return accepted[i].Number < accepted[j].Number })
-	return accepted, firstErr
+	mu.Lock()
+	defer mu.Unlock()
+	return firstErr
 }
 
 // partReader returns a reader over one part's bytes.

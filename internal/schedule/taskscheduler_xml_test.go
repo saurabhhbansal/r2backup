@@ -263,3 +263,36 @@ func TestParseTaskLogonType(t *testing.T) {
 		}
 	}
 }
+
+// A backup interrupted by a shutdown has an upload sitting half-finished on
+// the server, and the answer to "when does that carry on?" should be "when
+// you next sign in" rather than "within half an hour". StartWhenAvailable
+// catches up a missed tick eventually; this makes it prompt.
+func TestTheTaskAlsoRunsAtLogon(t *testing.T) {
+	xml, err := windowsTaskXML(Entry{
+		Name: "r2backup", Interval: 30 * time.Minute,
+		BinaryPath: `C:\Program Files\r2backup\r2b.exe`, Args: []string{"backup"},
+	}, `PC\sam`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"<LogonTrigger>", "</LogonTrigger>"} {
+		if !strings.Contains(xml, want) {
+			t.Errorf("task XML is missing %q, so an interrupted upload waits for the next tick:\n%s", want, xml)
+		}
+	}
+	// The user it runs as has to be named on the trigger too, or Task
+	// Scheduler fires it for any logon on the machine.
+	if strings.Count(xml, `<UserId>PC\sam</UserId>`) < 2 {
+		t.Errorf("the logon trigger does not name the user:\n%s", xml)
+	}
+	// Signing in is the busiest the machine gets; starting a backup into the
+	// middle of it is the one a user notices.
+	if !strings.Contains(xml, "<Delay>PT1M</Delay>") {
+		t.Errorf("the logon trigger should wait a moment before running:\n%s", xml)
+	}
+	// And it must not be able to stack on a run already going.
+	if !strings.Contains(xml, "<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>") {
+		t.Errorf("a second trigger needs IgnoreNew or two runs can overlap:\n%s", xml)
+	}
+}

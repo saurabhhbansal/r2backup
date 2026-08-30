@@ -320,6 +320,9 @@ func (m *Model) foldersView() string {
 	case m.ov.Running != "":
 		head = m.spin.View() + " " + warnStyle.Render("running now: "+m.ov.Running) + " " +
 			dimStyle.Render(m.ov.RunETA) + "\n"
+	case m.ov.Interrupted != "":
+		head = warnStyle.Render("⏸ "+m.ov.Interrupted+" was interrupted") + " " +
+			dimStyle.Render(interruptedNote(m.ov)) + "\n"
 	}
 	return head + m.list.View()
 }
@@ -468,6 +471,28 @@ func (m *Model) trashView() string {
 	}
 	return head + m.trash.View() + "\n" +
 		dimStyle.Render("enter recovers the highlighted file")
+}
+
+// interruptedNote says how far a stopped run got and what happens next.
+//
+// "What happens next" is the part that matters. A backup that stopped when
+// the machine did is alarming on its own, and the true answer -- it carries
+// on by itself, from where it stopped -- is the whole reason the resumable
+// upload exists. Saying only "interrupted" would make a solved problem look
+// like an unsolved one.
+func interruptedNote(ov Overview) string {
+	var b strings.Builder
+	b.WriteString(humanAgo(time.Since(ov.InterruptedAt)))
+	if ov.InterruptedTotal > 0 {
+		fmt.Fprintf(&b, " · %s of %s",
+			progress.FormatBytes(ov.InterruptedDone), progress.FormatBytes(ov.InterruptedTotal))
+	}
+	if ov.PendingFiles > 0 {
+		fmt.Fprintf(&b, " · %s already sent of %d part-uploaded file(s)",
+			progress.FormatBytes(ov.PendingDone), ov.PendingFiles)
+	}
+	b.WriteString(" · resumes by itself")
+	return b.String()
 }
 
 // --- What is stored (`r2b ls`) ---

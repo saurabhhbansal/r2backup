@@ -770,3 +770,45 @@ func TestAFailedFirstBackupIsNotFollowedByTheOffer(t *testing.T) {
 		t.Error("the failure should be on screen")
 	}
 }
+
+// A backup stopped by a shutdown showed nothing at all: the progress file
+// was there, every reader saw the process was gone, and every reader threw
+// it away. The one thing a person wants when they open this after a crash is
+// to know their upload is not lost.
+func TestAnInterruptedRunIsShownAndSaysItResumesItself(t *testing.T) {
+	b := twoSets()
+	b.ov.Interrupted = "Photos"
+	b.ov.InterruptedAt = time.Now().Add(-40 * time.Minute)
+	b.ov.InterruptedDone, b.ov.InterruptedTotal = 3<<30, 4<<30
+	b.ov.PendingDone, b.ov.PendingTotal, b.ov.PendingFiles = 3<<30, 4<<30, 1
+	m := sized(b, 120, 40)
+
+	body := m.bodyView()
+	for _, want := range []string{"Photos", "interrupted", "40m ago", "resumes by itself"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the folder list should mention %q:\n%s", want, body)
+		}
+	}
+	// How far it got has to be there, or "resumes by itself" is a promise
+	// with nothing behind it.
+	if !strings.Contains(body, "GB") {
+		t.Errorf("the interrupted line does not say how far it got:\n%s", body)
+	}
+}
+
+// A run that is happening now must not be described as one that stopped.
+func TestALiveRunIsNotReportedAsInterrupted(t *testing.T) {
+	b := twoSets()
+	b.ov.Running = "Photos"
+	b.ov.RunETA = "2m remaining"
+	b.ov.Interrupted = "Photos"
+	m := sized(b, 120, 40)
+
+	body := m.bodyView()
+	if !strings.Contains(body, "running now") {
+		t.Errorf("a live run should be shown as live:\n%s", body)
+	}
+	if strings.Contains(body, "interrupted") {
+		t.Errorf("a live run must not also read as interrupted:\n%s", body)
+	}
+}

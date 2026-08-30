@@ -49,10 +49,21 @@ func launchdPlist(e Entry, stdoutPath, stderrPath string) (string, error) {
 	// cadence, "every N seconds", the same intent as Windows' Repetition
 	// and systemd's OnUnitActiveSec.
 	fmt.Fprintf(&b, "\t<key>StartInterval</key>\n\t<integer>%d</integer>\n", int64(e.Interval/time.Second))
-	// RunAtLoad=false: loading the agent (at login, or right after Install)
-	// must not itself trigger an immediate backup -- only the interval
-	// should, matching the other two platforms.
-	b.WriteString("\t<key>RunAtLoad</key>\n\t<false/>\n")
+	// RunAtLoad=true: run when the agent loads, which is at login.
+	//
+	// This was false, so that loading the agent would not itself trigger a
+	// backup. What that actually bought was a macOS machine forgetting: a
+	// StartInterval is counted from load, so a run due while the machine was
+	// off is simply lost, where Windows catches it up with
+	// StartWhenAvailable and systemd with Persistent=true. A backup
+	// interrupted by a shutdown then waited a full interval before carrying
+	// on, with a half-finished upload sitting on the server the whole time.
+	//
+	// The cost is honest and small: installing a schedule now runs one
+	// backup straight away, and so does every login. A run that finds
+	// nothing changed makes no requests at all, so what that costs is a
+	// local scan.
+	b.WriteString("\t<key>RunAtLoad</key>\n\t<true/>\n")
 	fmt.Fprintf(&b, "\t<key>StandardOutPath</key>\n\t<string>%s</string>\n", xmlEscapeText(stdoutPath))
 	fmt.Fprintf(&b, "\t<key>StandardErrorPath</key>\n\t<string>%s</string>\n", xmlEscapeText(stderrPath))
 	b.WriteString("</dict>\n</plist>\n")

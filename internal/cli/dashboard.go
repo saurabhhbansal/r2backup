@@ -147,7 +147,8 @@ func (d *dashboard) Load(ctx context.Context) ([]ui.SetView, ui.Overview, error)
 	// the same progress file `status --watch` reads, so the interface and the
 	// command agree about what is happening without either owning it.
 	if p, err := config.ProgressPath(); err == nil {
-		if live, err := runstate.ReadLive(p); err == nil && !live.Stale(time.Now()) {
+		now := time.Now()
+		if live, err := runstate.ReadLive(p); err == nil && !live.Stale(now) {
 			ov.Running = live.Set
 			if live.BytesTotal > 0 {
 				ov.RunPercent = float64(live.BytesDone) / float64(live.BytesTotal)
@@ -157,7 +158,21 @@ func (d *dashboard) Load(ctx context.Context) ([]ui.SetView, ui.Overview, error)
 			} else {
 				ov.RunETA = "estimating..."
 			}
+		} else if stopped, ok := runstate.ReadInterrupted(p, now); ok {
+			// The same file, left behind by a run that was not allowed to
+			// finish. Reported rather than ignored: a backup that stopped
+			// when the machine did is the thing the user most wants to know
+			// about when they open this, and it showed nothing at all.
+			ov.Interrupted = stopped.Set
+			ov.InterruptedAt = stopped.UpdatedAt
+			ov.InterruptedDone, ov.InterruptedTotal = stopped.BytesDone, stopped.BytesTotal
 		}
+	}
+	// What the bucket is already holding of uploads that were cut off. Read
+	// from the index, so it costs nothing and survives the program being
+	// closed and reopened -- which is the point.
+	if done, total, files, err := a.index.PendingBytes(); err == nil && files > 0 {
+		ov.PendingDone, ov.PendingTotal, ov.PendingFiles = done, total, files
 	}
 	return views, ov, nil
 }

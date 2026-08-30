@@ -177,6 +177,20 @@ func windowsTaskXMLAs(e Entry, userID, logonType string) (string, error) {
 	b.WriteString("        <StopAtDurationEnd>false</StopAtDurationEnd>\n")
 	b.WriteString("      </Repetition>\n")
 	b.WriteString("    </CalendarTrigger>\n")
+	// A second trigger, at logon. StartWhenAvailable above already catches
+	// up a tick the machine slept or was switched off through, but "catch
+	// up eventually" is not what a backup interrupted by a shutdown needs:
+	// the upload it was partway through is sitting on the server waiting to
+	// be finished, and the answer to "when does that carry on?" should be
+	// "when you next sign in", not "within half an hour". MultipleInstances
+	// is IgnoreNew, so this can never stack on a run already going.
+	b.WriteString("    <LogonTrigger>\n")
+	fmt.Fprintf(&b, "      <UserId>%s</UserId>\n", user)
+	b.WriteString("      <Enabled>true</Enabled>\n")
+	// A minute of grace: signing in is the busiest the machine gets, and a
+	// backup that starts into the middle of it is the one a user notices.
+	b.WriteString("      <Delay>PT1M</Delay>\n")
+	b.WriteString("    </LogonTrigger>\n")
 	b.WriteString("  </Triggers>\n")
 	b.WriteString("  <Principals>\n")
 	b.WriteString("    <Principal id=\"Author\">\n")

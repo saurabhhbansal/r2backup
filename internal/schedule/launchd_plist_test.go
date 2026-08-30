@@ -27,8 +27,9 @@ func TestLaunchdPlistContents(t *testing.T) {
 	}{
 		{"<key>StartInterval</key>", "without it launchd has no cadence to run on at all"},
 		{"<integer>1800</integer>", "30 minutes must render as 1800 seconds, the only unit StartInterval accepts"},
-		{"<false/>", "RunAtLoad must be false: loading the agent must not itself trigger an immediate backup"},
-		{"<key>RunAtLoad</key>", "without the RunAtLoad key launchd defaults to running at load, which we don't want"},
+		{"<key>RunAtLoad</key>\n\t<true/>", "RunAtLoad must be true: a StartInterval is counted from load, so without this " +
+			"a macOS machine forgets a run that fell due while it was off -- and an upload interrupted by a shutdown " +
+			"waits a whole interval before carrying on. Windows catches up with StartWhenAvailable, systemd with Persistent=true"},
 		{"<key>StandardOutPath</key>", "without it a failing scheduled run leaves no trace anywhere -- launchd gives an agent no console"},
 		{"<key>StandardErrorPath</key>", "same as StandardOutPath, for stderr"},
 	}

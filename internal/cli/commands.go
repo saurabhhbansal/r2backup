@@ -343,10 +343,26 @@ func printStatus(a *app, opts *Options) error {
 	hist, _ := runstate.ReadHistory(histPath)
 
 	progressPath, _ := config.ProgressPath()
-	if live, err := runstate.ReadLive(progressPath); err == nil && !live.Stale(time.Now()) {
+	now := time.Now()
+	if live, err := runstate.ReadLive(progressPath); err == nil && !live.Stale(now) {
 		fmt.Fprintf(opts.Out, "Running now: %s — %s of %s, %s\n\n", live.Set,
 			progress.FormatBytes(live.BytesDone), progress.FormatBytes(live.BytesTotal),
 			etaText(live))
+	} else if stopped, ok := runstate.ReadInterrupted(progressPath, now); ok {
+		// A run that was stopped rather than finished. It said nothing at
+		// all before: the file was there, every reader saw it was stale, and
+		// every reader threw it away.
+		fmt.Fprintf(opts.Out, "Interrupted: %s stopped %s — %s of %s\n",
+			stopped.Set, humanAgo(now.Sub(stopped.UpdatedAt)),
+			progress.FormatBytes(stopped.BytesDone), progress.FormatBytes(stopped.BytesTotal))
+		if done, total, files, err := a.index.PendingBytes(); err == nil && files > 0 {
+			fmt.Fprintf(opts.Out, "  %s of %s already uploaded across %s, and kept.\n",
+				progress.FormatBytes(done), progress.FormatBytes(total),
+				countOf(int64(files), "part-uploaded file", "part-uploaded files"))
+		}
+		fmt.Fprintln(opts.Out, "  It carries on from there by itself: at the next scheduled run,")
+		fmt.Fprintln(opts.Out, "  or when you next sign in.")
+		fmt.Fprintln(opts.Out)
 	}
 
 	for _, s := range list {

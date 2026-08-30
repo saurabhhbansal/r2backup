@@ -54,6 +54,48 @@ func (l *Live) Stale(now time.Time) bool {
 	return !processAlive(l.PID)
 }
 
+// ReadInterrupted returns the run that was going when this machine last
+// stopped, if there was one.
+//
+// A run publishes progress about once a second and deletes the file when it
+// finishes -- on success and on failure alike. So a file still sitting there
+// whose process is gone did not finish and was not allowed to say why: the
+// machine was shut down, the lid was closed, the process was killed. That is
+// a different thing from "no run", and it used to read as the same thing,
+// because every reader checked Stale and then ignored what it found.
+//
+// It is the whole basis of telling the user their upload is paused rather
+// than showing them nothing.
+func ReadInterrupted(path string, now time.Time) (*Live, bool) {
+	l, err := ReadLive(path)
+	if err != nil {
+		return nil, false
+	}
+	// Still running, and this is not what that means.
+	if !l.Stale(now) {
+		return nil, false
+	}
+	// A dead process is the clear case. The other is a file nothing has
+	// touched for far longer than a run ever goes quiet: a live run rewrites
+	// this every second, so minutes of silence means it is not coming back,
+	// whatever the pid says.
+	//
+	// Both are needed because pids are reused. After a reboot the number
+	// written here can easily belong to something else entirely, and asking
+	// only whether *a* process holds it would answer "still running" about a
+	// run that ended when the machine did.
+	if processAlive(l.PID) && now.Sub(l.UpdatedAt) < abandonedAfter {
+		return nil, false
+	}
+	return l, true
+}
+
+// abandonedAfter is how long a progress file may go untouched before it is
+// read as an interrupted run rather than a live one, regardless of what its
+// pid resolves to now. A run writes every second; this is two orders of
+// magnitude more patience than that.
+const abandonedAfter = 2 * time.Minute
+
 // Past is a finished run, kept so `status` can say what happened without
 // asking the network anything.
 type Past struct {
