@@ -539,6 +539,42 @@ func countOf(n int64, one, many string) string {
 	return progress.FormatCount(n) + " " + noun
 }
 
+// scheduleCurrent, scheduleInstall and scheduleRemove stand between this
+// package and schedule.Current / schedule.Install / schedule.Remove.
+// Production leaves them pointed at the real functions; tests in this
+// package repoint them so `schedule --repair` and the dashboard's Schedule /
+// RepairSchedule (dashboard.go) can be driven end to end -- including
+// against a scheduler that reports Registered with a zero Interval, the
+// crontab fallback repairMinutes exists for -- without registering or
+// removing anything on the machine actually running the test.
+var (
+	scheduleCurrent = schedule.Current
+	scheduleInstall = schedule.Install
+	scheduleRemove  = schedule.Remove
+)
+
+// repairMinutes decides how many minutes to (re)install a schedule for, given
+// what the scheduler currently reports about the entry being repaired. It is
+// shared by `schedule --repair` and the dashboard's repair button so the two
+// cannot drift back into computing this differently, which is how this bug
+// happened the first time.
+//
+// schedule.Current cannot always say how often an entry fires: the crontab
+// fallback (internal/schedule/schedule_linux.go) only recognizes its own
+// marker line and reports Registered with a zero Interval, and Windows can
+// land on a trigger shape Current does not parse. Feeding that zero straight
+// to schedule.Install fails validation with "Entry.Interval must be
+// positive" -- and the installers call --repair right after replacing the
+// files, so that failure lands on exactly the unattended path that must not
+// fail. Falling back to the default keeps the machine scheduled instead.
+func repairMinutes(st schedule.Status) int {
+	every := int(st.Interval.Round(time.Minute) / time.Minute)
+	if every < 1 {
+		every = schedule.DefaultIntervalMinutes
+	}
+	return every
+}
+
 // installSchedule registers the OS scheduler entry and explains what the user
 // actually got.
 //
@@ -553,7 +589,7 @@ func installSchedule(opts *Options, every int) error {
 		return err
 	}
 	binary, windowless := scheduledBinary(runtime.GOOS, self, fileExists)
-	if err := schedule.Install(schedule.Entry{
+	if err := scheduleInstall(schedule.Entry{
 		Name:       "r2backup",
 		Interval:   time.Duration(every) * time.Minute,
 		BinaryPath: binary,
@@ -577,7 +613,7 @@ func installSchedule(opts *Options, every int) error {
 	// used instead, and the difference matters: one runs whether or not you
 	// are signed in, the other does not. Read it back rather than claiming
 	// whichever was asked for first.
-	if st, err := schedule.Current("r2backup"); err == nil && st.Registered && !st.RunsWhenSignedOut && runtime.GOOS == "windows" {
+	if st, err := scheduleCurrent("r2backup"); err == nil && st.Registered && !st.RunsWhenSignedOut && runtime.GOOS == "windows" {
 		fmt.Fprintln(opts.Out,
 			"Note: it runs while you are signed in. Windows would not grant the\n"+
 				"      permission needed to run it when you are signed out, which\n"+
@@ -1069,12 +1105,12 @@ func newScheduleCmd(opts *Options) *cobra.Command {
 				// A machine with no schedule is left with no schedule. An
 				// installer must not quietly start backing things up on a
 				// timer nobody asked for.
-				st, err := schedule.Current("r2backup")
+				st, err := scheduleCurrent("r2backup")
 				if err != nil || !st.Registered {
 					fmt.Fprintln(opts.Out, "Nothing scheduled; nothing to repair.")
 					return nil
 				}
-				return installSchedule(opts, int(st.Interval.Round(time.Minute)/time.Minute))
+				return installSchedule(opts, repairMinutes(st))
 			}
 			return installSchedule(opts, every)
 		},

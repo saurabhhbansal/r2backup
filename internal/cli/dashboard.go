@@ -436,14 +436,14 @@ func (d *dashboard) Schedule(ctx context.Context, every int, off bool) error {
 		return errors.New("no scheduler is available on this platform")
 	}
 	if off {
-		return schedule.Remove(scheduleName)
+		return scheduleRemove(scheduleName)
 	}
 	self, err := os.Executable()
 	if err != nil {
 		return err
 	}
 	binary, _ := scheduledBinary(runtime.GOOS, self, fileExists)
-	return schedule.Install(schedule.Entry{
+	return scheduleInstall(schedule.Entry{
 		Name:       scheduleName,
 		Interval:   time.Duration(every) * time.Minute,
 		BinaryPath: binary,
@@ -467,13 +467,9 @@ func (d *dashboard) RepairSchedule(ctx context.Context) (bool, error) {
 	if !schedule.Supported() {
 		return false, errors.New("no scheduler is available on this platform")
 	}
-	st, err := schedule.Current(scheduleName)
+	st, err := scheduleCurrent(scheduleName)
 	if err != nil || !st.Registered {
 		return false, nil
 	}
-	every := int(st.Interval.Round(time.Minute) / time.Minute)
-	if every < 1 {
-		every = schedule.DefaultIntervalMinutes
-	}
-	return true, d.Schedule(ctx, every, false)
+	return true, d.Schedule(ctx, repairMinutes(st), false)
 }
