@@ -143,6 +143,72 @@ func machineName() string {
 	return h
 }
 
+// abortSetUploads aborts, on the server, every unfinished multipart upload
+// that removing a set would otherwise orphan, and reports how many it got
+// to and how many it did not.
+//
+// It is shared by `r2b remove` and the interface's own Remove, which is why
+// getting a connected client -- something the two callers already do
+// differently, and for their own reasons -- comes in as a callback rather
+// than this calling a.connect itself.
+//
+// It never returns an error. A file that never finished uploading is not
+// part of anyone's backup -- there is no completed object for it, in any
+// listing, purge or no purge -- so it is always safe to stop billing for it,
+// and aborting it is not the destructive half of removal that --purge gates.
+// But the abort itself can still fail on a bad connection, and that must not
+// also fail the removal: dropping the index is the one action that makes an
+// upload unreachable forever (see DropSetUploads), so a caller failing here
+// would leave the set stuck half-removed with no way to retry, over a
+// problem that has nothing to do with whether the set itself can go. What
+// failed is counted instead, for the caller to tell the user about.
+//
+// full additionally asks the bucket itself what it has open under the
+// prefix -- catching an upload the index never recorded, because a crash
+// landed between CreateMultipartUpload and the first save of it -- which
+// only --purge pays the extra request for; the default remove is already
+// not guaranteed to see everything a lost record would have caught, and
+// --purge is the one place already committed to enumerating the bucket.
+func (a *app) abortSetUploads(ctx context.Context, idx *index.DB, s sets.Set, full bool, ensureConnected func() error) (aborted, failed int) {
+	pending, err := idx.PendingUploadsUnderPrefix(s.KeyScope())
+	if err != nil || (len(pending) == 0 && !full) {
+		return 0, 0
+	}
+	if err := ensureConnected(); err != nil {
+		// No connection, no abort. DropSetUploads runs regardless -- see the
+		// callers -- so the local records go either way; only whether the
+		// server side is reached depends on this.
+		return 0, len(pending)
+	}
+	seen := make(map[string]bool, len(pending))
+	for _, u := range pending {
+		seen[u.Key+"\x00"+u.UploadID] = true
+		if a.client.AbortUpload(ctx, u.Key, u.UploadID) != nil {
+			failed++
+			continue
+		}
+		aborted++
+	}
+	if !full {
+		return aborted, failed
+	}
+	live, err := a.client.ListMultipartUploads(ctx, s.KeyScope())
+	if err != nil {
+		return aborted, failed
+	}
+	for _, u := range live {
+		if seen[u.Key+"\x00"+u.UploadID] {
+			continue // already aborted above
+		}
+		if a.client.AbortUpload(ctx, u.Key, u.UploadID) != nil {
+			failed++
+			continue
+		}
+		aborted++
+	}
+	return aborted, failed
+}
+
 // resolveSets returns the named set, or all of them when no name is given.
 func (a *app) resolveSets(name string) ([]sets.Set, error) {
 	if name == "" {

@@ -864,8 +864,15 @@ func newRemoveCmd(opts *Options) *cobra.Command {
 			if err := idx.ForgetDailyPrune(s.Name); err != nil {
 				return err
 			}
-			// And its unfinished uploads: left behind, the sweep would keep
-			// asking the bucket about parts of a folder nobody backs up.
+			// And its unfinished uploads: left behind, they are not just an
+			// entry the sweep keeps asking the bucket about for a folder
+			// nobody backs up any more -- they are parts the server is still
+			// billing for, with no completed object in any listing to
+			// explain the charge, and once the record below is gone there is
+			// no way to ever find them again. So they are aborted on the
+			// server first, while the index can still say what they were.
+			aborted, failedAbort := a.abortSetUploads(cmd.Context(), idx, s, purge,
+				func() error { return a.connect(cmd.Context()) })
 			if err := idx.DropSetUploads(s.KeyScope()); err != nil {
 				return err
 			}
@@ -894,6 +901,23 @@ func newRemoveCmd(opts *Options) *cobra.Command {
 				// the top of objects that are already correct.
 				fmt.Fprintln(opts.Out, "Re-adding it uploads the folder once more: what is already uploaded is")
 				fmt.Fprintln(opts.Out, "tracked on this computer, and that record went with the set.")
+			}
+			// Said for the same reason r2b backup reports AbandonStaleUploads:
+			// these are billed and show up in no object listing, so this is
+			// the only place the charge is ever explained.
+			switch {
+			case aborted == 0 && failedAbort == 0:
+				// Nothing pending, nothing to say.
+			case failedAbort == 0:
+				fmt.Fprintf(opts.Out, "Also stopped %s that had never finished; nothing more will be billed for them.\n",
+					countOf(int64(aborted), "unfinished upload", "unfinished uploads"))
+			case aborted == 0:
+				fmt.Fprintf(opts.Out, "%s that had never finished could not be reached and may still be billed. Check the bucket by hand.\n",
+					countOf(int64(failedAbort), "unfinished upload", "unfinished uploads"))
+			default:
+				fmt.Fprintf(opts.Out, "Also stopped %s that had never finished; %s could not be reached and may still be billed.\n",
+					countOf(int64(aborted), "unfinished upload", "unfinished uploads"),
+					countOf(int64(failedAbort), "unfinished upload", "unfinished uploads"))
 			}
 			// A scheduled task that has nothing left to back up fails every
 			// time it fires, on a machine where nobody is watching it.

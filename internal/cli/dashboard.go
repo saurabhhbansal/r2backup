@@ -413,6 +413,17 @@ func (d *dashboard) Remove(ctx context.Context, name string, purge bool) error {
 	if err := idx.ForgetDailyPrune(s.Name); err != nil {
 		return err
 	}
+	// Same reasoning as `r2b remove`: an unfinished upload is billed and
+	// shows up in no object listing, and DropSetUploads below is the last
+	// moment anything can still say what its upload id was. Aborted here,
+	// before that record is gone, not after. A failed abort does not fail
+	// the removal -- see abortSetUploads -- and, like AbandonStaleUploads'
+	// own count in a backup Report, is not surfaced through this interface;
+	// `r2b remove` is where that gets said.
+	_, _ = a.abortSetUploads(ctx, idx, s, purge, func() error {
+		_, err := d.connected(ctx)
+		return err
+	})
 	if err := idx.DropSetUploads(s.KeyScope()); err != nil {
 		return err
 	}

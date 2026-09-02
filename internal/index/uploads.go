@@ -174,11 +174,55 @@ func (db *DB) PendingBytes() (done, total int64, files int, err error) {
 	return done, total, len(all), nil
 }
 
+// PendingUploadsUnderPrefix returns the unfinished uploads recorded whose
+// key sits under prefix.
+//
+// It exists for removal: a set being removed needs to know what these
+// records were before DropSetUploads erases them, because DropSetUploads
+// only forgets the local note -- it does not reach the server, and once it
+// has run there is no longer any way to ask what the upload ids even were.
+// A caller that means to stop these uploads from being billed calls this
+// first, aborts each one, and only then calls DropSetUploads. Modeled on
+// DropSetUploads' own cursor walk, which answers the same "what sits under
+// this prefix" question in order to delete rather than return it.
+func (db *DB) PendingUploadsUnderPrefix(prefix string) ([]PendingUpload, error) {
+	var out []PendingUpload
+	bolt, err := db.handle()
+	if err != nil {
+		return nil, err
+	}
+	err = bolt.View(func(tx *bbolt.Tx) error {
+		b := tx.Bucket(uploadsBucketName)
+		if b == nil {
+			return nil
+		}
+		c := b.Cursor()
+		for k, raw := c.Seek([]byte(prefix)); k != nil && hasPrefix(k, prefix); k, raw = c.Next() {
+			var u PendingUpload
+			if err := json.Unmarshal(raw, &u); err != nil {
+				continue // same as AllPendingUploads: unusable record, skip it
+			}
+			out = append(out, u)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("index: list pending uploads under %q: %w", prefix, err)
+	}
+	return out, nil
+}
+
 // DropSetUploads forgets unfinished uploads whose key sits under prefix.
 //
 // Called when a set is removed: its records would otherwise sit in the index
 // forever, and the sweep would keep asking the bucket about an upload for a
 // folder nobody is backing up any more.
+//
+// This only forgets the local record; it does not abort anything on the
+// server. Once it has run, PendingUploadsUnderPrefix can no longer find
+// these uploads for anyone to abort, so a caller that also means to stop the
+// billing must call PendingUploadsUnderPrefix and abort each one first --
+// never after.
 func (db *DB) DropSetUploads(prefix string) error {
 	bolt, err := db.handle()
 	if err != nil {

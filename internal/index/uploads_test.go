@@ -160,6 +160,48 @@ func TestDroppingOneSetDoesNotTakeItsNamesake(t *testing.T) {
 	}
 }
 
+// PendingUploadsUnderPrefix is what a caller reads before DropSetUploads
+// erases the very thing it needs: the upload ids to abort on the server. It
+// must return the same records DropSetUploads would delete, and none of the
+// ones a namesake prefix would wrongly catch.
+func TestPendingUploadsUnderPrefixMatchesWhatDropSetUploadsWouldDelete(t *testing.T) {
+	db := openTestDB(t)
+	for _, k := range []string{
+		"machines/pc/Photo/current/a.bin",
+		"machines/pc/Photos/current/b.bin",
+		"machines/pc/Photos/current/c.bin",
+		"machines/pc/Docs/current/d.bin",
+	} {
+		if err := db.SavePendingUpload(pending(k, time.Now())); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, err := db.PendingUploadsUnderPrefix("machines/pc/Photos/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d records, want the 2 under Photos/: %+v", len(got), got)
+	}
+	for _, u := range got {
+		if u.Key == "machines/pc/Photo/current/a.bin" || u.Key == "machines/pc/Docs/current/d.bin" {
+			t.Errorf("PendingUploadsUnderPrefix returned a record outside the prefix: %+v", u)
+		}
+	}
+
+	// The records are still there afterwards -- this reads, it does not
+	// drop, which is the entire reason it needs to exist as its own method
+	// rather than everyone just calling DropSetUploads and losing the upload
+	// ids in the same breath.
+	all, err := db.AllPendingUploads()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 4 {
+		t.Fatalf("PendingUploadsUnderPrefix must not have deleted anything, left %d records", len(all))
+	}
+}
+
 func TestAgeIsMeasuredFromWhenTheUploadStarted(t *testing.T) {
 	now := time.Now()
 	u := pending("k", now.Add(-3*time.Hour))

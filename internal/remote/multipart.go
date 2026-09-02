@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -417,14 +418,106 @@ func (c *Client) AbandonStaleUploads(ctx context.Context) (int, error) {
 // are swallowed: this is tidying, and the caller is in the middle of
 // something the user actually asked for.
 func (c *Client) abandon(ctx context.Context, u Upload) {
-	if u.UploadID != "" {
-		_, _ = c.s3.AbortMultipartUpload(ctx, &s3.AbortMultipartUploadInput{
-			Bucket:   aws.String(c.bucket),
-			Key:      aws.String(u.Key),
-			UploadId: aws.String(u.UploadID),
-		})
-	}
+	_ = c.abortMultipartUpload(ctx, u.Key, u.UploadID)
 	_ = c.forgetResume(u.Key)
+}
+
+// abortMultipartUpload aborts one upload id on the server, telling it to let
+// go of whatever parts it is holding under key. It is the one place that
+// makes the AbortMultipartUpload call, so both the stale-upload sweep and an
+// explicit removal go through the same request rather than each building
+// their own.
+//
+// NoSuchUpload is not reported as a failure: an upload the server has
+// already forgotten -- completed, aborted a second time, or expired by a
+// lifecycle rule -- is exactly the state an abort is trying to reach, and a
+// caller that treated "already gone" as an error would refuse to finish
+// tidying up after itself.
+func (c *Client) abortMultipartUpload(ctx context.Context, key, uploadID string) error {
+	if uploadID == "" {
+		return nil
+	}
+	_, err := c.s3.AbortMultipartUpload(ctx, &s3.AbortMultipartUploadInput{
+		Bucket:   aws.String(c.bucket),
+		Key:      aws.String(key),
+		UploadId: aws.String(uploadID),
+	})
+	if err != nil && !isNoSuchUpload(err) {
+		return fmt.Errorf("remote: abort upload %q: %w", key, err)
+	}
+	return nil
+}
+
+// AbortUpload aborts one multipart upload on the server by key and upload
+// id, and reports whether that succeeded. Unlike abandon, it does not touch
+// any local record -- it exists for a caller that already knows exactly
+// which upload to stop (removing a set, where the index or a direct listing
+// of the bucket says what is outstanding) and decides separately, and in
+// bulk, what if anything to forget about it locally.
+func (c *Client) AbortUpload(ctx context.Context, key, uploadID string) error {
+	return c.abortMultipartUpload(ctx, key, uploadID)
+}
+
+// MultipartUpload is one upload the bucket itself reports as in progress,
+// found directly rather than through the local index. See
+// ListMultipartUploads.
+type MultipartUpload struct {
+	Key       string
+	UploadID  string
+	Initiated time.Time
+}
+
+// ListMultipartUploads returns every multipart upload the bucket has open
+// under prefix, following pagination until S3 reports no more.
+//
+// This is the one way to find an in-progress upload without the local index
+// agreeing it exists. List (ListObjectsV2) only reports objects that have
+// been completed, so an upload nobody finished is invisible there -- and a
+// machine whose index was lost, edited by hand, or simply never wrote the
+// record down (a crash between CreateMultipartUpload and the first save) has
+// no other way to learn the bucket is still holding parts for it. `remove
+// --purge` calls this to catch what its own index does not know about,
+// rather than trusting the index to be complete.
+//
+// The prefix is matched here, in Go, against every upload the bucket
+// reports -- not sent to the server as the ListMultipartUploads Prefix
+// parameter. It would be the obvious thing to send, and it costs nothing
+// extra not to: unlike a GET, a LIST is billed per request rather than per
+// key returned, so filtering after the fact is not paying for keys nobody
+// asked for. What settled it is empirical: MinIO's ListMultipartUploads was
+// found, while writing the tests for this, to silently return nothing for
+// any prefix that is not a complete object key -- an object-lookup
+// shortcut standing in for what should be a scan -- which would make
+// `remove --purge` miss exactly the uploads it exists to catch, on the one
+// server this is tested against. Filtering here instead cannot be fooled by
+// a store that mishandles its own Prefix parameter, on MinIO or anywhere
+// else.
+func (c *Client) ListMultipartUploads(ctx context.Context, prefix string) ([]MultipartUpload, error) {
+	var out []MultipartUpload
+	paginator := s3.NewListMultipartUploadsPaginator(c.s3, &s3.ListMultipartUploadsInput{
+		Bucket: aws.String(c.bucket),
+	})
+	for paginator.HasMorePages() {
+		page, err := paginator.NextPage(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("remote: list multipart uploads %q: %w", prefix, err)
+		}
+		for _, u := range page.Uploads {
+			key := aws.ToString(u.Key)
+			if !strings.HasPrefix(key, prefix) {
+				continue
+			}
+			m := MultipartUpload{
+				Key:      key,
+				UploadID: aws.ToString(u.UploadId),
+			}
+			if u.Initiated != nil {
+				m.Initiated = *u.Initiated
+			}
+			out = append(out, m)
+		}
+	}
+	return out, nil
 }
 
 func (c *Client) saveResume(u Upload) error {
