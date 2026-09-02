@@ -241,3 +241,39 @@ func FormatDuration(d time.Duration) string {
 		return strconv.FormatInt(seconds, 10) + " sec"
 	}
 }
+
+// FormatInterval says how often something recurring happens, in words:
+// "30 minutes", "1 hour", "1 hour 30 minutes".
+//
+// time.Duration.String() renders half an hour as "30m0s", which is a
+// programmer's spelling of it: correct, and not what anybody would say out
+// loud. This is read in a sentence -- "every ..." -- so it has to finish
+// that sentence the way a person would. Unlike FormatDuration above, this is
+// never read against a countdown, so it never shows seconds: nobody
+// describes how often a recurring job runs to single-second precision, and
+// a caller with an interval that cannot honestly be rounded to a whole
+// minute (in particular, a non-positive one -- see the callers in
+// internal/cli/commands.go) should say so itself rather than calling this.
+func FormatInterval(d time.Duration) string {
+	d = d.Round(time.Minute)
+	h, m := int(d/time.Hour), int(d%time.Hour/time.Minute)
+	switch {
+	case h > 0 && m > 0:
+		return pluralWord(h, "hour") + " " + pluralWord(m, "minute")
+	case h > 0:
+		return pluralWord(h, "hour")
+	case m > 0:
+		return pluralWord(m, "minute")
+	default:
+		return "minute"
+	}
+}
+
+// pluralWord renders a count with an English noun, singular or plural
+// ("1 hour", "2 hours").
+func pluralWord(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return strconv.Itoa(n) + " " + noun + "s"
+}

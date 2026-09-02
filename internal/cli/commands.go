@@ -418,8 +418,17 @@ func printStatus(a *app, opts *Options) error {
 			progress.FormatCount(int64(index.FreeTierOpsPerMonth)),
 			resetAt.Format("2 Jan"))
 	}
-	if st, err := schedule.Current("r2backup"); err == nil && st.Registered {
-		fmt.Fprintf(opts.Out, "Scheduled: every %s\n", st.Interval)
+	if st, err := scheduleCurrent("r2backup"); err == nil && st.Registered {
+		if st.Interval > 0 {
+			fmt.Fprintf(opts.Out, "Scheduled: every %s\n", progress.FormatInterval(st.Interval))
+		} else {
+			// The crontab fallback (internal/schedule/schedule_linux.go)
+			// reports Registered true with a zero Interval: it recognizes
+			// its own marker line but has no way to read back "every N
+			// minutes" from it. "every 0s" would state a number nobody
+			// configured, so this says only what is actually known.
+			fmt.Fprintln(opts.Out, "Scheduled: runs automatically; this scheduler doesn't report how often.")
+		}
 	} else {
 		fmt.Fprintln(opts.Out, "Not scheduled. To run automatically: r2b schedule --every 30")
 	}
@@ -660,9 +669,16 @@ func askYesNo(out io.Writer, in io.Reader, question string, def bool) bool {
 // schedule that already exists -- a second `add` should not silently
 // re-time the first one.
 func offerSchedule(opts *Options, every int) {
-	if st, err := schedule.Current("r2backup"); err == nil && st.Registered {
-		fmt.Fprintf(opts.Out, "\nBackups already run every %s. This folder is included from now on.\n",
-			st.Interval.Round(time.Minute))
+	if st, err := scheduleCurrent("r2backup"); err == nil && st.Registered {
+		if st.Interval > 0 {
+			fmt.Fprintf(opts.Out, "\nBackups already run every %s. This folder is included from now on.\n",
+				progress.FormatInterval(st.Interval))
+		} else {
+			// Same honesty as printStatus's crontab-fallback case above:
+			// this scheduler cannot say how often it runs, so this must
+			// not either.
+			fmt.Fprintln(opts.Out, "\nBackups already run automatically. This folder is included from now on.")
+		}
 		return
 	}
 	if !interactive() || opts.Decision() != Ask || !schedule.Supported() {

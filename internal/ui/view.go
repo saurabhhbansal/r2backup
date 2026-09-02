@@ -601,32 +601,14 @@ func (m *Model) remoteView() string {
 
 // --- Account ---
 
-// humanEvery says how often a scheduled backup runs, in words.
-//
-// time.Duration.String() renders half an hour as "30m0s", which is a
-// programmer's spelling of it: correct, and not what anybody would say out
-// loud. This is read in a sentence -- "Automatic, every ..." -- so it has to
-// finish that sentence the way a person would.
+// humanEvery says how often a scheduled backup runs, in words ("30 minutes",
+// "1 hour"). It is read in a sentence -- "Automatic, every ..." -- so it
+// delegates to progress.FormatInterval, the one place that reasoning about
+// time.Duration.String() being "30m0s" and not what anybody would say out
+// loud lives; internal/cli prints the same "every ..." sentence on the
+// command line and shares that implementation rather than a copy of it.
 func humanEvery(d time.Duration) string {
-	d = d.Round(time.Minute)
-	h, m := int(d/time.Hour), int(d%time.Hour/time.Minute)
-	switch {
-	case h > 0 && m > 0:
-		return fmt.Sprintf("%s %s", plural(h, "hour"), plural(m, "minute"))
-	case h > 0:
-		return plural(h, "hour")
-	case m > 0:
-		return plural(m, "minute")
-	default:
-		return "minute"
-	}
-}
-
-func plural(n int, noun string) string {
-	if n == 1 {
-		return "1 " + noun
-	}
-	return fmt.Sprintf("%d %ss", n, noun)
+	return progress.FormatInterval(d)
 }
 
 // accountView is where this computer's standing state is answered in one
