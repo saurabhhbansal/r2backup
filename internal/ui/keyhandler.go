@@ -542,7 +542,9 @@ func (m *Model) startBackup(names []string) tea.Cmd {
 	m.overlay = overlayRunning
 
 	events, backend := m.events, m.backend
+	m.background.Add(1)
 	go func() {
+		defer m.background.Done()
 		post := postTo(events, ctx)
 		var lastErr error
 		for _, n := range names {
@@ -580,7 +582,9 @@ func (m *Model) startRestore(req RestoreRequest) tea.Cmd {
 	m.overlay = overlayRunning
 
 	events, backend := m.events, m.backend
+	m.background.Add(1)
 	go func() {
+		defer m.background.Done()
 		post := postTo(events, ctx)
 		res, err := backend.Restore(ctx, req,
 			func(p string) { post(phaseMsg(p)) },

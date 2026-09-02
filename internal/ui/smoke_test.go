@@ -47,14 +47,23 @@ type fakeBackend struct {
 	purged      []string
 	repaired    int
 	hasSchedule bool
+
+	// backupHook, when set, replaces Backup's ordinary immediate-return
+	// behaviour with a caller-supplied one. It exists for tests that need to
+	// hold a backup open -- to prove something waits for it -- rather than
+	// have it finish before the test can observe it in flight.
+	backupHook func(ctx context.Context) error
 }
 
 func (f *fakeBackend) Load(context.Context) ([]SetView, Overview, error) {
 	return f.sets, f.ov, nil
 }
 
-func (f *fakeBackend) Backup(_ context.Context, name string, phase func(string), snap func(progress.Snapshot)) error {
+func (f *fakeBackend) Backup(ctx context.Context, name string, phase func(string), snap func(progress.Snapshot)) error {
 	f.backups = append(f.backups, name)
+	if f.backupHook != nil {
+		return f.backupHook(ctx)
+	}
 	phase("scanning " + name)
 	snap(progress.Snapshot{BytesDone: 5, BytesTotal: 10, FilesDone: 1, FilesTotal: 2})
 	return nil

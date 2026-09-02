@@ -3,6 +3,7 @@ package ui
 import (
 	"context"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/bubbles/filepicker"
@@ -176,6 +177,17 @@ type Model struct {
 	runCancel context.CancelFunc
 	events    chan tea.Msg
 
+	// background is held by the goroutine startBackup or startRestore spawns,
+	// from just before it starts until just after backend.Backup or
+	// backend.Restore returns. Run waits on it after the bubbletea program
+	// itself has exited, so that whatever the caller does right after Run
+	// returns -- in this program, closing the index -- can never happen while
+	// that goroutine is still using what Run's caller is about to close.
+	// Cancelling ctx (which quitNow does) makes the backend call return
+	// promptly; it does not make it return instantly, and the gap between
+	// those two was the race.
+	background sync.WaitGroup
+
 	// request counts the asynchronous jobs this model has started. A result
 	// carrying an older number is stale and dropped -- see scannedMsg.
 	request int
@@ -234,6 +246,19 @@ func New(ctx context.Context, b Backend) *Model {
 
 func (m *Model) Init() tea.Cmd {
 	return tea.Batch(m.load(), m.spin.Tick, tick())
+}
+
+// WaitBackground blocks until every backup or restore goroutine this Model
+// has started has returned. Run calls this after the bubbletea program
+// itself has exited, so its caller -- the thing that opened whatever backend
+// resource a running job might still be writing to -- does not get control
+// back until that job genuinely has nothing left to do with it. Quitting
+// mid-run cancels the job's context first (see quitNow), so this is a
+// prompt wait in practice, not an open-ended one: it is bounded by how fast
+// the backend honours cancellation, the same bound the engine's own
+// cancellation tests hold it to.
+func (m *Model) WaitBackground() {
+	m.background.Wait()
 }
 
 func tick() tea.Cmd {

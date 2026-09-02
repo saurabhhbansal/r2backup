@@ -19,8 +19,17 @@ import (
 func Run(ctx context.Context, b Backend) error {
 	m := New(ctx, b)
 	p := tea.NewProgram(m, tea.WithAltScreen(), tea.WithContext(ctx))
-	if _, err := p.Run(); err != nil {
-		return fmt.Errorf("ui: %w", err)
+	_, runErr := p.Run()
+	// p.Run returning is not the same as a running backup or restore having
+	// stopped: quitting cancels its context but does not wait for it to
+	// notice, and neither does the outer ctx being cancelled out from under
+	// the whole program. The caller opened whatever the backend touches --
+	// here, the on-disk index -- and is about to close it the moment this
+	// function returns, so that must not happen while that goroutine could
+	// still be mid-write to it. See Model.WaitBackground.
+	m.WaitBackground()
+	if runErr != nil {
+		return fmt.Errorf("ui: %w", runErr)
 	}
 	return nil
 }
