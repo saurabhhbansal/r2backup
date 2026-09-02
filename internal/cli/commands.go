@@ -775,35 +775,51 @@ func newEditCmd(opts *Options) *cobra.Command {
 				fmt.Fprintln(opts.Out, "Cancelled. Nothing was changed.")
 				return nil
 			}
-
-			added, removed := diffExcludes(s.Excludes, chosen)
-			if len(added) == 0 && len(removed) == 0 {
-				fmt.Fprintln(opts.Out, "No change.")
-				return nil
-			}
-			s.Excludes = chosen
-			if err := a.sets.Update(s); err != nil {
-				return err
-			}
-			for _, e := range added {
-				fmt.Fprintf(opts.Out, "  now excluded: %s\n", e)
-			}
-			for _, e := range removed {
-				fmt.Fprintf(opts.Out, "  now included: %s\n", e)
-			}
-			if len(added) > 0 {
-				fmt.Fprintln(opts.Out, "Excluded files move to trash and stay recoverable.")
-			}
-
-			fmt.Fprintln(opts.Out)
-			rep, err := runOne(cmd.Context(), a, s, opts.Out, interactive())
-			if err != nil {
-				return err
-			}
-			summarise(opts.Out, rep)
-			return nil
+			return finishEdit(cmd.Context(), a, opts, s, chosen)
 		},
 	}
+}
+
+// finishEdit saves the excludes chosen in the picker, reports the change in
+// the user's own terms, and then backs up so the change actually takes
+// effect. It is split out from newEditCmd's RunE for the same reason
+// askForNewRoot stands apart from offerRelink: everything that decides what
+// the user sees can then be driven by a test without a terminal or a picker.
+func finishEdit(ctx context.Context, a *app, opts *Options, s sets.Set, chosen []string) error {
+	added, removed := diffExcludes(s.Excludes, chosen)
+	if len(added) == 0 && len(removed) == 0 {
+		fmt.Fprintln(opts.Out, "No change.")
+		return nil
+	}
+	s.Excludes = chosen
+	if err := a.sets.Update(s); err != nil {
+		return err
+	}
+	for _, e := range added {
+		fmt.Fprintf(opts.Out, "  now excluded: %s\n", e)
+	}
+	for _, e := range removed {
+		fmt.Fprintf(opts.Out, "  now included: %s\n", e)
+	}
+	if len(added) > 0 {
+		fmt.Fprintln(opts.Out, "Excluded files move to trash and stay recoverable.")
+	}
+
+	// `edit` has always backed up right after saving, unlike the dashboard's
+	// `e`, which only saves and points at `b`. Whether it should is a
+	// separate question from the one this line answers: today it does, and
+	// until now it did so without saying so first, which made a command
+	// that spends operations and starts a transfer look like it was only
+	// ever asked to save some excludes. Said plainly, the same way `add`
+	// says "Backing up now" before its own first run, so nothing below is a
+	// surprise.
+	fmt.Fprintln(opts.Out, "\nBacking up now to apply the change.")
+	rep, err := runOne(ctx, a, s, opts.Out, interactive())
+	if err != nil {
+		return err
+	}
+	summarise(opts.Out, rep)
+	return nil
 }
 
 // diffExcludes reports what the user just excluded and what they just let
