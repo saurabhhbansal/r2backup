@@ -174,7 +174,12 @@ func New(opts Options) *Engine {
 // Run drains p to completion: uploads and moves first, deletes last (see
 // jobKind below for why), reporting every failure without letting it stop
 // the rest of the run. Cancelling ctx stops the pool promptly; Result then
-// reflects exactly what had genuinely succeeded at that point, nothing more.
+// reflects exactly what had genuinely succeeded at that point, nothing more
+// -- and the returned error is ctx.Err(), so a cancelled run is never
+// mistaken for one that finished cleanly. A non-cancelled run that failed
+// for some other reason still reports success here: per-item failures live
+// in Result.Failed, not in this error, which is reserved for "the run itself
+// did not run to completion."
 func (e *Engine) Run(ctx context.Context, p *plan.Plan) (*Result, error) {
 	if p == nil {
 		return &Result{}, nil
@@ -344,7 +349,16 @@ func (r *runner) execute(ctx context.Context, p *plan.Plan) (*Result, error) {
 	}
 
 	result.moveSources = nil
-	return result, nil
+	// runCtx.Err() is nil on an ordinary completion and non-nil -- almost
+	// always context.Canceled, since nothing here sets a deadline -- when the
+	// caller cancelled ctx mid-run. Reporting that as success would be a lie
+	// backup.Run has no way to catch: everything above already made a
+	// cancelled run behave correctly (drain what's in flight, skip deletes,
+	// keep only what genuinely landed), but "correct partial work, reported
+	// as a clean finish" is exactly the shape of the bug this return fixes.
+	// The caller decides what a cancelled run means for history and billing;
+	// this is only responsible for not hiding that it happened.
+	return result, runCtx.Err()
 }
 
 func (r *runner) worker(ctx context.Context, jobs <-chan job, lim *limiter, results chan<- outcome) {

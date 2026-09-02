@@ -152,6 +152,18 @@ type Options struct {
 // deleted on this path, ever.
 var ErrRootMissing = errors.New("the folder this set points at no longer exists")
 
+// ErrCancelled marks a Run that stopped because its context was cancelled --
+// someone pressed q on the running screen, or the process is shutting down --
+// rather than because anything actually went wrong.
+//
+// A caller building a history entry (runOne, and its dashboard equivalent
+// recordRun) tests for this with errors.Is so `status` and the dashboard can
+// read a stopped run as "cancelled" instead of "failed". That is a sentinel a
+// caller can check on purpose, unlike Go's raw "context canceled" text, which
+// was never written to be shown to a person and used to leak straight through
+// into runstate.Past.Error and onto the screen.
+var ErrCancelled = errors.New("run cancelled")
+
 // Run performs one backup.
 func Run(ctx context.Context, opts Options) (*Report, error) {
 	if opts.Index == nil || opts.Client == nil {
@@ -283,6 +295,25 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 	close(stopTicker)
 	<-tickerDone
 	if runErr != nil {
+		// eng.Run returns ctx.Err() -- almost always context.Canceled -- when
+		// the caller stopped the run rather than something going wrong with
+		// it: someone pressed q in the interface, or the process is shutting
+		// down. Returned as ErrCancelled itself rather than wrapping runErr
+		// (which carries nothing more than that same "context canceled"),
+		// because ErrCancelled's Error() is what ends up in
+		// runstate.Past.Error and on screen in `status`, and a person who
+		// stopped a run on purpose did not ask to read Go's plumbing back.
+		// errors.Is(err, ErrCancelled) is how runOne and the dashboard's
+		// equivalent recordRun tell this apart from a run that failed for
+		// real, when they build that history entry. Either way this return
+		// is what keeps a cancelled run from being recorded as a clean one:
+		// nothing below this point -- the index writes that mark uploads and
+		// moves done, trash expiry, the operation count -- runs for a run
+		// that did not finish, exactly as it already didn't for the only
+		// other way this function used to return a non-nil error here.
+		if ctx.Err() != nil {
+			return nil, ErrCancelled
+		}
 		return nil, runErr
 	}
 	obs.Progress(tracker.Snapshot())

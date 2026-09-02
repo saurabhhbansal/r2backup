@@ -46,6 +46,10 @@ func stateStyle(s string) lipgloss.Style {
 		return badStyle
 	case "never run":
 		return dimStyle
+	case "cancelled":
+		// Not badStyle: a run someone stopped on purpose is not a problem
+		// the way a failure or a set needing attention is.
+		return warnStyle
 	default:
 		return warnStyle
 	}

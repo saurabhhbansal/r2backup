@@ -120,6 +120,14 @@ type Past struct {
 	Examples   []string `json:"examples,omitempty"`
 
 	Error string `json:"error,omitempty"`
+	// Cancelled is true when Error is set because someone stopped the run on
+	// purpose -- q on the running screen, ctrl+c, the process shutting down
+	// -- rather than because anything actually broke. Kept as its own field
+	// instead of something a display re-derives from Error's text, so
+	// `status` and the dashboard can tell "stopped" from "failed" without
+	// pattern-matching a message that was written to be read by a person,
+	// not parsed by one.
+	Cancelled bool `json:"cancelled,omitempty"`
 }
 
 // OK reports whether the run finished with nothing needing attention.

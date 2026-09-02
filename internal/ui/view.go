@@ -349,6 +349,10 @@ func (m *Model) showDetail(v SetView) {
 		b.WriteString("  " + dimStyle.Render("never") + "\n")
 	case v.State == "failed":
 		b.WriteString("  " + badStyle.Render(humanAgo(time.Since(v.LastRun))+" — failed") + "\n  " + v.Note + "\n")
+	case v.State == "cancelled":
+		// warnStyle, not badStyle: matches stateStyle's own colour choice
+		// for this state, since a stopped run is not a failure.
+		b.WriteString("  " + warnStyle.Render(humanAgo(time.Since(v.LastRun))+" — cancelled") + "\n  " + v.Note + "\n")
 	default:
 		row("  when", humanAgo(time.Since(v.LastRun)))
 		row("  uploaded", progress.FormatCount(int64(v.Uploaded))+" ("+progress.FormatBytes(v.Bytes)+")")

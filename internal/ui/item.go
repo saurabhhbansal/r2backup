@@ -67,6 +67,13 @@ func lastRunText(v SetView) string {
 	if v.State == "failed" {
 		return when + " · failed"
 	}
+	if v.State == "cancelled" {
+		// Checked before the no-changes/uploaded branches below: a
+		// cancelled run's counts are all zero (recordRun never gets to set
+		// them), which without this would render as "no changes" -- true
+		// of the numbers, but not of what happened.
+		return when + " · cancelled"
+	}
 	if v.Uploaded == 0 && v.Deleted == 0 && v.Moved == 0 {
 		return when + " · no changes"
 	}

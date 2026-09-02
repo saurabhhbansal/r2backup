@@ -386,7 +386,13 @@ func printStatus(a *app, opts *Options) error {
 		}
 		if last, ok := hist.Last(s.Name); ok {
 			when := humanAgo(time.Since(last.FinishedAt))
-			if last.Error != "" {
+			if last.Cancelled {
+				// Not "failed": last.Error here is backup.ErrCancelled's
+				// text, and a run someone stopped on purpose is not a
+				// failure -- printing "cancelled" says what happened
+				// instead of making a deliberate stop sound like a bug.
+				fmt.Fprintf(opts.Out, "  last run %s — cancelled\n", when)
+			} else if last.Error != "" {
 				fmt.Fprintf(opts.Out, "  last run %s — failed: %s\n", when, last.Error)
 			} else {
 				fmt.Fprintf(opts.Out, "  last run %s — %s uploaded, %s unchanged, %s operations\n",

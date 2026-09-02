@@ -141,7 +141,14 @@ func (d *dashboard) Load(ctx context.Context) ([]ui.SetView, ui.Overview, error)
 			v.Operations = last.Operations
 			v.Failures, v.Problems, v.Collisions = last.Failures, last.Problems, last.Collisions
 			v.Examples = last.Examples
-			if last.Error != "" {
+			if last.Cancelled {
+				// Same distinction printStatus makes for `status`: a run
+				// someone stopped on purpose is not "failed", and
+				// last.Error here is only backup.ErrCancelled's text -- not
+				// worth showing verbatim when a clearer, fixed Note says
+				// the same thing.
+				v.State, v.Note = "cancelled", "stopped before it finished"
+			} else if last.Error != "" {
 				v.State, v.Note = "failed", last.Error
 			}
 		} else {
@@ -324,6 +331,7 @@ func recordRun(name string, rep *backup.Report, runErr error) {
 	past := runstate.Past{Set: name, FinishedAt: time.Now()}
 	if runErr != nil {
 		past.Error = runErr.Error()
+		past.Cancelled = errors.Is(runErr, backup.ErrCancelled)
 	} else if rep != nil {
 		past.Duration = rep.Elapsed.Seconds()
 		past.Uploaded, past.Moved, past.Deleted = rep.Uploaded, rep.Moved, rep.Deleted

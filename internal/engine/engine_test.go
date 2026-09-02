@@ -468,10 +468,14 @@ func TestRun_CancellationReturnsPromptlyWithOnlyCompletedKeys(t *testing.T) {
 	eng := New(Options{Uploader: up, FS: fsys, Workers: 4, MaxWorkers: 4})
 
 	ctx, cancel := context.WithCancel(context.Background())
-	resultCh := make(chan *Result, 1)
+	type outcome struct {
+		res *Result
+		err error
+	}
+	resultCh := make(chan outcome, 1)
 	go func() {
-		res, _ := eng.Run(ctx, p)
-		resultCh <- res
+		res, err := eng.Run(ctx, p)
+		resultCh <- outcome{res, err}
 	}()
 
 	<-allowCancel
@@ -479,15 +483,21 @@ func TestRun_CancellationReturnsPromptlyWithOnlyCompletedKeys(t *testing.T) {
 	cancel()
 
 	select {
-	case res := <-resultCh:
+	case out := <-resultCh:
 		if time.Since(start) > 2*time.Second {
 			t.Fatalf("cancellation was not prompt: took %s", time.Since(start))
 		}
-		if res.Uploaded != 0 {
-			t.Fatalf("Uploaded = %d, want 0 -- no Put ever returned success", res.Uploaded)
+		// A cancelled run must say so -- see the package doc on Run -- or a
+		// caller has no honest way to tell it apart from a run that quietly
+		// finished with nothing to do.
+		if !errors.Is(out.err, context.Canceled) {
+			t.Fatalf("Run err = %v, want context.Canceled", out.err)
 		}
-		if res.Deleted != 0 {
-			t.Fatalf("Deleted = %d, want 0 -- deletes must be skipped on a cancelled run", res.Deleted)
+		if out.res.Uploaded != 0 {
+			t.Fatalf("Uploaded = %d, want 0 -- no Put ever returned success", out.res.Uploaded)
+		}
+		if out.res.Deleted != 0 {
+			t.Fatalf("Deleted = %d, want 0 -- deletes must be skipped on a cancelled run", out.res.Deleted)
 		}
 	case <-time.After(3 * time.Second):
 		t.Fatal("Run did not return promptly after cancellation")
@@ -702,8 +712,15 @@ func TestRun_CancelledBeforeStartLeavesNothingUploaded(t *testing.T) {
 	cancel()
 
 	res, err := eng.Run(ctx, p)
-	if err != nil {
-		t.Fatalf("Run: %v", err)
+	// This used to assert err == nil, which was the M2 bug in miniature: an
+	// already-cancelled run did nothing at all and still reported success.
+	// A caller has no way to tell that apart from a legitimate empty plan
+	// without this error, so backup.Run would record it as a clean run
+	// rather than the cancelled one it actually was. See
+	// TestACancelledRunReportsAsCancelledNotClean in backup_test.go for that
+	// half of the finding.
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run err = %v, want context.Canceled", err)
 	}
 	if res.Uploaded != 0 {
 		t.Fatalf("Uploaded = %d, want 0 on an already-cancelled run", res.Uploaded)

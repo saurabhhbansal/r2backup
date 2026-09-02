@@ -21,10 +21,11 @@ type SetView struct {
 	Objects   int
 
 	// State is the one word shown beside the name: "ok", "never run",
-	// "failed" or "needs attention".
+	// "failed", "cancelled" or "needs attention".
 	State string
 	// Note explains State when it is not "ok" -- the status note left by a
-	// run that stopped, or the error from one that failed.
+	// set that needs attention, a fixed line for one that was cancelled, or
+	// the error from one that failed.
 	Note string
 
 	LastRun    time.Time

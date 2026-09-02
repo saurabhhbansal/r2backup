@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -110,6 +111,7 @@ func runOne(ctx context.Context, a *app, s sets.Set, out io.Writer, interactive 
 	past := runstate.Past{Set: s.Name, FinishedAt: time.Now()}
 	if runErr != nil {
 		past.Error = runErr.Error()
+		past.Cancelled = errors.Is(runErr, backup.ErrCancelled)
 	} else {
 		past.Duration = rep.Elapsed.Seconds()
 		past.Uploaded, past.Moved, past.Deleted = rep.Uploaded, rep.Moved, rep.Deleted

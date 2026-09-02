@@ -2,6 +2,7 @@ package backup_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/saurabhhbansal/r2backup/internal/backup"
 	"github.com/saurabhhbansal/r2backup/internal/index"
+	"github.com/saurabhhbansal/r2backup/internal/progress"
 	"github.com/saurabhhbansal/r2backup/internal/remote"
 	"github.com/saurabhhbansal/r2backup/internal/sets"
 	"github.com/saurabhhbansal/r2backup/test/fixtures"
@@ -286,3 +288,56 @@ func TestRenamingAFolderCopiesInsteadOfReuploading(t *testing.T) {
 		t.Errorf("object count changed across a rename: %d, want %d", len(live), first.Uploaded)
 	}
 }
+
+// TestACancelledRunReportsAsCancelledNotClean is the M2 regression: the
+// engine used to swallow ctx cancellation into a nil error, so a run stopped
+// mid-flight came back from backup.Run indistinguishable from one that
+// finished cleanly. cancelOnUploading cancels ctx the instant the transfer
+// phase starts -- after scanning and planning have genuinely finished, so
+// this exercises the engine's cancellation path rather than scan.Walk's
+// separate (and already correct) one -- which leaves the engine's worker
+// pool nothing to do and Run returning promptly.
+func TestACancelledRunReportsAsCancelledNotClean(t *testing.T) {
+	h := setup(t, fixtures.Spec{SmallFiles: 40, SmallFileSize: 256, Seed: 37})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	rep, err := backup.Run(ctx, backup.Options{
+		Set: h.set, Index: h.db, Client: h.client, DetectMoves: true,
+		Observer: &cancelOnUploading{cancel: cancel},
+	})
+	if err == nil {
+		t.Fatal("Run: want an error for a run cancelled mid-flight, got nil")
+	}
+	// backup.Run used to wrap the engine's raw ctx.Err() ("run cancelled:
+	// context canceled"), which is what this test originally asserted with
+	// errors.Is(err, context.Canceled). That stdlib text went straight into
+	// runstate.Past.Error and leaked onto the `status` screen, so Run now
+	// returns the ErrCancelled sentinel itself instead of wrapping runErr --
+	// this is updated to match, and to assert the actual mechanism callers
+	// use (runOne and recordRun) to tell a cancelled run from a failed one.
+	if !errors.Is(err, backup.ErrCancelled) {
+		t.Fatalf("Run err = %v, want it to be backup.ErrCancelled", err)
+	}
+	// A nil Report is the existing contract for a non-nil error (see the
+	// scan-failure and plan-failure returns above it in backup.Run) --
+	// asserted here so a future change that starts returning a partial
+	// Report alongside the error does not silently let a cancelled run's
+	// Succeeded()/Complete() be read as true by a caller that forgets to
+	// check err first.
+	if rep != nil {
+		t.Fatalf("Report = %+v, want nil alongside a cancellation error", rep)
+	}
+}
+
+// cancelOnUploading is an Observer that cancels the run's own context as
+// soon as the transfer phase begins, simulating a user pressing q (or a
+// process shutting down) right as the engine starts moving bytes.
+type cancelOnUploading struct{ cancel context.CancelFunc }
+
+func (c *cancelOnUploading) Phase(p backup.Phase, r *backup.Report) {
+	if p == backup.PhaseUploading {
+		c.cancel()
+	}
+}
+
+func (c *cancelOnUploading) Progress(progress.Snapshot) {}
