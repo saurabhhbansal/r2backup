@@ -731,7 +731,11 @@ func (m *Model) runningView() string {
 			progress.FormatBytes(s.BytesDone), progress.FormatBytes(s.BytesTotal),
 			progress.FormatCount(s.FilesDone), etaText(s)))
 	}
-	b.WriteString("\n" + dimStyle.Render("esc goes back and leaves this running · q stops it"))
+	// q does not merely stop the run: quitNow (keyhandler.go) cancels
+	// runCancel and then quits the whole program in the same motion. Saying
+	// only "stops it" would leave someone thinking q is a safe way to
+	// silence this screen and keep r2backup running in the background.
+	b.WriteString("\n" + dimStyle.Render("esc goes back and leaves this running · q stops the run and quits"))
 	return b.String()
 }
 

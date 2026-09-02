@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -426,6 +427,53 @@ func TestAnEscapedRunStaysVisible(t *testing.T) {
 		t.Errorf("w should return to the progress screen, got %v", m.overlay)
 	}
 	drain(t, m)
+}
+
+// TestRunningScreenTextMatchesWhatQDoes is the L1 finding: the running
+// screen used to say "q stops it", but q (quitNow, keyhandler.go) cancels
+// the run's context *and* quits the whole program. This asserts the
+// corrected copy renders, then presses q for real and checks both halves of
+// what it claims actually happen -- so a future change to quitNow that only
+// stops the run, or only quits, would fail this test along with whichever
+// half of the sentence it broke.
+func TestRunningScreenTextMatchesWhatQDoes(t *testing.T) {
+	b := twoSets()
+	holdUntilStarted := make(chan struct{})
+	b.backupHook = func(ctx context.Context) error {
+		close(holdUntilStarted)
+		<-ctx.Done() // held open until q cancels it, like a real transfer mid-flight
+		return ctx.Err()
+	}
+	m := sized(b, 120, 40)
+	press(m, "b")
+	if !m.running || m.runCancel == nil {
+		t.Fatal("b did not start a run in flight")
+	}
+
+	select {
+	case <-holdUntilStarted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the fake backup never started")
+	}
+
+	view := m.View()
+	if !strings.Contains(view, "q stops the run and quits") {
+		t.Fatalf("running screen does not say what q does:\n%s", view)
+	}
+	// The old wording, "q stops it", is gone -- not just replaced by a
+	// superstring of itself.
+	if strings.Contains(view, "q stops it") {
+		t.Fatalf("running screen still carries the old, incomplete wording:\n%s", view)
+	}
+
+	m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
+	if m.runCancel != nil {
+		t.Error("q on the running screen should have cancelled the run, but runCancel is still set")
+	}
+	if !m.quit {
+		t.Error("q on the running screen should have quit the program")
+	}
+	m.WaitBackground()
 }
 
 // Opening and closing an overlay rebuilds the trash table. The cursor must
