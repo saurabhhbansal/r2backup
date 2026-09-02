@@ -107,7 +107,8 @@ object per file, browsable in the R2 dashboard.
 trash first, and `restore --deleted` brings it back.
 
 **Costs nothing when nothing changed.** A local index decides what to upload,
-so an unchanged folder makes no requests at all.
+so an unchanged folder makes no requests at all — except one listing a day,
+to expire trash that has aged out.
 
 **Picks up where it stopped.** A file interrupted by a dropped connection or a
 shutdown keeps the parts already uploaded and carries on from there — at the

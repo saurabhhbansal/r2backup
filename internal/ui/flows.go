@@ -307,7 +307,7 @@ func (m *Model) askInterval() {
 	}
 	f := newForm(
 		"How often should backups run?",
-		"A run that finds nothing changed costs nothing, so this can be as often as you like.",
+		"A run that finds nothing changed costs at most one listing a day, so this can be as often as you like.",
 		[]field{{Label: "Every (minutes)"}},
 		func(vals []string) (string, tea.Cmd) {
 			n, err := strconv.Atoi(vals[0])

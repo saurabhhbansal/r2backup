@@ -164,8 +164,8 @@ func historyPath() (string, error) {
 func summarise(out io.Writer, r *backup.Report) {
 	switch {
 	case r.Planned != nil && r.Planned.Empty():
-		fmt.Fprintf(out, "%s: nothing changed (%s files unchanged, 0 operations)\n",
-			r.Set, progress.FormatCount(int64(r.Unchanged)))
+		fmt.Fprintf(out, "%s: nothing changed (%s files unchanged, %s operations)\n",
+			r.Set, progress.FormatCount(int64(r.Unchanged)), progress.FormatCount(int64(r.Operations)))
 	default:
 		fmt.Fprintf(out, "%s: %s uploaded (%s), %s moved, %s deleted, %s unchanged in %s\n",
 			r.Set,

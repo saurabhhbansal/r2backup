@@ -61,8 +61,9 @@ func launchdPlist(e Entry, stdoutPath, stderrPath string) (string, error) {
 	//
 	// The cost is honest and small: installing a schedule now runs one
 	// backup straight away, and so does every login. A run that finds
-	// nothing changed makes no requests at all, so what that costs is a
-	// local scan.
+	// nothing changed costs no requests on most days, but not literally
+	// none: the first run after UTC midnight also does the trash sweep's
+	// LIST, one request, and only for a set with retention enabled.
 	b.WriteString("\t<key>RunAtLoad</key>\n\t<true/>\n")
 	fmt.Fprintf(&b, "\t<key>StandardOutPath</key>\n\t<string>%s</string>\n", xmlEscapeText(stdoutPath))
 	fmt.Fprintf(&b, "\t<key>StandardErrorPath</key>\n\t<string>%s</string>\n", xmlEscapeText(stderrPath))
