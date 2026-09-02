@@ -115,7 +115,7 @@ func newAccountCmd(opts *Options) *cobra.Command {
 			}
 			for _, d := range devices {
 				fmt.Fprintf(opts.Out, "%-24s %-10s last seen %s\n",
-					d.DeviceName, d.OS, time.UnixMilli(d.LastSeen).Format("2 Jan 15:04"))
+					d.DeviceName, d.OS, time.Unix(d.LastSeen, 0).Format("2 Jan 15:04"))
 			}
 			return nil
 		},

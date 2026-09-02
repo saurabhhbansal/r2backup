@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func TestRequestCodeSuccess(t *testing.T) {
@@ -297,6 +298,12 @@ func TestPutAndGetVaultRoundTrip(t *testing.T) {
 }
 
 func TestRegisterDeviceAndListDevices(t *testing.T) {
+	// A real Unix-seconds timestamp, not the literal 42 this test used to
+	// use: 42 renders as 1 Jan 1970 whether it's read as seconds or
+	// milliseconds, so it could never have caught the two callers (see
+	// internal/cli/account.go and internal/cli/dashboard_ops.go) that once
+	// decoded this field with time.UnixMilli instead of time.Unix.
+	wantLastSeen := time.Date(2024, time.March, 15, 9, 30, 0, 0, time.UTC).Unix()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/devices":
@@ -304,7 +311,7 @@ func TestRegisterDeviceAndListDevices(t *testing.T) {
 			_, _ = w.Write([]byte(`{"ok":true}`))
 		case r.Method == http.MethodGet && r.URL.Path == "/devices":
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"devices":[{"device_name":"Laptop","os":"windows","last_seen":42}]}`))
+			_, _ = fmt.Fprintf(w, `{"devices":[{"device_name":"Laptop","os":"windows","last_seen":%d}]}`, wantLastSeen)
 		default:
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
@@ -321,5 +328,8 @@ func TestRegisterDeviceAndListDevices(t *testing.T) {
 	}
 	if len(devices) != 1 || devices[0].DeviceName != "Laptop" || devices[0].OS != "windows" {
 		t.Errorf("devices = %+v, want one Laptop/windows entry", devices)
+	}
+	if devices[0].LastSeen != wantLastSeen {
+		t.Errorf("LastSeen = %d, want %d (the field is Unix seconds, decoded straight off the wire)", devices[0].LastSeen, wantLastSeen)
 	}
 }

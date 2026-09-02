@@ -18,7 +18,12 @@ async function authedRequest(method: string, email: string, body?: unknown): Pro
 describe("devices", () => {
   it("registers a device and lists it back", async () => {
     const storage = new MemoryStorage();
-    const ctx: AppContext = { storage, mailer: new FakeMailer(), jwtSecret: SECRET, now: () => 42 };
+    // Mirrors index.ts's real ctx.now(): Unix SECONDS, not milliseconds. A
+    // fixture of 42 would round-trip fine no matter which unit either side
+    // used, so it could never have caught the Go side decoding this field
+    // with time.UnixMilli (every device showing 1 Jan 1970) -- see H2.
+    const nowSeconds = () => Math.floor(Date.now() / 1000);
+    const ctx: AppContext = { storage, mailer: new FakeMailer(), jwtSecret: SECRET, now: nowSeconds };
 
     const postRes = await handlePostDevice(
       await authedRequest("POST", "carol@example.com", { device_name: "Carol's Laptop", os: "windows" }),
@@ -28,7 +33,14 @@ describe("devices", () => {
 
     const listRes = await handleGetDevices(await authedRequest("GET", "carol@example.com"), ctx);
     const { devices } = (await listRes.json()) as { devices: Array<{ device_name: string; os: string; last_seen: number }> };
-    expect(devices).toEqual([{ device_name: "Carol's Laptop", os: "windows", last_seen: 42 }]);
+    expect(devices).toHaveLength(1);
+    expect(devices[0].device_name).toBe("Carol's Laptop");
+    expect(devices[0].os).toBe("windows");
+    // Pin the unit: last_seen must land within a couple of seconds of
+    // Date.now()/1000. If the worker ever switched to milliseconds this
+    // would be off by a factor of ~1000 and fail immediately.
+    expect(devices[0].last_seen).toBeGreaterThanOrEqual(nowSeconds() - 2);
+    expect(devices[0].last_seen).toBeLessThanOrEqual(nowSeconds() + 2);
   });
 
   it("re-registering the same device name updates it instead of duplicating", async () => {

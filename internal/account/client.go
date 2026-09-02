@@ -126,7 +126,12 @@ func (c *Client) RegisterDevice(ctx context.Context, token, name, os string) err
 type Device struct {
 	DeviceName string `json:"device_name"`
 	OS         string `json:"os"`
-	LastSeen   int64  `json:"last_seen"`
+	// LastSeen is Unix SECONDS, not milliseconds -- it is decoded straight
+	// off what the Worker wrote with `Math.floor(Date.now() / 1000)` (see
+	// worker/src/index.ts's ctx.now and worker/migrations/0001_init.sql's
+	// plain INTEGER column). A caller reaching for time.UnixMilli here will
+	// print every device as sometime in January 1970; use time.Unix instead.
+	LastSeen int64 `json:"last_seen"`
 }
 
 // ListDevices returns every device registered under the account behind

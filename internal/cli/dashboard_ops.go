@@ -277,7 +277,7 @@ func (d *dashboard) Account(ctx context.Context) (ui.AccountView, error) {
 	for _, dev := range devices {
 		v.Devices = append(v.Devices, ui.DeviceView{
 			Name: dev.DeviceName, OS: dev.OS,
-			LastSeen: time.UnixMilli(dev.LastSeen), This: dev.DeviceName == me,
+			LastSeen: time.Unix(dev.LastSeen, 0), This: dev.DeviceName == me,
 		})
 	}
 	if _, err := c.GetVault(ctx, token); err == nil {
