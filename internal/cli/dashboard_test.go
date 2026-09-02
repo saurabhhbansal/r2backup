@@ -366,6 +366,84 @@ func TestTheInterfaceReachesTheRestOfTheCommandLine(t *testing.T) {
 	}
 }
 
+// TestRemoteSetsAfterARenameStillFindsItselfLocally is the regression test
+// for H3. RemoteSets used to match a discovered bucket entry against this
+// computer's own sets by NAME, but `rename` changes the name in sets.json
+// and, deliberately, never the bucket prefix -- so after a rename the two no
+// longer agree. The renamed set's own bucket listing came back as if it
+// belonged to nobody: Here stayed false, and the row kept the name from
+// before the rename, sitting right next to the same folder's new name in the
+// Folders tab as if they were two different backups.
+//
+// This fails before the fix in dashboard_ops.go's RemoteSets: it reports the
+// local machine's own (renamed) set as not being here.
+func TestRemoteSetsAfterARenameStillFindsItselfLocally(t *testing.T) {
+	_, c := bucketWithABackupInIt(t)
+	t.Setenv("R2BACKUP_DATA_DIR", t.TempDir())
+	t.Setenv("R2BACKUP_MACHINE", "testpc")
+
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "a.txt"), []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	setup, err := openApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := setup.creds.Save(c); err != nil {
+		t.Fatal(err)
+	}
+	if err := setup.sets.Add(sets.Set{
+		Name: "docs", Root: root, Machine: "testpc",
+		Prefix: "machines/testpc/docs", RetentionDays: 30,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	setup.close()
+
+	d, err := openDashboard(&Options{Out: os.Stderr, Err: os.Stderr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.close()
+	ctx := context.Background()
+
+	// Put something under the prefix for real: a set with no objects has no
+	// common prefix for the bucket's LIST to find, so discoverBackups would
+	// never see it either way and the test would prove nothing.
+	if err := d.Backup(ctx, "docs", func(string) {}, func(progress.Snapshot) {}); err != nil {
+		t.Fatalf("Backup: %v", err)
+	}
+
+	// The bucket keeps the "docs" prefix for good; only sets.json's name
+	// changes.
+	if err := d.Rename(ctx, "docs", "documents"); err != nil {
+		t.Fatalf("Rename: %v", err)
+	}
+
+	remotes, err := d.RemoteSets(ctx)
+	if err != nil {
+		t.Fatalf("RemoteSets: %v", err)
+	}
+	var mine []ui.RemoteSet
+	for _, r := range remotes {
+		if r.Machine == "testpc" {
+			mine = append(mine, r)
+		}
+	}
+	if len(mine) != 1 {
+		t.Fatalf("this computer's renamed set appears %d time(s) in RemoteSets, want exactly once: %+v", len(mine), mine)
+	}
+	if !mine[0].Here {
+		t.Errorf("the renamed set is not marked as being here: %+v", mine[0])
+	}
+	if mine[0].Name != "documents" {
+		t.Errorf("row name = %q, want %q -- the current local name, so it reads as the same folder the Folders tab shows",
+			mine[0].Name, "documents")
+	}
+}
+
 // The store an interrupted upload is written down in has to be attached to
 // the client the real commands build, not just to one a test wired up.
 //

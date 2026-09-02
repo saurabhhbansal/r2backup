@@ -1198,6 +1198,18 @@ func newRenameCmd(opts *Options) *cobra.Command {
 				"The bucket still stores it under %q, and keeps that name for good. Moving\n"+
 					"%s objects to match would cost two operations each, to change a name\n"+
 					"only the R2 dashboard shows.\n", s.Prefix, progress.FormatCount(int64(n)))
+			// The prefix is built as machines/<machine>/<name-at-creation>,
+			// and that trailing segment is the only name any other computer
+			// ever sees: discoverBackups reads names out of the bucket
+			// layout, not out of this machine's sets.json. Say so, but only
+			// when it would actually surprise someone -- a set renamed back
+			// to what its prefix already spells out, or one on its first
+			// name, has nothing to warn about.
+			if original := strings.TrimPrefix(s.Prefix, "machines/"+s.Machine+"/"); original != args[1] {
+				fmt.Fprintf(opts.Out,
+					"Other computers still see this backup as %q -- `restore %s` is what\n"+
+						"works there, not %q.\n", original, original, args[1])
+			}
 			return nil
 		},
 	}

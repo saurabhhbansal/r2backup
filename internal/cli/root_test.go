@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+
+	"github.com/saurabhhbansal/r2backup/internal/sets"
 )
 
 func TestEveryCommandIsReachableAndDocumented(t *testing.T) {
@@ -95,6 +97,57 @@ func TestRenameOffersNoWayToMoveTheBucketPrefix(t *testing.T) {
 		return
 	}
 	t.Fatal("rename command not found")
+}
+
+// TestRenameTellsYouTheOriginalNameOtherComputersNeed is the other half of
+// H3: the bucket prefix a set was created under is the only name any other
+// computer's `restore` ever sees, forever, because rename deliberately never
+// touches it (see the comment on newRenameCmd). Nothing said so. `rename`
+// now does, but only when it would tell the user something they don't
+// already know -- a set renamed back to the name its prefix already spells
+// out has nothing to warn about.
+func TestRenameTellsYouTheOriginalNameOtherComputersNeed(t *testing.T) {
+	t.Setenv("R2BACKUP_DATA_DIR", t.TempDir())
+
+	setup, err := openApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := setup.sets.Add(sets.Set{
+		Name: "docs", Root: t.TempDir(), Machine: "testpc",
+		Prefix: "machines/testpc/docs", RetentionDays: 30,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	setup.close()
+
+	run := func(args ...string) string {
+		t.Helper()
+		var out bytes.Buffer
+		root := NewRoot(&Options{Out: &out, Err: &out})
+		root.SetOut(&out)
+		root.SetErr(&out)
+		root.SetArgs(args)
+		if err := root.Execute(); err != nil {
+			t.Fatalf("%v: %v\n--- output ---\n%s", args, err, out.String())
+		}
+		return out.String()
+	}
+
+	// "documents" is not what the prefix ("machines/testpc/docs") spells
+	// out, so any other computer still has to ask for "docs". Say so.
+	got := run("rename", "docs", "documents")
+	if !strings.Contains(got, `"docs"`) || !strings.Contains(got, "restore docs") {
+		t.Errorf("renaming to a name that differs from the bucket prefix did not name the original:\n%s", got)
+	}
+
+	// Renamed back to exactly what the prefix already spells out: this
+	// computer's name and the bucket's agree again, so there is nothing left
+	// to warn about.
+	got = run("rename", "documents", "docs")
+	if strings.Contains(got, "Other computers still see") {
+		t.Errorf("renaming back to the prefix's own name still printed the other-computers warning:\n%s", got)
+	}
 }
 
 // The command list is the whole interface for someone who is not at a

@@ -141,6 +141,12 @@ in again.
 Leave the email blank at the prompt to skip the account and keep everything on
 one machine.
 
+`r2b rename` only changes what this computer calls a set — the bucket keeps
+the prefix it was created with, for good, so any other computer still has to
+`restore` it under the name it had when `add` first ran. `rename` prints that
+original name on success whenever it differs from the new one, so you don't
+have to remember it.
+
 ## Where things are kept
 
 | | |

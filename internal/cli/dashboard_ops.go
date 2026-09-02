@@ -226,6 +226,18 @@ func (d *dashboard) Objects(ctx context.Context, name string) ([]ui.ObjectRow, e
 // the Folders tab is empty and there is nothing on screen naming the data that
 // is sitting in the bucket -- which is the whole reason someone signs in on a
 // second computer. This asks the bucket.
+//
+// A local match is by PREFIX, not by the name discoverBackups derives from
+// the bucket layout. `rename` changes sets.json and never the prefix (see the
+// comment on newRenameCmd), so a set renamed after it was created keeps
+// showing up in the bucket under its original name -- matching on that name
+// missed the local copy entirely, and a renamed set read as somebody else's
+// unclaimed backup sitting right next to itself, under its new name, in the
+// Folders tab. When a match is found the row is given the set's current
+// local name rather than the bucket's, so it reads as the same folder the
+// Folders tab already shows instead of a second, differently-named one; the
+// bucket's own name for it is what `rename`'s success message tells the user
+// to use from anywhere else.
 func (d *dashboard) RemoteSets(ctx context.Context) ([]ui.RemoteSet, error) {
 	a, err := d.connected(ctx)
 	if err != nil {
@@ -236,15 +248,20 @@ func (d *dashboard) RemoteSets(ctx context.Context) ([]ui.RemoteSet, error) {
 		return nil, err
 	}
 	me := machineName()
+	local := a.sets.List()
 	out := make([]ui.RemoteSet, 0, len(found))
 	for _, f := range found {
-		here := false
+		row := ui.RemoteSet{Name: f.Name, Machine: f.Machine}
 		if f.Machine == me {
-			if _, err := a.sets.Get(f.Name); err == nil {
-				here = true
+			for _, s := range local {
+				if s.Prefix == f.Prefix {
+					row.Here = true
+					row.Name = s.Name
+					break
+				}
 			}
 		}
-		out = append(out, ui.RemoteSet{Name: f.Name, Machine: f.Machine, Here: here})
+		out = append(out, row)
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Machine != out[j].Machine {
