@@ -83,27 +83,33 @@ func buildTrashKey(prefix, relPath string, now time.Time) string {
 	return path.Join(prefix, trashDir, date, dir, disambiguated)
 }
 
-// parseTrashKey recovers the date directory and the original relative
-// path from a key produced by buildTrashKey.
+// parseTrashKey recovers the date directory, the original relative path,
+// and -- when the basename carries one -- the HHMMSS time of day from a
+// key produced by buildTrashKey.
 //
-// It reports ok=false for anything not shaped like a key this package
-// wrote -- a foreign object someone else put under trash/, or a layout
-// from a future version of this format. Prune and List both need to
-// tolerate that without panicking or, worse, misfiling something they
-// don't recognize.
-func parseTrashKey(prefix, key string) (date, relPath string, ok bool) {
+// timeOfDay is the six-digit clock time straight out of the disambiguator
+// (e.g. "143022"), the same value buildTrashKey wrote next to the random
+// suffix. It comes back "" when the basename doesn't match
+// trashSuffixRE -- a foreign object someone else put under trash/, or a
+// layout from a future version of this format -- because in that case no
+// time of day was ever recorded and callers must not invent one.
+//
+// It reports ok=false for anything not shaped like trash/<date>/... at
+// all. Prune and List both need to tolerate that without panicking or,
+// worse, misfiling something they don't recognize.
+func parseTrashKey(prefix, key string) (date, relPath, timeOfDay string, ok bool) {
 	root := path.Join(prefix, trashDir) + "/"
 	if !strings.HasPrefix(key, root) {
-		return "", "", false
+		return "", "", "", false
 	}
 	rest := strings.TrimPrefix(key, root)
 	slash := strings.Index(rest, "/")
 	if slash < 0 {
-		return "", "", false // a key directly under trash/, not trash/<date>/...
+		return "", "", "", false // a key directly under trash/, not trash/<date>/...
 	}
 	date = rest[:slash]
 	if _, err := time.Parse(dateLayout, date); err != nil {
-		return "", "", false
+		return "", "", "", false
 	}
 	underDate := rest[slash+1:]
 	dir, base := path.Split(underDate)
@@ -113,9 +119,11 @@ func parseTrashKey(prefix, key string) (date, relPath string, ok bool) {
 		// Not a key this package's disambiguator produced. Report it
 		// verbatim rather than dropping it silently -- it is still a real
 		// object sitting in trash and still needs to be listable and
-		// prunable, even if its "original path" is only a guess.
-		return date, underDate, true
+		// prunable, even if its "original path" is only a guess and its
+		// time of day is genuinely unknown rather than merely unrecorded
+		// here.
+		return date, underDate, "", true
 	}
 	name, ext := m[1], m[4]
-	return date, path.Join(dir, name+ext), true
+	return date, path.Join(dir, name+ext), m[2], true
 }

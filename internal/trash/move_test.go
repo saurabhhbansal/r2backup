@@ -109,7 +109,7 @@ func TestMoveSamePathTwiceSameDayBothRecoverable(t *testing.T) {
 	}
 
 	for _, key := range []string{key1, key2} {
-		_, relPath, ok := parseTrashKey("myset", key)
+		_, relPath, _, ok := parseTrashKey("myset", key)
 		if !ok {
 			t.Fatalf("parseTrashKey(%q) failed to parse a key this package produced", key)
 		}

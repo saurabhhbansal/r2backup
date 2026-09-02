@@ -73,6 +73,61 @@ func TestListIgnoresARetentionChangeUntilCalledAgain(t *testing.T) {
 	}
 }
 
+// TestListRecoversTheTimeOfDayFromTheTrashKey is the M5 regression: the
+// trash key's disambiguator carries the HHMMSS of the actual move (see
+// buildTrashKey), and List must surface that real moment on TrashedOn
+// rather than reporting only the day, which -- formatted as a clock time
+// by a caller -- would read as a fabricated "00:00".
+func TestListRecoversTheTimeOfDayFromTheTrashKey(t *testing.T) {
+	fb := newFakeBackend()
+	movedAt := time.Date(2026, 8, 15, 14, 30, 22, 0, time.UTC)
+	fb.seed(buildTrashKey("myset", "docs/report.pdf", movedAt), 500)
+
+	tr := New(fb, fixedClock(time.Now()))
+	entries, err := tr.List(context.Background(), "myset", 30)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1: %+v", len(entries), entries)
+	}
+
+	e := entries[0]
+	if !e.TrashedOnExact {
+		t.Errorf("TrashedOnExact = false, want true: the key carries a real HHMMSS")
+	}
+	if !e.TrashedOn.Equal(movedAt) {
+		t.Errorf("TrashedOn = %v, want %v (the recorded time of day, not midnight)", e.TrashedOn, movedAt)
+	}
+}
+
+// TestListFallsBackToDayResolutionForAForeignKey covers the other half of
+// M5: an object under trash/<date>/... that this package's own
+// disambiguator never wrote (dropped there by something else) carries no
+// time of day at all, and List must say so via TrashedOnExact rather than
+// inventing one.
+func TestListFallsBackToDayResolutionForAForeignKey(t *testing.T) {
+	fb := newFakeBackend()
+	fb.seed("myset/trash/2026-08-15/docs/report.pdf", 500)
+
+	tr := New(fb, fixedClock(time.Now()))
+	entries, err := tr.List(context.Background(), "myset", 30)
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("got %d entries, want 1: %+v", len(entries), entries)
+	}
+
+	e := entries[0]
+	if e.TrashedOnExact {
+		t.Errorf("TrashedOnExact = true, want false: this key never carried a time of day")
+	}
+	if !e.TrashedOn.Equal(mustParseDate("2026-08-15")) {
+		t.Errorf("TrashedOn = %v, want 2026-08-15 (day-resolution fallback)", e.TrashedOn)
+	}
+}
+
 func TestListHonoursContextCancellation(t *testing.T) {
 	fb := newFakeBackend()
 	fb.seed(buildTrashKey("myset", "a.txt", mustParseDate("2026-08-01")), 10)

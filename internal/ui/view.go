@@ -451,10 +451,21 @@ func (m *Model) buildTrashTable() {
 	}
 	rows := make([]table.Row, 0, len(m.trashRows))
 	for _, r := range m.trashRows {
+		// DeletedExact is false for the rare row that was never moved
+		// into trash by this program -- a foreign object dropped
+		// straight into the bucket's trash tree -- and for that row no
+		// time of day was ever recorded. Printing "15:04" anyway would
+		// show a specific-looking clock time that is really just
+		// midnight, which reads as more precise than what actually
+		// happened.
+		deleted := r.Deleted.Format("2 Jan")
+		if r.DeletedExact {
+			deleted = r.Deleted.Format("2 Jan 15:04")
+		}
 		rows = append(rows, table.Row{
 			truncate(r.Key, fileW),
 			progress.FormatBytes(r.Size),
-			r.Deleted.Format("2 Jan 15:04"),
+			deleted,
 			r.Expires.Format("2 Jan"),
 		})
 	}

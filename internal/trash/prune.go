@@ -69,7 +69,7 @@ func (t *Trash) Prune(ctx context.Context, prefix string, retentionDays int) (Pr
 		if strings.Contains(e.Key, "/"+currentDir+"/") {
 			continue // never let a live-tree key reach the delete path
 		}
-		date, _, ok := parseTrashKey(prefix, e.Key)
+		date, _, _, ok := parseTrashKey(prefix, e.Key)
 		if !ok {
 			continue
 		}

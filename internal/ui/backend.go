@@ -120,7 +120,13 @@ type TrashRow struct {
 	Key     string
 	Size    int64
 	Deleted time.Time
-	Expires time.Time
+	// DeletedExact reports whether Deleted carries a real, recorded time
+	// of day or is only a day-resolution stand-in at midnight. The trash
+	// table must consult this before printing a clock time next to
+	// Deleted -- see internal/trash.Entry.TrashedOnExact, which this is
+	// copied from.
+	DeletedExact bool
+	Expires      time.Time
 }
 
 // ObjectRow is one object stored for a set: what `r2b ls <set>` prints.

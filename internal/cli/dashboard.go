@@ -363,7 +363,8 @@ func (d *dashboard) Trash(ctx context.Context, name string) ([]ui.TrashRow, erro
 	rows := make([]ui.TrashRow, 0, len(entries))
 	for _, e := range entries {
 		rows = append(rows, ui.TrashRow{
-			Key: e.RelPath, Size: e.Size, Deleted: e.TrashedOn, Expires: e.ExpiresOn,
+			Key: e.RelPath, Size: e.Size, Deleted: e.TrashedOn, DeletedExact: e.TrashedOnExact,
+			Expires: e.ExpiresOn,
 		})
 	}
 	return rows, nil
