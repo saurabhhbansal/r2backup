@@ -102,10 +102,12 @@ Description=Runs %s every %s
 # OnUnitActiveSec, not OnCalendar: r2backup needs "every N minutes since it
 # last ran", a fixed repetition, not a wall-clock schedule.
 OnUnitActiveSec=%s
-# Persistent=true: a run missed while the machine was asleep or off fires as
-# soon as systemd is back, instead of silently waiting for the next tick --
-# the same intent as StartWhenAvailable on Windows.
-Persistent=true
+# OnActiveSec is relative to the timer unit's own activation, unlike
+# OnUnitActiveSec which is relative to the service's last activation and so
+# never elapses until the service has run once. This gives the timer an
+# initial trigger -- a minute after "systemctl --user start" at install, and
+# a minute after the user manager comes up at each login.
+OnActiveSec=1min
 Unit=%s.service
 
 [Install]

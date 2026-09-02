@@ -22,7 +22,7 @@ func TestSystemdTimerUnitContents(t *testing.T) {
 		why  string
 	}{
 		{"OnUnitActiveSec=30min", "without it the timer never fires on the requested cadence at all"},
-		{"Persistent=true", "without it a run missed while asleep or off is skipped instead of firing at next boot"},
+		{"OnActiveSec=1min", "without it the timer has no trigger until its service has activated once, so it never fires at all"},
 		{"Unit=r2backup-default.service", "without an explicit Unit= the timer can't be told which .service to trigger"},
 		{"[Timer]", "not a valid systemd timer unit without a [Timer] section"},
 	}

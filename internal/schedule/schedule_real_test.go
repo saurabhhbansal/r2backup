@@ -1,9 +1,11 @@
 package schedule
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -76,6 +78,30 @@ func TestInstallAgainstTheRealScheduler(t *testing.T) {
 		t.Errorf("Interval = %s, want %s", st.Interval, entry.Interval)
 	}
 	t.Logf("registered on %s: interval=%s runs-when-signed-out=%v", runtime.GOOS, st.Interval, st.RunsWhenSignedOut)
+
+	// On systemd, Registered and a parsed Interval both come from the unit
+	// file this package wrote, so neither would have caught OnUnitActiveSec
+	// alone leaving the timer with no trigger until its service had run once
+	// (Persistent=true does nothing for it either: that only applies to
+	// OnCalendar timers). NextElapseUSecMonotonic is systemd's own answer to
+	// "when does this timer next fire," read from the live unit -- infinity
+	// or empty means never, which is exactly the bug this asserts against.
+	// systemdAvailable is Linux-only and unexported to this file's platform
+	// reach, so availability is inferred the same way the rest of this check
+	// has to: by asking systemctl directly and treating a failure to run it
+	// (systemd absent, or Install fell back to cron) as nothing to assert.
+	if runtime.GOOS == "linux" {
+		unit := systemdUnitName(name) + ".timer"
+		out, err := run(context.Background(), "systemctl", "--user", "show", unit, "-p", "NextElapseUSecMonotonic")
+		if err != nil {
+			t.Logf("systemctl --user show %s -p NextElapseUSecMonotonic unavailable, skipping: %v", unit, err)
+		} else {
+			next := strings.TrimSpace(parseSystemdShow(string(out))["NextElapseUSecMonotonic"])
+			if next == "" || next == "infinity" {
+				t.Errorf("NextElapseUSecMonotonic = %q, want a finite value -- the timer has no trigger and will never fire", next)
+			}
+		}
+	}
 
 	// Installing twice must overwrite rather than fail: `schedule --every N`
 	// is how the interval is changed.

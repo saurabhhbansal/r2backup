@@ -55,9 +55,12 @@ func launchdPlist(e Entry, stdoutPath, stderrPath string) (string, error) {
 	// backup. What that actually bought was a macOS machine forgetting: a
 	// StartInterval is counted from load, so a run due while the machine was
 	// off is simply lost, where Windows catches it up with
-	// StartWhenAvailable and systemd with Persistent=true. A backup
-	// interrupted by a shutdown then waited a full interval before carrying
-	// on, with a half-finished upload sitting on the server the whole time.
+	// StartWhenAvailable, and a systemd OnCalendar timer can with
+	// Persistent=true (this project's own timer runs on OnActiveSec and
+	// OnUnitActiveSec instead, so that option does not apply to it). A
+	// backup interrupted by a shutdown then waited a full interval before
+	// carrying on, with a half-finished upload sitting on the server the
+	// whole time.
 	//
 	// The cost is honest and small: installing a schedule now runs one
 	// backup straight away, and so does every login. A run that finds
