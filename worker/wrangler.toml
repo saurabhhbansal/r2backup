@@ -14,10 +14,11 @@ custom_domain = true
 [[d1_databases]]
 binding = "DB"
 database_name = "r2backup-account"
-# Placeholder -- replace with the id `wrangler d1 create` prints (see README
-# below / the deploy notes in the task report). wrangler refuses to deploy
-# with this value still in place, which is intentional: it stops a deploy
-# silently pointing at no database at all.
+# The id `wrangler d1 create` printed for the deployed r2backup-account
+# database, live at r2backup.flexpod.cc. Before this was set it was
+# REPLACE_WITH_D1_DATABASE_ID, and wrangler refuses to deploy with that
+# value still in place -- intentional, so a deploy can't silently end up
+# pointing at no database at all.
 database_id = "d1499845-2268-4532-92ea-e6c71f832022"
 migrations_dir = "migrations"
 

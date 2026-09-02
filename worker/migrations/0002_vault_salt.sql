@@ -9,5 +9,6 @@
 --
 -- Existing rows get an empty salt. There are none in production beyond a test
 -- row, and an empty salt is honestly undecryptable rather than quietly wrong:
--- the client reports a failed unlock and the user re-runs `account push`.
+-- the client reports a failed unlock and the user re-runs `setup`, which is
+-- what saves a fresh vault now that `account push` no longer exists.
 ALTER TABLE vaults ADD COLUMN salt TEXT NOT NULL DEFAULT '';
