@@ -109,12 +109,33 @@ func (p *Plan) Empty() bool {
 // An upload is one PUT. A move is one server-side copy; its delete is free. A
 // delete is free on R2. Trash, when enabled, adds one copy for every object
 // that is about to be overwritten or removed.
+//
+// This is a prediction, built before a single request goes out, and it stays
+// that: whether an upload or move actually lands is decided later by the
+// engine, not by anything in here. A caller billing the free tier for what a
+// run actually spent -- backup.Run does, against index.FreeTierOpsPerMonth --
+// must not use this number once the transfer has run, or a run where uploads
+// failed charges for operations that were never sent. Use TrashOps for the
+// one part of this estimate that is not conditional on the transfer's
+// outcome (see its comment) and the engine's own reported counts for the
+// rest.
 func (p *Plan) Operations(trash bool) int {
-	ops := len(p.Uploads) + len(p.Moves)
-	if trash {
-		ops += len(p.Deletes) + p.overwrites
+	return len(p.Uploads) + len(p.Moves) + p.TrashOps(trash)
+}
+
+// TrashOps is the Class A cost of moving doomed objects aside before they are
+// overwritten or deleted -- one copy per object in p.Deletes plus one per
+// upload that overwrites an existing key. Unlike the rest of Operations, this
+// part is safe to charge as predicted even after the transfer has run: a
+// caller that enables trash performs every one of these copies up front, in
+// its own step before a single upload is attempted (see backup.Run's step 3),
+// so by the time the transfer's success or failure is known this cost has
+// already been paid regardless of how the transfer turns out.
+func (p *Plan) TrashOps(trash bool) int {
+	if !trash {
+		return 0
 	}
-	return ops
+	return len(p.Deletes) + p.overwrites
 }
 
 // Options tunes plan construction.

@@ -370,7 +370,43 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 		rep.Abandoned = n
 	}
 
-	rep.Operations = p.Operations(set.TrashEnabled()) + rep.Pruned.Ops
+	// The free tier is billed for what actually happened, not for what the
+	// plan intended: p.Operations(...) counts planned uploads and moves, so a
+	// run where some of them failed used to charge index.FreeTierOpsPerMonth
+	// for PUTs that never reached R2. rep.Uploaded and rep.Moved are the
+	// engine's own counts, already narrowed to successes above (OnUploaded
+	// and OnMoved only fire when the upload or copy actually landed), so they
+	// replace the plan's counts here.
+	//
+	// This charges one operation per successful upload and one per
+	// successful move, the same rate plan.Operations uses, and it is exact
+	// at that rate -- but the rate itself is an approximation for a large
+	// file: anything over remote's multipart threshold is actually a
+	// CreateMultipartUpload, several UploadParts, and a
+	// CompleteMultipartUpload, not one PUT (see the multipartThreshold
+	// comment in internal/remote/client.go), and neither plan.Plan nor
+	// engine.Result records how many requests one upload actually took. A
+	// failed multipart upload may also have already spent a create call and
+	// one or more part uploads before it gave up; charging it as zero here
+	// would under-count in the same direction the old bug over-counted in.
+	// There is no plumbing today that reports partial multipart cost, so
+	// this is the closest honest number reachable from what the engine
+	// reports: correct for anything under the multipart threshold (the
+	// overwhelming majority of files), and an undercount -- never an
+	// overcount -- above it, which is the direction that never tells a user
+	// they have less free-tier budget left than they actually do.
+	//
+	// The trash-copy component (TrashOps) is unaffected by any of this: a
+	// doomed object is moved to trash in step 3, before a single upload is
+	// attempted, so that cost is already real by the time this line runs
+	// regardless of how the transfer that followed turned out. The same is
+	// true of rep.Pruned.Ops, which is already the count of ListObjectsV2
+	// calls the sweep actually made, not a prediction of what it would make.
+	trashOps := 0
+	if opts.Trash != nil && set.TrashEnabled() {
+		trashOps = p.TrashOps(true)
+	}
+	rep.Operations = rep.Uploaded + rep.Moved + trashOps + rep.Pruned.Ops
 	if err := opts.Index.AddOps(rep.Operations); err != nil {
 		return nil, fmt.Errorf("record operation count: %w", err)
 	}
