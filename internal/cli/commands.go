@@ -823,6 +823,29 @@ func newRemoveCmd(opts *Options) *cobra.Command {
 				return err
 			}
 
+			// Refused before anything below runs, including --purge's delete
+			// of the objects, which nothing can undo. The live progress file
+			// is how a second r2b process learns a backup is going -- `status`
+			// and the dashboard both already read it the same way -- and it
+			// answers the one question that matters here: is it THIS set.
+			//
+			// The checkoutIndex call further down already stands in the way
+			// of this too, in its own blunt fashion: it blocks on bbolt's
+			// file lock for as long as any backup, of any set, holds the
+			// index, and after 5s gives up with a message about a lock
+			// rather than about a set being backed up. That is worth having
+			// for a set this check cannot see -- an index opened outside
+			// this process entirely -- but it is not this check: it does
+			// not know which set is running, so it cannot let a different
+			// set through, and by the time it fires --purge has already
+			// deleted from the bucket. This check runs first, is instant,
+			// and only refuses when it is actually this set.
+			if progressPath, err := config.ProgressPath(); err == nil {
+				if live, err := runstate.ReadLive(progressPath); err == nil && !live.Stale(time.Now()) && live.Set == s.Name {
+					return fmt.Errorf("%q is being backed up right now. Wait for it to finish, or check with: r2b status", s.Name)
+				}
+			}
+
 			var deleted remote.PrefixDeletion
 			if purge {
 				if err := a.connect(cmd.Context()); err != nil {

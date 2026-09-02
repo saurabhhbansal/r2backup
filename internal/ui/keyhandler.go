@@ -94,11 +94,19 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// startsWork reports whether a key begins something that transfers data.
-// Only one of those may be in flight: they contend for the same bbolt writer
-// lock on the index, and the progress screen can only show one.
+// startsWork reports whether a key begins something that must not run
+// alongside another such thing. Add, Backup, All and Restore transfer data
+// and contend for the same bbolt writer lock on the index, and the progress
+// screen can only show one of them at a time regardless.
+//
+// Remove and Purge join them for a different reason: DropSet does not write
+// a few keys, it drops a set's whole bucket in the index and recreates it
+// empty, and a running backup.Run for that same set is filling that bucket
+// in as it goes. Removing it out from under a running backup would leave
+// the index holding only whatever the backup wrote after the drop,
+// silently forgetting everything uploaded before it.
 func startsWork(msg tea.KeyMsg) bool {
-	for _, b := range []key.Binding{keys.Add, keys.Backup, keys.All, keys.Restore} {
+	for _, b := range []key.Binding{keys.Add, keys.Backup, keys.All, keys.Restore, keys.Remove, keys.Purge} {
 		if key.Matches(msg, b) {
 			return true
 		}
