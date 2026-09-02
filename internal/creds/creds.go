@@ -5,11 +5,14 @@
 // typed at run time cannot be the storage for these -- it would mean the
 // unattended backups the product exists to provide simply never happen.
 //
-// So the protection is the operating system's: DPAPI on Windows, the Keychain
-// on macOS, libsecret on Linux, each of which unlocks for the logged-in user
-// and for nobody else. Where none is available the file is written 0600 and
-// Protected() reports false, so the caller can say so plainly rather than
-// implying a protection that is not there.
+// So the protection is the operating system's where one is wired up, and
+// honest about its absence where it is not. On Windows, DPAPI seals the file
+// to the logged-in user and nobody else. Everywhere else -- macOS and Linux
+// both, for now -- there is no OS keystore integration yet, so the file is
+// written 0600 in a 0700 directory and Protection() reports false, so the
+// caller can say so plainly rather than implying a protection that is not
+// there. Keychain and libsecret backends would close that gap; neither
+// exists today.
 package creds
 
 import (

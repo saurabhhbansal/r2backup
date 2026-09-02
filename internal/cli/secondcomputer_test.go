@@ -86,6 +86,10 @@ func TestSetupOnASecondComputer(t *testing.T) {
 	for _, want := range []string{
 		"Found the credentials you saved from another computer",
 		"Unlocked",
+		// The README promises that setup says which of the two protections a
+		// computer got, on every path in, not only the one where the keys
+		// were typed by hand.
+		"guarded by",
 		"Connection works",
 		// The closing line has to name what is actually restorable. A fresh
 		// computer's whole reason to exist is the data already in the bucket,

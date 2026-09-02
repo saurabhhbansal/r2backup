@@ -202,6 +202,12 @@ func TestCredentialsReachTheSecondComputer(t *testing.T) {
 	if got != want {
 		t.Fatalf("second computer got %+v, want %+v", got, want)
 	}
+	// The README promises that setup says which protection a computer got.
+	// A vault pull is as much "setup" as typing the keys in, so the same
+	// sentence has to appear here too.
+	if !strings.Contains(said(pull), "guarded by") {
+		t.Errorf("pullCredentials did not say what protects the secret; got:\n%s", said(pull))
+	}
 }
 
 func TestPullForgivesAMistypedPassword(t *testing.T) {

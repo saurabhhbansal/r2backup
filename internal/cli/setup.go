@@ -106,11 +106,8 @@ func runSetup(ctx context.Context, a *app, opts *Options, keysOnly bool) error {
 	if err := a.creds.Save(c); err != nil {
 		return err
 	}
-	name, protected := a.creds.Protection()
-	fmt.Fprintf(p.out, "\nSaved. The secret key is guarded by %s.\n", name)
-	if !protected {
-		fmt.Fprintln(p.out, "Note: no OS keystore is available here, so this is file permissions only.")
-	}
+	fmt.Fprintln(p.out, "\nSaved.")
+	printProtection(p, a)
 
 	// The connection is checked before the keys are stored for other
 	// computers, never after. Pushing a set of keys that do not work would
@@ -235,6 +232,11 @@ func pullCredentials(ctx context.Context, a *app, p *prompter, client *account.C
 				return false, err
 			}
 			fmt.Fprintf(p.out, "\nUnlocked: bucket %q.\n", c.Bucket)
+			// Keys pulled from the vault land in the same store, under the
+			// same OS protection, as keys typed in by hand -- so the README's
+			// promise that setup names the protection has to hold here too,
+			// not only on the path where the secret came off the keyboard.
+			printProtection(p, a)
 			return true, nil
 		}
 		if attempt >= passwordAttempts {
@@ -246,6 +248,20 @@ func pullCredentials(ctx context.Context, a *app, p *prompter, client *account.C
 				"  not your files. Run `r2b setup --keys` and enter your R2 keys instead")
 		}
 		fmt.Fprintln(p.out, "  That password does not open it. Try again.")
+	}
+}
+
+// printProtection names whatever is actually guarding the secret that was
+// just written to this machine's credential store -- an OS keystore where
+// one exists, or, honestly, file permissions where it does not. It runs
+// after every write, whichever path produced it, because the promise in the
+// README ("setup tells you which of the two you got") does not say which of
+// the two ways into setup it applies to.
+func printProtection(p *prompter, a *app) {
+	name, protected := a.creds.Protection()
+	fmt.Fprintf(p.out, "The secret key is guarded by %s.\n", name)
+	if !protected {
+		fmt.Fprintln(p.out, "Note: no OS keystore is available here, so this is file permissions only.")
 	}
 }
 
