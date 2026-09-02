@@ -105,15 +105,35 @@ func (k keyMap) ShortHelp() []key.Binding {
 	return []key.Binding{k.NextTab, k.Enter, k.Help, k.Quit}
 }
 
+// FullHelp used to lay out in seven short columns, one per theme
+// (navigation, folders, views, removal, schedule, account, global). That
+// read well but bubbles/help lays FullHelp's columns out side by side and
+// drops whichever ones do not fit -- and seven columns of descriptions like
+// "another computer's backups" and "stop and delete the stored copy" do not
+// fit at 80 columns, or even at 120: the columns that fell off were
+// Schedule, Account and the global one, which is where Quit lives. A help
+// overlay that cannot tell you how to leave is worse than no overlay.
+//
+// The fix is not narrower text, it is fewer columns holding more rows.
+// bubbles/help sizes a column by its widest entry, not by summing every
+// entry in it, so folding several short columns into one long one is close
+// to free -- the total width barely moves, only the height does. Two
+// columns is as far as that goes while every column still fits inside 80:
+// three, split anywhere that keeps a theme together, comes out over budget.
+// So the seven themes are folded into two, in the same reading order as
+// before: what you do to a folder (moving around it, adding and backing it
+// up, looking at what is stored) on the left, and everything that follows
+// from removing, scheduling, accounts and the whole program (including how
+// to quit) on the right.
 func (k keyMap) FullHelp() [][]key.Binding {
 	return [][]key.Binding{
-		{k.Up, k.Down, k.Enter, k.Back, k.NextTab},
-		{k.Add, k.Backup, k.All, k.Edit, k.Restore},
-		{k.Files, k.Remote, k.Rename, k.Relink},
-		{k.Remove, k.Purge},
-		{k.Toggle, k.Every, k.Repair},
-		{k.SignIn, k.Unlock, k.Share, k.Keys, k.SignOut},
-		{k.Watch, k.Update, k.Refresh, k.Help, k.Quit},
+		{k.Up, k.Down, k.Enter, k.Back, k.NextTab,
+			k.Add, k.Backup, k.All, k.Edit, k.Restore,
+			k.Files, k.Remote, k.Rename, k.Relink},
+		{k.Remove, k.Purge,
+			k.Toggle, k.Every, k.Repair,
+			k.SignIn, k.Unlock, k.Share, k.Keys, k.SignOut,
+			k.Watch, k.Update, k.Refresh, k.Help, k.Quit},
 	}
 }
 
