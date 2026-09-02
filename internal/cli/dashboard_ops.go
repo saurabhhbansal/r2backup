@@ -92,16 +92,21 @@ func (d *dashboard) SetExcludes(ctx context.Context, name string, excludes []str
 
 func (d *dashboard) Rename(ctx context.Context, from, to string) error {
 	a := d.app
+	idx, release, err := a.checkoutIndex()
+	if err != nil {
+		return err
+	}
+	defer release()
 	// The index is keyed by set name too. It moves first: that is one bbolt
 	// transaction and cannot half-happen, and if the set store then refuses
 	// the new name the index goes back. The other order has no recovery --
 	// it is what left a renamed set reading an empty index and re-uploading
 	// everything.
-	if err := a.index.RenameSet(from, to); err != nil {
+	if err := idx.RenameSet(from, to); err != nil {
 		return err
 	}
 	if err := a.sets.Rename(from, to); err != nil {
-		if back := a.index.RenameSet(to, from); back != nil {
+		if back := idx.RenameSet(to, from); back != nil {
 			return fmt.Errorf("%w (and the index could not be put back under %q: %v)", err, from, back)
 		}
 		return err
@@ -191,7 +196,12 @@ func (d *dashboard) Restore(ctx context.Context, req ui.RestoreRequest, phase fu
 // opening this list costs nothing. Largest first, because the question people
 // actually bring to it is which files are worth the bill.
 func (d *dashboard) Objects(ctx context.Context, name string) ([]ui.ObjectRow, error) {
-	recs, err := d.app.index.All(name)
+	idx, release, err := d.app.checkoutIndex()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	recs, err := idx.All(name)
 	if err != nil {
 		return nil, err
 	}

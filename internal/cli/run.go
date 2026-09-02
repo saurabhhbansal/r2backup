@@ -76,6 +76,18 @@ func (o *terminalObserver) clear() {
 
 // runOne performs a backup of a single set and records what happened.
 func runOne(ctx context.Context, a *app, s sets.Set, out io.Writer, interactive bool) (*backup.Report, error) {
+	// Checked out for the whole run, not per call: backup.Run holds the
+	// index for as long as the backup takes, exactly the way it always has.
+	// If this fails because another r2b process already holds the lock,
+	// nothing below has run yet -- no history entry is written for it, the
+	// same as when this failure used to happen at openApp before any set was
+	// even resolved.
+	idx, release, err := a.checkoutIndex()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+
 	progressPath, err := config.ProgressPath()
 	if err != nil {
 		return nil, err
@@ -85,7 +97,7 @@ func runOne(ctx context.Context, a *app, s sets.Set, out io.Writer, interactive 
 
 	rep, runErr := backup.Run(ctx, backup.Options{
 		Set:         s,
-		Index:       a.index,
+		Index:       idx,
 		Client:      a.client,
 		Trash:       backup.NewTrash(a.client, s.RetentionDays),
 		Observer:    obs,

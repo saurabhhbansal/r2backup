@@ -407,9 +407,18 @@ func TestTheRealClientIsGivenSomewhereToRecordUnfinishedUploads(t *testing.T) {
 		PartSize: 16 << 20, Size: 100 << 20, ModTime: 1,
 		StartedAt: time.Now().Add(-30 * 24 * time.Hour).UnixNano(),
 	}
-	if err := setup.index.SavePendingUpload(stale); err != nil {
+	// index.DB is now checked out on demand -- see app.checkoutIndex -- so a
+	// test writing straight to it, the way the dashboard's own methods do,
+	// has to check it out too rather than reaching through the field while
+	// nobody has opened it.
+	idx, release, err := setup.checkoutIndex()
+	if err != nil {
 		t.Fatal(err)
 	}
+	if err := idx.SavePendingUpload(stale); err != nil {
+		t.Fatal(err)
+	}
+	release()
 	setup.close()
 
 	d, err := openDashboard(&Options{Out: os.Stderr, Err: os.Stderr})
@@ -423,7 +432,12 @@ func TestTheRealClientIsGivenSomewhereToRecordUnfinishedUploads(t *testing.T) {
 		t.Fatalf("Backup: %v", err)
 	}
 
-	if _, ok, err := d.app.index.PendingUploadFor(stale.Key); err != nil {
+	checkIdx, checkRelease, err := d.app.checkoutIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer checkRelease()
+	if _, ok, err := checkIdx.PendingUploadFor(stale.Key); err != nil {
 		t.Fatal(err)
 	} else if ok {
 		t.Error("a month-old unfinished upload survived a run, so the client has nowhere to read them from")
@@ -452,12 +466,21 @@ func TestRemovingASetTakesItsUnfinishedUploadsWithIt(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := setupApp.index.SavePendingUpload(index.PendingUpload{
+	// Checked out for this direct write, same reason as in
+	// TestTheRealClientIsGivenSomewhereToRecordUnfinishedUploads above:
+	// index.DB opens on demand now, so nothing can reach through
+	// setupApp.index without a matching Acquire.
+	seedIdx, seedRelease, err := setupApp.checkoutIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := seedIdx.SavePendingUpload(index.PendingUpload{
 		Key: "machines/testpc/Notes/current/big.bin", UploadID: "u",
 		PartSize: 16 << 20, Size: 100 << 20, StartedAt: time.Now().UnixNano(),
 	}); err != nil {
 		t.Fatal(err)
 	}
+	seedRelease()
 	setupApp.close()
 
 	d, err := openDashboard(&Options{Out: os.Stderr, Err: os.Stderr})
@@ -469,7 +492,12 @@ func TestRemovingASetTakesItsUnfinishedUploadsWithIt(t *testing.T) {
 	if err := d.Remove(context.Background(), "Notes", false); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
-	all, err := d.app.index.AllPendingUploads()
+	checkIdx, checkRelease, err := d.app.checkoutIndex()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer checkRelease()
+	all, err := checkIdx.AllPendingUploads()
 	if err != nil {
 		t.Fatal(err)
 	}

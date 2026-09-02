@@ -16,6 +16,12 @@ import (
 )
 
 // app is everything a command needs, opened once and closed once.
+//
+// index is a handle rather than an already-open database: see checkoutIndex.
+// It is created once per app and never replaced, so a *index.DB captured
+// elsewhere -- connect's Resume store, below, is the one that matters --
+// stays valid for the app's whole life no matter how many times the index
+// is checked out and given back in between.
 type app struct {
 	dir    string
 	sets   *sets.Store
@@ -27,6 +33,13 @@ type app struct {
 // openApp opens local state only. Commands that never touch the network --
 // status, ls, rename -- stop here, so they work with no connection and cost
 // nothing.
+//
+// The index itself is not opened here. index.New builds a handle that opens
+// nothing -- no file, no directory, no bbolt lock -- until something actually
+// calls checkoutIndex; a command that never touches the index (relink, for
+// instance) now never takes bbolt's lock at all, and one that does holds it
+// only while checked out. See checkoutIndex and the dashboard struct's
+// comment in dashboard.go for why that distinction is the whole fix.
 func openApp() (*app, error) {
 	dir, err := config.EnsureDataDir()
 	if err != nil {
@@ -41,16 +54,32 @@ func openApp() (*app, error) {
 	if err != nil {
 		return nil, err
 	}
-	db, err := index.Open(idxPath)
-	if err != nil {
-		return nil, err
-	}
 	return &app{
 		dir:   dir,
 		sets:  st,
-		index: db,
+		index: index.New(idxPath),
 		creds: creds.Open(filepath.Join(dir, "credentials")),
 	}, nil
+}
+
+// checkoutIndex checks out the index for one caller's use and returns a func
+// to give it back. Call the func exactly once, generally via defer,
+// regardless of how the checkout was used -- a long-running one (a backup
+// holds it for its whole run) is exactly as valid as a single call.
+//
+// This is the on-demand half of the fix: a command process still holds the
+// index open from its first checkout until app.close() at exit, which costs
+// it nothing since it is not running alongside itself. The dashboard is the
+// caller this exists for -- it is long-lived and mostly idle, so checking
+// out only while a Load, a Backup or some other operation is actually
+// touching the index is what lets a second r2b process (a scheduled backup,
+// `status`, `ls`) get the lock in between, instead of finding the window
+// merely being open enough to starve it for as long as it stays open.
+func (a *app) checkoutIndex() (*index.DB, func(), error) {
+	if err := a.index.Acquire(); err != nil {
+		return nil, nil, err
+	}
+	return a.index, func() { _ = a.index.Release() }, nil
 }
 
 func (a *app) close() {
@@ -83,6 +112,16 @@ func (a *app) connect(ctx context.Context) error {
 		// file interrupted partway starts again from the beginning, which on
 		// a connection bad enough to interrupt it once may mean it never
 		// finishes at all.
+		//
+		// a.index is safe to capture here even though connect runs long
+		// before, and independently of, any particular checkout: it is the
+		// same *index.DB for the app's whole life (see the app struct's
+		// comment), and every place that actually reads or writes through
+		// this Resume store -- all inside backup.Run's upload path -- runs
+		// only while that same call's own checkoutIndex is held. If index
+		// were ever replaced with a freshly-opened *index.DB per checkout
+		// instead of reused, this captured pointer would go stale the moment
+		// the first checkout after connect released it.
 		Resume: backup.ResumeStoreFor(a.index),
 	})
 	if err != nil {

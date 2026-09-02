@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"go.etcd.io/bbolt"
@@ -62,6 +63,15 @@ const FreeTierOpsPerMonth = 1_000_000
 // instead of getting a zero-value Record back either way.
 var ErrNotFound = errors.New("index: record not found")
 
+// ErrLocked is joined into the error Open (or Acquire, its on-demand
+// cousin) returns when bbolt's exclusive file lock is already held and the
+// 5s wait timed out. It exists so a caller can tell "someone else has it"
+// apart from every other way opening a file can fail, without depending on
+// bbolt.ErrTimeout directly -- and so the message reaching a user names a
+// cause they can act on ("another copy of r2b is already running") rather
+// than the bare word "timeout", which was the whole complaint this fixes.
+var ErrLocked = errors.New("index: locked by another process")
+
 // Changed reports whether a file needs re-uploading, given the record last
 // stored for it and what a fresh stat just observed.
 func Changed(rec Record, size int64, modTime time.Time) bool {
@@ -87,8 +97,14 @@ var (
 // DB is a bbolt-backed store, isolated per set, safe for concurrent use from
 // multiple goroutines the way bbolt itself is: one writer at a time, any
 // number of concurrent readers.
+//
+// It is also safe for concurrent use by more than one *caller* of Acquire at
+// once, sharing the one underlying bbolt handle between them -- see Acquire.
 type DB struct {
-	bolt *bbolt.DB
+	path string
+	mu   sync.Mutex
+	bolt *bbolt.DB // nil unless refs > 0; guarded by mu.
+	refs int       // how many Acquires (Open's included) have not Released yet.
 
 	// Now stands in for time.Now so the op-counter's month rollover can be
 	// tested without waiting for a real month to turn over. Set it (if at
@@ -97,17 +113,96 @@ type DB struct {
 	Now func() time.Time
 }
 
+// New returns a DB for path with nothing open yet: no directory is created,
+// no file is touched, no lock is taken, until the first Acquire. This is the
+// on-demand half of DB -- see Acquire -- for a caller that may go long
+// stretches with nothing to do with the index and wants to hold no OS
+// resource for it during those stretches. Open, below, is this plus one
+// Acquire, for the ordinary case of a caller that wants a ready-to-use DB
+// immediately and will Close it exactly once when done.
+func New(path string) *DB {
+	return &DB{path: path, Now: time.Now}
+}
+
 // Open opens (creating if necessary) the index at path, along with any
 // missing parent directories.
 func Open(path string) (*DB, error) {
-	if dir := filepath.Dir(path); dir != "." {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return nil, fmt.Errorf("open index at %q: %w", path, err)
+	db := New(path)
+	if err := db.Acquire(); err != nil {
+		return nil, err
+	}
+	return db, nil
+}
+
+// Acquire checks this DB out for one more concurrent user, opening the
+// underlying file -- and taking bbolt's exclusive lock -- if this is the
+// first one currently checked out. Every successful Acquire must be matched
+// by exactly one Release.
+//
+// This is what lets one *DB be shared by several concurrent users inside a
+// single long-lived process -- which bbolt itself allows -- while still
+// giving up the OS file lock the moment none of them are using it, so a
+// second r2b process (a scheduled backup, `status`, `ls`) is not locked out
+// just because that first process happens to still be running with nothing
+// to do. See internal/cli's dashboard struct for the caller this exists for,
+// and why a per-call Open/Close there was tried first and made things worse,
+// not better.
+func (db *DB) Acquire() error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	if db.refs == 0 {
+		if err := db.open(); err != nil {
+			return err
 		}
 	}
-	b, err := bbolt.Open(path, 0o600, &bbolt.Options{Timeout: 5 * time.Second})
+	db.refs++
+	return nil
+}
+
+// Release gives back one Acquire (or the implicit one Open made). Once every
+// acquirer has released, the underlying file is closed and bbolt's lock let
+// go; a later Acquire reopens it. Releasing more times than were acquired is
+// a caller bug, not a state this DB can be argued back out of, so it is a
+// no-op rather than a panic or a negative count.
+func (db *DB) Release() error {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	if db.refs == 0 {
+		return nil
+	}
+	db.refs--
+	if db.refs > 0 || db.bolt == nil {
+		return nil
+	}
+	b := db.bolt
+	db.bolt = nil
+	if err := b.Close(); err != nil {
+		return fmt.Errorf("close index: %w", err)
+	}
+	return nil
+}
+
+// open does the actual bbolt.Open and bucket bootstrap. Called with mu held,
+// by Acquire when refs is rising from zero.
+func (db *DB) open() error {
+	if dir := filepath.Dir(db.path); dir != "." {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return fmt.Errorf("open index at %q: %w", db.path, err)
+		}
+	}
+	b, err := bbolt.Open(db.path, 0o600, &bbolt.Options{Timeout: 5 * time.Second})
 	if err != nil {
-		return nil, fmt.Errorf("open index at %q: %w", path, err)
+		if errors.Is(err, bbolt.ErrTimeout) {
+			// A bare "timeout" told a user nothing they could do anything
+			// about. This names the actual cause -- there is exactly one way
+			// this lock is already held, which is another copy of r2b -- and
+			// the fact that this process gave up rather than sitting there,
+			// which it did, silently, for 5s, before this error existed.
+			return fmt.Errorf("open index at %q: another copy of r2b is already running "+
+				"(a backup, or the dashboard), and this one stopped rather than wait for it: %w",
+				db.path, errors.Join(ErrLocked, err))
+		}
+		return fmt.Errorf("open index at %q: %w", db.path, err)
 	}
 	err = b.Update(func(tx *bbolt.Tx) error {
 		if _, err := tx.CreateBucketIfNotExists(setsBucketName); err != nil {
@@ -118,14 +213,49 @@ func Open(path string) (*DB, error) {
 	})
 	if err != nil {
 		b.Close()
-		return nil, fmt.Errorf("open index at %q: %w", path, err)
+		return fmt.Errorf("open index at %q: %w", db.path, err)
 	}
-	return &DB{bolt: b, Now: time.Now}, nil
+	db.bolt = b
+	return nil
 }
 
-// Close closes the underlying bbolt file.
+// handle returns the bbolt handle every other method actually reads and
+// writes through, synchronized against Acquire/Release/Close so a state
+// change already in flight is never read half-way through.
+//
+// It errors rather than returning nil when nobody currently holds this DB
+// open -- calling one of these methods without a matching Acquire (or the
+// implicit one Open makes) is a caller bug, and finding that out from a
+// returned error is a lot cheaper than finding it out from a nil-pointer
+// panic inside bbolt.
+func (db *DB) handle() (*bbolt.DB, error) {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	if db.bolt == nil {
+		return nil, errors.New("index: used while not open (missing Acquire or Open)")
+	}
+	return db.bolt, nil
+}
+
+// Close closes the underlying bbolt file if it is currently open, and resets
+// the use count to zero regardless of how many Acquires are outstanding.
+//
+// It exists for a caller with no matching Acquire to give back one at a
+// time -- which is every direct caller of Open, and internal/cli's
+// app.close() at the end of every command -- so shutting down cleanly never
+// requires counting how many Acquires happened first. A later Acquire on the
+// same *DB reopens it: Close is "give it all back now", not "this DB is
+// spent".
 func (db *DB) Close() error {
-	if err := db.bolt.Close(); err != nil {
+	db.mu.Lock()
+	defer db.mu.Unlock()
+	db.refs = 0
+	if db.bolt == nil {
+		return nil
+	}
+	b := db.bolt
+	db.bolt = nil
+	if err := b.Close(); err != nil {
 		return fmt.Errorf("close index: %w", err)
 	}
 	return nil
@@ -159,7 +289,11 @@ func (db *DB) Put(set string, rec Record) error {
 	if err != nil {
 		return fmt.Errorf("encode record %q for set %q: %w", rec.Key, set, err)
 	}
-	err = db.bolt.Update(func(tx *bbolt.Tx) error {
+	bolt, err := db.handle()
+	if err != nil {
+		return err
+	}
+	err = bolt.Update(func(tx *bbolt.Tx) error {
 		b, err := setBucket(tx, set, true)
 		if err != nil {
 			return err
@@ -179,7 +313,11 @@ func (db *DB) PutMany(set string, recs []Record) error {
 	if len(recs) == 0 {
 		return nil
 	}
-	err := db.bolt.Update(func(tx *bbolt.Tx) error {
+	bolt, err := db.handle()
+	if err != nil {
+		return err
+	}
+	err = bolt.Update(func(tx *bbolt.Tx) error {
 		b, err := setBucket(tx, set, true)
 		if err != nil {
 			return err
@@ -205,7 +343,11 @@ func (db *DB) PutMany(set string, recs []Record) error {
 // the key does not exist.
 func (db *DB) Get(set, key string) (Record, error) {
 	var rec Record
-	err := db.bolt.View(func(tx *bbolt.Tx) error {
+	bolt, err := db.handle()
+	if err != nil {
+		return Record{}, err
+	}
+	err = bolt.View(func(tx *bbolt.Tx) error {
 		b, err := setBucket(tx, set, false)
 		if err != nil {
 			return err
@@ -231,7 +373,11 @@ func (db *DB) Get(set, key string) (Record, error) {
 // Delete removes key from set. Deleting a key that is not there, or from a
 // set that has never been written, is not an error.
 func (db *DB) Delete(set, key string) error {
-	err := db.bolt.Update(func(tx *bbolt.Tx) error {
+	bolt, err := db.handle()
+	if err != nil {
+		return err
+	}
+	err = bolt.Update(func(tx *bbolt.Tx) error {
 		b, err := setBucket(tx, set, false)
 		if err != nil {
 			return err
@@ -252,7 +398,11 @@ func (db *DB) DeleteMany(set string, keys []string) error {
 	if len(keys) == 0 {
 		return nil
 	}
-	err := db.bolt.Update(func(tx *bbolt.Tx) error {
+	bolt, err := db.handle()
+	if err != nil {
+		return err
+	}
+	err = bolt.Update(func(tx *bbolt.Tx) error {
 		b, err := setBucket(tx, set, false)
 		if err != nil {
 			return err
@@ -277,7 +427,11 @@ func (db *DB) DeleteMany(set string, keys []string) error {
 // has never been written returns an empty slice, not an error.
 func (db *DB) All(set string) ([]Record, error) {
 	var recs []Record
-	err := db.bolt.View(func(tx *bbolt.Tx) error {
+	bolt, err := db.handle()
+	if err != nil {
+		return nil, err
+	}
+	err = bolt.View(func(tx *bbolt.Tx) error {
 		b, err := setBucket(tx, set, false)
 		if err != nil {
 			return err
@@ -303,7 +457,11 @@ func (db *DB) All(set string) ([]Record, error) {
 // Count returns the number of records stored for set.
 func (db *DB) Count(set string) (int, error) {
 	var n int
-	err := db.bolt.View(func(tx *bbolt.Tx) error {
+	bolt, err := db.handle()
+	if err != nil {
+		return 0, err
+	}
+	err = bolt.View(func(tx *bbolt.Tx) error {
 		b, err := setBucket(tx, set, false)
 		if err != nil {
 			return err
@@ -322,7 +480,11 @@ func (db *DB) Count(set string) (int, error) {
 // DropSet deletes every record for set. Dropping a set that was never
 // written is not an error.
 func (db *DB) DropSet(set string) error {
-	err := db.bolt.Update(func(tx *bbolt.Tx) error {
+	bolt, err := db.handle()
+	if err != nil {
+		return err
+	}
+	err = bolt.Update(func(tx *bbolt.Tx) error {
 		sets := tx.Bucket(setsBucketName)
 		if sets == nil {
 			return nil
@@ -356,7 +518,11 @@ func (db *DB) RenameSet(from, to string) error {
 	if from == to {
 		return nil
 	}
-	err := db.bolt.Update(func(tx *bbolt.Tx) error {
+	bolt, err := db.handle()
+	if err != nil {
+		return err
+	}
+	err = bolt.Update(func(tx *bbolt.Tx) error {
 		sets := tx.Bucket(setsBucketName)
 		if sets == nil {
 			return errors.New("index: sets bucket missing (index not opened via Open)")
@@ -428,7 +594,11 @@ func startOfNextMonth(t time.Time) time.Time {
 func (db *DB) ClaimDailyPrune(set string) (bool, error) {
 	today := db.now().UTC().Format("2006-01-02")
 	var due bool
-	err := db.bolt.Update(func(tx *bbolt.Tx) error {
+	bolt, err := db.handle()
+	if err != nil {
+		return false, err
+	}
+	err = bolt.Update(func(tx *bbolt.Tx) error {
 		meta := tx.Bucket(metaBucketName)
 		if meta == nil {
 			return errors.New("index: meta bucket missing (index not opened via Open)")
@@ -465,7 +635,11 @@ func (db *DB) ClaimDailyPrune(set string) (bool, error) {
 // removed, so a later set of the same name does not inherit a claim that
 // makes it skip its first sweep.
 func (db *DB) ForgetDailyPrune(set string) error {
-	return db.bolt.Update(func(tx *bbolt.Tx) error {
+	bolt, err := db.handle()
+	if err != nil {
+		return err
+	}
+	return bolt.Update(func(tx *bbolt.Tx) error {
 		meta := tx.Bucket(metaBucketName)
 		if meta == nil {
 			return nil
@@ -506,7 +680,11 @@ func (db *DB) AddOps(n int) error {
 		return nil
 	}
 	cur := monthKey(db.now())
-	err := db.bolt.Update(func(tx *bbolt.Tx) error {
+	bolt, err := db.handle()
+	if err != nil {
+		return err
+	}
+	err = bolt.Update(func(tx *bbolt.Tx) error {
 		meta := tx.Bucket(metaBucketName)
 		var st opsState
 		if data := meta.Get(opsKey); data != nil {
@@ -540,7 +718,11 @@ func (db *DB) OpsThisMonth() (used int, resetAt time.Time, err error) {
 	now := db.now()
 	cur := monthKey(now)
 	var st opsState
-	txErr := db.bolt.View(func(tx *bbolt.Tx) error {
+	bolt, err := db.handle()
+	if err != nil {
+		return 0, time.Time{}, err
+	}
+	txErr := bolt.View(func(tx *bbolt.Tx) error {
 		meta := tx.Bucket(metaBucketName)
 		data := meta.Get(opsKey)
 		if data == nil {

@@ -53,7 +53,11 @@ var uploadsBucketName = []byte("uploads")
 func (db *DB) PendingUploadFor(key string) (PendingUpload, bool, error) {
 	var u PendingUpload
 	var found bool
-	err := db.bolt.View(func(tx *bbolt.Tx) error {
+	bolt, err := db.handle()
+	if err != nil {
+		return PendingUpload{}, false, err
+	}
+	err = bolt.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(uploadsBucketName)
 		if b == nil {
 			return nil
@@ -87,7 +91,11 @@ func (db *DB) SavePendingUpload(u PendingUpload) error {
 	if err != nil {
 		return fmt.Errorf("index: encode pending upload %q: %w", u.Key, err)
 	}
-	err = db.bolt.Update(func(tx *bbolt.Tx) error {
+	bolt, err := db.handle()
+	if err != nil {
+		return err
+	}
+	err = bolt.Update(func(tx *bbolt.Tx) error {
 		b, err := tx.CreateBucketIfNotExists(uploadsBucketName)
 		if err != nil {
 			return err
@@ -102,7 +110,11 @@ func (db *DB) SavePendingUpload(u PendingUpload) error {
 
 // ForgetPendingUpload drops the record, on completion or on abandonment.
 func (db *DB) ForgetPendingUpload(key string) error {
-	err := db.bolt.Update(func(tx *bbolt.Tx) error {
+	bolt, err := db.handle()
+	if err != nil {
+		return err
+	}
+	err = bolt.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(uploadsBucketName)
 		if b == nil {
 			return nil
@@ -118,7 +130,11 @@ func (db *DB) ForgetPendingUpload(key string) error {
 // AllPendingUploads lists every unfinished upload, oldest first.
 func (db *DB) AllPendingUploads() ([]PendingUpload, error) {
 	var out []PendingUpload
-	err := db.bolt.View(func(tx *bbolt.Tx) error {
+	bolt, err := db.handle()
+	if err != nil {
+		return nil, err
+	}
+	err = bolt.View(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(uploadsBucketName)
 		if b == nil {
 			return nil
@@ -164,7 +180,11 @@ func (db *DB) PendingBytes() (done, total int64, files int, err error) {
 // forever, and the sweep would keep asking the bucket about an upload for a
 // folder nobody is backing up any more.
 func (db *DB) DropSetUploads(prefix string) error {
-	err := db.bolt.Update(func(tx *bbolt.Tx) error {
+	bolt, err := db.handle()
+	if err != nil {
+		return err
+	}
+	err = bolt.Update(func(tx *bbolt.Tx) error {
 		b := tx.Bucket(uploadsBucketName)
 		if b == nil {
 			return nil

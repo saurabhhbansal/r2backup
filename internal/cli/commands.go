@@ -317,14 +317,22 @@ func newStatusCmd(opts *Options) *cobra.Command {
 		Use:   "status",
 		Short: "What ran, when, and what is next",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// --watch reads only progress.json, the same file a run in any
+			// other process writes -- see watchProgress. It never touches
+			// sets.json, credentials or the index, so it must not open any
+			// of them either: opening the index here is exactly the call
+			// that used to fail this command while a backup or the
+			// dashboard held the lock, on the one variant of `status` whose
+			// entire purpose is watching a run that is, by definition,
+			// already holding it.
+			if watch {
+				return watchProgress(cmd.Context(), opts)
+			}
 			a, err := openApp()
 			if err != nil {
 				return err
 			}
 			defer a.close()
-			if watch {
-				return watchProgress(cmd.Context(), opts)
-			}
 			return printStatus(a, opts)
 		},
 	}
@@ -342,6 +350,12 @@ func printStatus(a *app, opts *Options) error {
 	histPath, _ := historyPath()
 	hist, _ := runstate.ReadHistory(histPath)
 
+	idx, release, err := a.checkoutIndex()
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	progressPath, _ := config.ProgressPath()
 	now := time.Now()
 	if live, err := runstate.ReadLive(progressPath); err == nil && !live.Stale(now) {
@@ -355,7 +369,7 @@ func printStatus(a *app, opts *Options) error {
 		fmt.Fprintf(opts.Out, "Interrupted: %s stopped %s — %s of %s\n",
 			stopped.Set, humanAgo(now.Sub(stopped.UpdatedAt)),
 			progress.FormatBytes(stopped.BytesDone), progress.FormatBytes(stopped.BytesTotal))
-		if done, total, files, err := a.index.PendingBytes(); err == nil && files > 0 {
+		if done, total, files, err := idx.PendingBytes(); err == nil && files > 0 {
 			fmt.Fprintf(opts.Out, "  %s of %s already uploaded across %s, and kept.\n",
 				progress.FormatBytes(done), progress.FormatBytes(total),
 				countOf(int64(files), "part-uploaded file", "part-uploaded files"))
@@ -392,7 +406,7 @@ func printStatus(a *app, opts *Options) error {
 
 	// The operation count against the free tier, counted locally because we
 	// perform every one of them ourselves.
-	if used, resetAt, err := a.index.OpsThisMonth(); err == nil {
+	if used, resetAt, err := idx.OpsThisMonth(); err == nil {
 		fmt.Fprintf(opts.Out, "Operations this month: %s of %s free (resets %s)\n",
 			progress.FormatCount(int64(used)),
 			progress.FormatCount(int64(index.FreeTierOpsPerMonth)),
@@ -482,14 +496,19 @@ func newListCmd(opts *Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			idx, release, err := a.checkoutIndex()
+			if err != nil {
+				return err
+			}
+			defer release()
 			for _, s := range list {
-				n, err := a.index.Count(s.Name)
+				n, err := idx.Count(s.Name)
 				if err != nil {
 					return err
 				}
 				fmt.Fprintf(opts.Out, "%s: %s\n", s.Name, countOf(int64(n), "object", "objects"))
 				if only != "" {
-					recs, err := a.index.All(s.Name)
+					recs, err := idx.All(s.Name)
 					if err != nil {
 						return err
 					}
@@ -826,17 +845,22 @@ func newRemoveCmd(opts *Options) *cobra.Command {
 			// uploads the tree again -- expensive, never wrong. The other way
 			// leaves records with no set, waiting for the next set of that
 			// name to inherit them and skip files.
-			if err := a.index.DropSet(s.Name); err != nil {
+			idx, release, err := a.checkoutIndex()
+			if err != nil {
+				return err
+			}
+			defer release()
+			if err := idx.DropSet(s.Name); err != nil {
 				return err
 			}
 			// Same reasoning: a later set of this name must not inherit a
 			// claim that makes it skip its first trash sweep.
-			if err := a.index.ForgetDailyPrune(s.Name); err != nil {
+			if err := idx.ForgetDailyPrune(s.Name); err != nil {
 				return err
 			}
 			// And its unfinished uploads: left behind, the sweep would keep
 			// asking the bucket about parts of a folder nobody backs up.
-			if err := a.index.DropSetUploads(s.KeyScope()); err != nil {
+			if err := idx.DropSetUploads(s.KeyScope()); err != nil {
 				return err
 			}
 			if err := a.sets.Remove(s.Name); err != nil {
@@ -1042,23 +1066,28 @@ func newRenameCmd(opts *Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			idx, release, err := a.checkoutIndex()
+			if err != nil {
+				return err
+			}
+			defer release()
 			// The index is keyed by set name too. Move it first: it is one
 			// bbolt transaction and so cannot half-happen, and if the set
 			// store then refuses the new name the index goes back where it
 			// was. The other order has no recovery -- it is what left a
 			// renamed set reading an empty index and re-uploading everything.
-			if err := a.index.RenameSet(args[0], args[1]); err != nil {
+			if err := idx.RenameSet(args[0], args[1]); err != nil {
 				return err
 			}
 			if err := a.sets.Rename(args[0], args[1]); err != nil {
-				if back := a.index.RenameSet(args[1], args[0]); back != nil {
+				if back := idx.RenameSet(args[1], args[0]); back != nil {
 					return fmt.Errorf("%w (and the index could not be put back under %q: %v -- "+
 						"run `r2b backup %s` to rebuild it, which re-uploads the set)",
 						err, args[0], back, args[1])
 				}
 				return err
 			}
-			n, _ := a.index.Count(args[1])
+			n, _ := idx.Count(args[1])
 			fmt.Fprintf(opts.Out, "Renamed to %q.\n", args[1])
 			fmt.Fprintf(opts.Out,
 				"The bucket still stores it under %q, and keeps that name for good. Moving\n"+

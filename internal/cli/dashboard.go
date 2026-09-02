@@ -25,7 +25,7 @@ import (
 // uses.
 //
 // It holds the app open for the whole session, and that is not an
-// optimisation. Every method used to call openApp() itself, which opens the
+// optimisation. Every method used to call openApp() itself, which opened the
 // bbolt index -- and bbolt takes a file lock that contends with itself inside
 // one process. A backup holds the index for its whole run, the interface
 // reloads once a second, and that reload blocked for bbolt's five-second
@@ -35,9 +35,30 @@ import (
 // started on top of the first. Measured: a second openApp in the same process
 // returns an error after 4.99s.
 //
-// One handle, opened once. bbolt is safe for concurrent use through a single
-// handle and sets.Store carries its own RWMutex; connect is the one piece of
-// shared state that is not, so it has a mutex here.
+// One handle, opened once, fixed that -- and broke something else: this
+// dashboard is a long-lived process that sits open far more than it is doing
+// anything, and holding the one handle open for the session's whole length
+// meant holding bbolt's exclusive OS file lock for that whole length too. A
+// scheduled backup, or `status`, or `ls`, run from a second r2b process while
+// a window merely happened to be open -- nobody backing up, nobody looking at
+// a tab that reads the index -- got the same 4.98s timeout this comment used
+// to be about, for no reason related to actual contention.
+//
+// So app.index (see app.go) is not a single already-open database any more;
+// it is a handle that opens on demand and gives up the lock once nobody is
+// using it, checked out through app.checkoutIndex around each operation --
+// Load, Backup, Remove, Rename, Objects, and so on. This keeps the property
+// that made the first fix work: every concurrent in-process user still shares
+// the one *index.DB object and the one open bbolt handle bbolt allows,
+// because app.index is created once and never replaced, so it never contends
+// with itself. What changes is that the handle is closed, and the OS lock let
+// go, in the gaps between checkouts -- in particular between the once-a-
+// second Load calls, and for the whole time the window is sitting idle with
+// nobody driving it. See index.DB's Acquire and Release for the mechanics.
+//
+// bbolt is safe for concurrent use through a single handle and sets.Store
+// carries its own RWMutex; connect is the one piece of shared state that is
+// not, so it has a mutex here.
 //
 // Each method goes through the same package the matching command goes through
 // -- backup.Run, restore.Run, sets.Store, account.Client -- but not through
@@ -89,6 +110,16 @@ const scheduleName = "r2backup"
 func (d *dashboard) Load(ctx context.Context) ([]ui.SetView, ui.Overview, error) {
 	a := d.app
 
+	// Checked out for this one refresh and given back at the end of it --
+	// not held between ticks. See the dashboard struct's comment for why
+	// that gap matters: it is what lets a second r2b process get bbolt's
+	// lock in the second between this Load and the next one.
+	idx, release, err := a.checkoutIndex()
+	if err != nil {
+		return nil, ui.Overview{}, err
+	}
+	defer release()
+
 	histPath, _ := historyPath()
 	hist, _ := runstate.ReadHistory(histPath)
 
@@ -100,7 +131,7 @@ func (d *dashboard) Load(ctx context.Context) ([]ui.SetView, ui.Overview, error)
 			Excludes: s.Excludes, Retention: s.RetentionDays,
 			State: "ok",
 		}
-		if n, err := a.index.Count(s.Name); err == nil {
+		if n, err := idx.Count(s.Name); err == nil {
 			v.Objects = n
 		}
 		if last, ok := hist.Last(s.Name); ok {
@@ -144,7 +175,7 @@ func (d *dashboard) Load(ctx context.Context) ([]ui.SetView, ui.Overview, error)
 	} else if !errors.Is(err, creds.ErrNotFound) {
 		return views, ov, err
 	}
-	if used, resetAt, err := a.index.OpsThisMonth(); err == nil {
+	if used, resetAt, err := idx.OpsThisMonth(); err == nil {
 		ov.OpsUsed, ov.OpsResetAt = used, resetAt
 	}
 	if st, err := schedule.Current(scheduleName); err == nil {
@@ -195,7 +226,7 @@ func (d *dashboard) Load(ctx context.Context) ([]ui.SetView, ui.Overview, error)
 	// What the bucket is already holding of uploads that were cut off. Read
 	// from the index, so it costs nothing and survives the program being
 	// closed and reopened -- which is the point.
-	if done, total, files, err := a.index.PendingBytes(); err == nil && files > 0 {
+	if done, total, files, err := idx.PendingBytes(); err == nil && files > 0 {
 		ov.PendingDone, ov.PendingTotal, ov.PendingFiles = done, total, files
 	}
 	return views, ov, nil
@@ -249,12 +280,23 @@ func (d *dashboard) Backup(ctx context.Context, name string, phase func(string),
 		return err
 	}
 
+	// Checked out for the whole run, exactly as runOne does for `r2b
+	// backup`: a backup started from here holds the index for as long as
+	// the backup takes, and if the lock is already held by another process
+	// this fails here, before recordRun, so no history entry is written for
+	// a run that never happened.
+	idx, release, err := a.checkoutIndex()
+	if err != nil {
+		return err
+	}
+	defer release()
+
 	progressPath, _ := config.ProgressPath()
 	obs := &uiObserver{phase: phase, snap: snap, set: s.Name, progressPath: progressPath}
 	defer runstate.ClearLive(progressPath)
 
 	rep, runErr := backup.Run(ctx, backup.Options{
-		Set: s, Index: a.index, Client: a.client,
+		Set: s, Index: idx, Client: a.client,
 		Trash:    backup.NewTrash(a.client, s.RetentionDays),
 		Observer: obs, DetectMoves: true,
 	})
@@ -348,17 +390,22 @@ func (d *dashboard) Remove(ctx context.Context, name string, purge bool) error {
 			return fmt.Errorf("%q was not removed: %w", s.Name, err)
 		}
 	}
+	idx, release, err := a.checkoutIndex()
+	if err != nil {
+		return err
+	}
+	defer release()
 	// The index goes first, and this order is load-bearing. The other way
 	// round, a partial failure leaves index records behind for a later set of
 	// the same name to inherit -- which would then skip every file it thought
 	// it had already uploaded.
-	if err := a.index.DropSet(s.Name); err != nil {
+	if err := idx.DropSet(s.Name); err != nil {
 		return err
 	}
-	if err := a.index.ForgetDailyPrune(s.Name); err != nil {
+	if err := idx.ForgetDailyPrune(s.Name); err != nil {
 		return err
 	}
-	if err := a.index.DropSetUploads(s.KeyScope()); err != nil {
+	if err := idx.DropSetUploads(s.KeyScope()); err != nil {
 		return err
 	}
 	return a.sets.Remove(s.Name)

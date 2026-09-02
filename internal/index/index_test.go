@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -517,4 +518,99 @@ func TestRenameSetOfANeverBackedUpSetIsNotAnError(t *testing.T) {
 	if err := db.RenameSet("same", "same"); err != nil {
 		t.Errorf("RenameSet onto the same name: %v", err)
 	}
+}
+
+// TestOpenReportsAnActionableMessageWhenLocked is the regression for a bare
+// `open index at "...": timeout`, which told a user nothing they could do
+// anything about. There is exactly one way this lock is already held --
+// another copy of r2b -- and the message should say so, rather than making
+// someone go and learn what a bbolt lock timeout means.
+func TestOpenReportsAnActionableMessageWhenLocked(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "index.db")
+
+	holder, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open (holder): %v", err)
+	}
+	t.Cleanup(func() { _ = holder.Close() })
+
+	// A second, wholly independent handle on the same path: this is what a
+	// second r2b process opening the same index.db looks like.
+	_, err = Open(path)
+	if err == nil {
+		t.Fatal("opening an index already held elsewhere should fail, not block forever or succeed")
+	}
+	if !errors.Is(err, ErrLocked) {
+		t.Errorf("error does not wrap ErrLocked, so a caller cannot tell this apart from any other open failure: %v", err)
+	}
+	const want = "another copy of r2b is already running"
+	if got := err.Error(); !strings.Contains(got, want) {
+		t.Errorf("error = %q, want it to contain %q", got, want)
+	}
+}
+
+// TestAcquireSharesOneHandleAndReleasesTheLockAtZero is the regression for
+// the defect Acquire/Release exist to fix: a per-call Open/Close made every
+// concurrent user inside one process contend with bbolt's own exclusive
+// lock, and a single always-open handle then starved every *other* process
+// for as long as it merely stayed open. This proves both halves of the fix
+// at once: two concurrent Acquires on the same *DB share the one open
+// handle rather than each taking the file lock for themselves, and once
+// both give it back, the lock is genuinely gone -- provable only by a
+// second, independent *DB successfully opening the same path.
+func TestAcquireSharesOneHandleAndReleasesTheLockAtZero(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "index.db")
+
+	db := New(path)
+	if err := db.Acquire(); err != nil {
+		t.Fatalf("first Acquire: %v", err)
+	}
+	// A second concurrent user of the same *DB. If this reopened the file
+	// instead of sharing the handle Acquire already has, it would either
+	// deadlock against bbolt's own lock or time out after 5s -- so bounding
+	// how long it takes is itself part of what this proves.
+	second := make(chan error, 1)
+	go func() { second <- db.Acquire() }()
+	select {
+	case err := <-second:
+		if err != nil {
+			t.Fatalf("second concurrent Acquire: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("a second concurrent Acquire on the same *DB blocked, so it is not sharing the open handle")
+	}
+
+	// Both users still hold it: the lock must still be held, because a
+	// third, independent handle asking for the same path is exactly what a
+	// second r2b process does.
+	if _, err := Open(path); err == nil {
+		t.Fatal("the file lock was released while a concurrent Acquire was still outstanding")
+	} else if !errors.Is(err, ErrLocked) {
+		t.Fatalf("Open while still held: %v, want ErrLocked", err)
+	}
+
+	// One Release gives back only one of the two outstanding Acquires; the
+	// lock must still be held for the other.
+	if err := db.Release(); err != nil {
+		t.Fatalf("first Release: %v", err)
+	}
+	if _, err := Open(path); err == nil {
+		t.Fatal("the lock was released after only one of two Acquires was given back")
+	}
+
+	// The last Release drops the use count to zero, which must actually
+	// close the underlying file and let bbolt's lock go -- not merely stop
+	// answering to this *DB. A second, wholly independent *DB opening the
+	// same path is the only way to prove that: if the lock were still held,
+	// this would time out exactly like the two checks above.
+	if err := db.Release(); err != nil {
+		t.Fatalf("second Release: %v", err)
+	}
+	other, err := Open(path)
+	if err != nil {
+		t.Fatalf("opening the same path after every Acquire was released: %v", err)
+	}
+	_ = other.Close()
 }
