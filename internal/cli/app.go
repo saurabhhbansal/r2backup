@@ -131,6 +131,26 @@ func (a *app) connect(ctx context.Context) error {
 	return nil
 }
 
+// forgetClient discards the cached client, if any, so the next call to
+// connect rebuilds one from whatever credentials are on disk right now
+// rather than handing back the client connect built the last time it ran.
+// connect treats a.client != nil as proof the credentials it was built from
+// still work, which is only true until something changes those credentials
+// out from under it -- SaveKeys and UnlockVault do exactly that, and without
+// this a client built from a mistyped secret key would keep answering for
+// the account, rejecting every later attempt with the same
+// SignatureDoesNotMatch the first one produced, until the process restarted.
+//
+// a.client is shared with the dashboard's worker goroutines (see the
+// dashboard struct's comment in dashboard.go, which names connect as the one
+// piece of app state that needs a lock), so a caller reachable from more
+// than one goroutine must take that same lock before calling this -- see
+// dashboard.forgetClient, which is the only caller that should reach here
+// from the dashboard.
+func (a *app) forgetClient() {
+	a.client = nil
+}
+
 // machineName is what this computer is filed under in the bucket.
 func machineName() string {
 	if n := os.Getenv("R2BACKUP_MACHINE"); n != "" {

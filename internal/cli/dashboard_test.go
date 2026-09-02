@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/saurabhhbansal/r2backup/internal/account"
 	"github.com/saurabhhbansal/r2backup/internal/index"
 	"github.com/saurabhhbansal/r2backup/internal/progress"
 	"github.com/saurabhhbansal/r2backup/internal/sets"
@@ -503,5 +504,54 @@ func TestRemovingASetTakesItsUnfinishedUploadsWithIt(t *testing.T) {
 	}
 	if len(all) != 0 {
 		t.Errorf("removing the set left %+v behind", all)
+	}
+}
+
+// TestUnlockVaultRecoversFromWrongCredentials drives UnlockVault the way the
+// review that found H1 drove it by hand: save one wrong set of R2 keys,
+// watch it fail, then save the right ones in the same session and require
+// that to succeed. Before the fix it did not -- connect cached the client
+// built from the wrong secret key the first time UnlockVault ran, and every
+// later checkBucketReachable call, including the one for the corrected
+// keys, reused that cached client and failed with the same
+// SignatureDoesNotMatch the wrong key produced, until the process was
+// restarted. SaveKeys shares checkBucketReachable and forgetClient with
+// UnlockVault and would fail the same way for the same reason, so it is not
+// separately exercised here.
+func TestUnlockVaultRecoversFromWrongCredentials(t *testing.T) {
+	_, good := bucketWithABackupInIt(t)
+	w, stop := newFakeWorker(t)
+	defer stop()
+	t.Setenv("R2BACKUP_DATA_DIR", t.TempDir())
+
+	// UnlockVault requires a signed-in account before it will even look at
+	// the vault, same as a real session that ran through setup.
+	if err := account.SaveToken(w.token); err != nil {
+		t.Fatal(err)
+	}
+
+	d, err := openDashboard(&Options{Out: os.Stderr, Err: os.Stderr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.close()
+	ctx := context.Background()
+
+	const password = "correct horse battery staple"
+
+	wrong := good
+	wrong.SecretAccessKey = "not-the-real-secret-key"
+	storeVault(t, w, password, wrong)
+
+	if err := d.UnlockVault(ctx, password); err == nil {
+		t.Fatal("UnlockVault with the wrong secret key: want an error, got nil")
+	}
+
+	// Now the account holds the real keys -- e.g. corrected on another
+	// computer and pushed back up -- and this session unlocks them without
+	// restarting.
+	storeVault(t, w, password, good)
+	if err := d.UnlockVault(ctx, password); err != nil {
+		t.Fatalf("UnlockVault with the corrected secret key: %v", err)
 	}
 }

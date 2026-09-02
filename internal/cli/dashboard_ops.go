@@ -347,6 +347,12 @@ func (d *dashboard) UnlockVault(ctx context.Context, password string) error {
 	if err := a.creds.Save(c); err != nil {
 		return err
 	}
+	// The client cached from whatever credentials were in place before this
+	// unlock -- if any -- was built from those, not from the ones just
+	// unlocked. Drop it so checkBucketReachable below reconnects with the
+	// credentials that were actually just saved instead of reusing the old
+	// client and testing nothing.
+	d.forgetClient()
 	return checkBucketReachable(ctx, a)
 }
 
@@ -394,6 +400,10 @@ func (d *dashboard) SaveKeys(ctx context.Context, k ui.Keys) error {
 	if err := a.creds.Save(c); err != nil {
 		return err
 	}
+	// Drop any client cached from the credentials these just replaced -- see
+	// forgetClient -- so a wrong secret followed by a correction is not held
+	// to the wrong one's client for the rest of the session.
+	d.forgetClient()
 	// Checked before anything is built on them, so a typo is caught while it
 	// is still on screen rather than at the first backup.
 	return checkBucketReachable(ctx, a)

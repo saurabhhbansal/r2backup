@@ -130,6 +130,26 @@ func (d *dashboard) connected(ctx context.Context) (*app, error) {
 	return d.app, nil
 }
 
+// forgetClient discards the cached R2 client under the same lock connected
+// builds it under. SaveKeys and UnlockVault call this right after saving new
+// credentials, so a client cached from whatever credentials were in place a
+// moment earlier -- possibly a typo, possibly just now-superseded ones -- is
+// gone before anything tries to reconnect, and the reconnect that follows
+// picks up the credentials just saved instead of reusing the old client.
+//
+// Locking here the same way connected does is what keeps this race-free
+// against a Load on the UI loop or a transfer on a worker goroutine doing
+// the opposite side of this at the same moment: either they see the old
+// client and finish before this runs, or they block on d.mu and see nil (and
+// rebuild) once this returns. Nothing here calls back into connected or
+// otherwise re-enters d.mu, so there is nothing on this path that could
+// deadlock against it.
+func (d *dashboard) forgetClient() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.app.forgetClient()
+}
+
 // scheduleName is the OS scheduler entry's identity, spelled once here rather
 // than at each call site. It is deliberately still "r2backup": an installed
 // machine already has a task under that name, and changing it would leave the
