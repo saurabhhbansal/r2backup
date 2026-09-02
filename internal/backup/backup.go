@@ -272,6 +272,12 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 	// Only what genuinely landed is recorded. Anything else is retried on the
 	// next run, which is the correct behaviour for a killed or partial run.
 	var recorded []index.Record
+	// Same reasoning as OnUploaded, for the other kind of transfer: a move
+	// whose CopyObject failed must not be recorded as done, or the index
+	// ends up pointing at a new key nothing was ever written to while the
+	// source key -- the only copy that actually exists -- is forgotten and
+	// never deleted either.
+	var moved []plan.Move
 	eng := engine.New(engine.Options{
 		Root:       set.Root,
 		Uploader:   uploader{client: opts.Client, prefix: prefix + "/current"},
@@ -288,6 +294,9 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 				Kind:       index.Kind(e.Kind),
 				Target:     e.Target,
 			})
+		},
+		OnMoved: func(from, to string, size int64) {
+			moved = append(moved, plan.Move{From: from, To: to, Size: size})
 		},
 	})
 
@@ -333,7 +342,7 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 			return nil, fmt.Errorf("forget %d deleted keys: %w", len(p.Deletes), err)
 		}
 	}
-	for _, m := range p.Moves {
+	for _, m := range moved {
 		old, err := opts.Index.Get(set.Name, m.From)
 		if err != nil {
 			continue
