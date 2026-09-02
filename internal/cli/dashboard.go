@@ -70,11 +70,40 @@ type dashboard struct {
 	opts *Options
 	app  *app
 
-	// mu guards lazily building the R2 client. Load runs on the UI loop and
-	// a transfer runs on a worker, so two goroutines can reach connect at
-	// once.
+	// mu guards lazily building the R2 client, and also the schedule cache
+	// just below: Load runs on the UI loop, a transfer runs on a worker, and
+	// pressing the schedule toggle runs on whichever goroutine the UI framework
+	// dispatches it to, so more than one of these can reach either piece of
+	// shared state at once.
 	mu sync.Mutex
+
+	// schedule.Current shells out to the OS scheduler -- systemctl --user
+	// show on Linux, two schtasks /query on Windows, launchctl list on macOS
+	// -- and Load runs on the UI's once-a-second tick for as long as a
+	// window is open. scheduleState/scheduleErr/scheduleAt cache the last
+	// result so that tick asks the OS once per scheduleCacheTTL instead of
+	// once a second; currentSchedule reads this and invalidateScheduleCache
+	// clears it. Schedule and RepairSchedule call invalidateScheduleCache
+	// whenever they actually change what's registered, so pressing the
+	// toggle shows up on the very next Load rather than after however much
+	// of the window happens to be left.
+	scheduleState schedule.Status
+	scheduleErr   error
+	scheduleAt    time.Time
+
+	// now stands in for time.Now so the schedule cache's expiry can be
+	// tested without sleeping. Same pattern as index.DB's Now field, and for
+	// the same reason: set it (if at all) once, before any concurrent use
+	// begins.
+	now func() time.Time
 }
+
+// scheduleCacheTTL is how long a schedule.Current result is trusted before
+// Load shells out to the OS scheduler again on its own account. Chosen to be
+// short enough that the Schedule tab still feels current, and long enough
+// that an idle dashboard isn't spawning an OS process (two, on Windows)
+// every second the window is open.
+const scheduleCacheTTL = 30 * time.Second
 
 // openDashboard opens the state the interface needs, once.
 func openDashboard(opts *Options) (*dashboard, error) {
@@ -82,7 +111,7 @@ func openDashboard(opts *Options) (*dashboard, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &dashboard{opts: opts, app: a}, nil
+	return &dashboard{opts: opts, app: a, now: time.Now}, nil
 }
 
 func (d *dashboard) close() {
@@ -106,6 +135,37 @@ func (d *dashboard) connected(ctx context.Context) (*app, error) {
 // machine already has a task under that name, and changing it would leave the
 // old one running and the new one duplicating it.
 const scheduleName = "r2backup"
+
+// currentSchedule returns the OS scheduler's status for scheduleName,
+// answering from the cache described on the dashboard struct when it is
+// still within scheduleCacheTTL and shelling out through scheduleCurrent
+// (commands.go's seam onto schedule.Current) only when it isn't. Every
+// caller -- Load on its once-a-second tick, and RepairSchedule reading back
+// what to reinstall -- goes through here rather than schedule.Current
+// directly, so there is exactly one place that decides whether this call is
+// worth making again.
+func (d *dashboard) currentSchedule() (schedule.Status, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	now := d.now()
+	if !d.scheduleAt.IsZero() && now.Sub(d.scheduleAt) < scheduleCacheTTL {
+		return d.scheduleState, d.scheduleErr
+	}
+	st, err := scheduleCurrent(scheduleName)
+	d.scheduleState, d.scheduleErr, d.scheduleAt = st, err, now
+	return st, err
+}
+
+// invalidateScheduleCache discards the cached schedule.Current result, so
+// the next call to currentSchedule asks the OS again instead of repeating
+// whatever was true before this call. Schedule and RepairSchedule call this
+// right after actually installing, removing or repairing the entry -- see
+// the dashboard struct's comment on scheduleState for why that matters.
+func (d *dashboard) invalidateScheduleCache() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.scheduleAt = time.Time{}
+}
 
 func (d *dashboard) Load(ctx context.Context) ([]ui.SetView, ui.Overview, error) {
 	a := d.app
@@ -185,7 +245,7 @@ func (d *dashboard) Load(ctx context.Context) ([]ui.SetView, ui.Overview, error)
 	if used, resetAt, err := idx.OpsThisMonth(); err == nil {
 		ov.OpsUsed, ov.OpsResetAt = used, resetAt
 	}
-	if st, err := schedule.Current(scheduleName); err == nil {
+	if st, err := d.currentSchedule(); err == nil {
 		// A clean call means a scheduler exists on this platform, whether or
 		// not r2backup has registered with it yet -- Current only returns
 		// ErrUnsupported for the platforms with no implementation at all.
@@ -436,19 +496,31 @@ func (d *dashboard) Schedule(ctx context.Context, every int, off bool) error {
 		return errors.New("no scheduler is available on this platform")
 	}
 	if off {
-		return scheduleRemove(scheduleName)
+		if err := scheduleRemove(scheduleName); err != nil {
+			return err
+		}
+		// The Schedule tab reads Overview.Scheduled, which came from the
+		// cache Load fills in -- without this it would keep showing the
+		// entry as registered for up to scheduleCacheTTL after the user just
+		// watched it get removed.
+		d.invalidateScheduleCache()
+		return nil
 	}
 	self, err := os.Executable()
 	if err != nil {
 		return err
 	}
 	binary, _ := scheduledBinary(runtime.GOOS, self, fileExists)
-	return scheduleInstall(schedule.Entry{
+	if err := scheduleInstall(schedule.Entry{
 		Name:       scheduleName,
 		Interval:   time.Duration(every) * time.Minute,
 		BinaryPath: binary,
 		Args:       scheduledRunArgs(runtime.GOOS),
-	})
+	}); err != nil {
+		return err
+	}
+	d.invalidateScheduleCache()
+	return nil
 }
 
 // RepairSchedule is `r2b schedule --repair`.
@@ -467,9 +539,13 @@ func (d *dashboard) RepairSchedule(ctx context.Context) (bool, error) {
 	if !schedule.Supported() {
 		return false, errors.New("no scheduler is available on this platform")
 	}
-	st, err := scheduleCurrent(scheduleName)
+	st, err := d.currentSchedule()
 	if err != nil || !st.Registered {
 		return false, nil
 	}
+	// d.Schedule invalidates the cache on success, so the state this read
+	// back -- possibly stale by up to scheduleCacheTTL, which is harmless
+	// here since the interval it's keying off doesn't change on its own --
+	// doesn't linger once the repair itself has run.
 	return true, d.Schedule(ctx, repairMinutes(st), false)
 }
