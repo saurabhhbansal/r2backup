@@ -471,3 +471,20 @@ func grabPort(t *testing.T) (net.Listener, int) {
 }
 
 func itoa(n int) string { return strconv.Itoa(n) }
+
+// Cloudflare rejects a state shorter than MinStateLen at the consent screen,
+// which would break every sign-in at once with an error that never reaches
+// this process. newState is comfortably above it; this is here so that stays
+// true if anyone ever decides the value looks longer than it needs to be.
+func TestStateIsLongEnoughForCloudflare(t *testing.T) {
+	for i := 0; i < 20; i++ {
+		s, err := newState()
+		if err != nil {
+			t.Fatalf("newState: %v", err)
+		}
+		if len(s) < MinStateLen {
+			t.Fatalf("state %q is %d characters; Cloudflare rejects anything under %d",
+				s, len(s), MinStateLen)
+		}
+	}
+}
