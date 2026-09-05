@@ -37,6 +37,9 @@ type fakeBackend struct {
 	vaultPw   []string
 	signedOut bool
 
+	budgetUSD     float64
+	budgetResumed bool
+
 	overlap    string
 	scanErr    error
 	restoreErr error
@@ -166,6 +169,17 @@ func (f *fakeBackend) StoreVault(_ context.Context, pw string) error {
 
 func (f *fakeBackend) SaveKeys(_ context.Context, k Keys) error {
 	f.keys = append(f.keys, k)
+	return nil
+}
+
+func (f *fakeBackend) SetBudget(_ context.Context, usd float64) error {
+	f.budgetUSD = usd
+	f.budgetResumed = false
+	return nil
+}
+
+func (f *fakeBackend) ResumeBudget(context.Context) error {
+	f.budgetResumed = true
 	return nil
 }
 

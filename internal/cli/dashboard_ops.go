@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/saurabhhbansal/r2backup/internal/config"
+	"github.com/saurabhhbansal/r2backup/internal/cost"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -473,4 +475,38 @@ func (d *dashboard) ApplyUpdate(ctx context.Context) (string, error) {
 		return "", err
 	}
 	return rel.Version, nil
+}
+
+// SetBudget writes the monthly spending limit.
+//
+// Clearing BudgetResumedMonth alongside it is deliberate: someone choosing a
+// new ceiling is making a fresh decision, and a "carry on" left over from the
+// old one would leave the limit they just set doing nothing until the 1st.
+func (d *dashboard) SetBudget(ctx context.Context, usd float64) error {
+	s, err := config.LoadSettings()
+	if err != nil {
+		return err
+	}
+	if usd < 0 {
+		usd = 0
+	}
+	s.BudgetUSD = usd
+	s.BudgetResumedMonth = ""
+	return config.SaveSettings(s)
+}
+
+// ResumeBudget lifts a budget pause for the rest of this month.
+func (d *dashboard) ResumeBudget(ctx context.Context) error {
+	s, err := config.LoadSettings()
+	if err != nil {
+		return err
+	}
+	if s.BudgetUSD <= 0 {
+		// Nothing is paused, so there is nothing to lift -- and writing a
+		// resume against no limit would arm a waiver for a ceiling that does
+		// not exist.
+		return nil
+	}
+	s.BudgetResumedMonth = cost.MonthKey(time.Now())
+	return config.SaveSettings(s)
 }

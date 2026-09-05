@@ -73,6 +73,12 @@ func NewRoot(opts *Options) *cobra.Command {
 		Version:       Version,
 		SilenceUsage:  true,
 		SilenceErrors: true,
+		// Runs after a command's own RunE, and only when that returned nil.
+		// A command that failed has already given someone something to deal
+		// with; an update offer stacked on top of it is noise.
+		PersistentPostRun: func(cmd *cobra.Command, args []string) {
+			offerUpdateAfterCommand(cmd, opts)
+		},
 	}
 	// cobra generates a `completion` command on every root command unless
 	// told not to. It emits a shell completion script to stdout -- useful to
@@ -108,6 +114,7 @@ func NewRoot(opts *Options) *cobra.Command {
 		newRelinkCmd(opts),
 		newRemoveCmd(opts),
 		newTrashCmd(opts),
+		newBudgetCmd(opts),
 		newUpdateCmd(opts),
 		newAccountCmd(opts),
 	)

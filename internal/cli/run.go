@@ -11,6 +11,7 @@ import (
 
 	"github.com/saurabhhbansal/r2backup/internal/backup"
 	"github.com/saurabhhbansal/r2backup/internal/config"
+	"github.com/saurabhhbansal/r2backup/internal/cost"
 	"github.com/saurabhhbansal/r2backup/internal/progress"
 	"github.com/saurabhhbansal/r2backup/internal/runstate"
 	"github.com/saurabhhbansal/r2backup/internal/sets"
@@ -103,6 +104,7 @@ func runOne(ctx context.Context, a *app, s sets.Set, out io.Writer, interactive 
 		Trash:       backup.NewTrash(a.client, s.RetentionDays),
 		Observer:    obs,
 		DetectMoves: true,
+		Budget:      configuredBudget(),
 	})
 	if interactive {
 		obs.clear()
@@ -221,4 +223,21 @@ func summarise(out io.Writer, r *backup.Report) {
 			fmt.Fprintf(out, "    %s: %v\n", f.Key, f.Err)
 		}
 	}
+}
+
+// configuredBudget reads this machine's spending limit.
+//
+// It returns the zero Budget -- no limit -- when the settings cannot be read,
+// and deliberately says nothing about it. The alternative is failing a backup
+// over an unreadable settings file, and between "spent money the owner did
+// not intend" and "did not back up the owner's data", this product's answer is
+// always the first. config.LoadSettings already refuses to treat a corrupt
+// file as empty, so the case this swallows is narrow: a data directory that
+// cannot be resolved at all, where nothing else would work either.
+func configuredBudget() cost.Budget {
+	s, err := config.LoadSettings()
+	if err != nil {
+		return cost.Budget{}
+	}
+	return cost.Budget{LimitUSD: s.BudgetUSD, ResumedMonth: s.BudgetResumedMonth}
 }

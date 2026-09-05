@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/saurabhhbansal/r2backup/internal/cost"
 	"github.com/saurabhhbansal/r2backup/internal/engine"
 	"github.com/saurabhhbansal/r2backup/internal/index"
 	"github.com/saurabhhbansal/r2backup/internal/plan"
@@ -19,6 +20,7 @@ import (
 	"github.com/saurabhhbansal/r2backup/internal/remote"
 	"github.com/saurabhhbansal/r2backup/internal/scan"
 	"github.com/saurabhhbansal/r2backup/internal/sets"
+	"github.com/saurabhhbansal/r2backup/internal/spend"
 )
 
 // Phase is which of the three stages a run is in.
@@ -141,6 +143,15 @@ type Options struct {
 	// full re-upload.
 	DetectMoves bool
 
+	// Budget, when set, stops this run from uploading once the month's
+	// estimated spending has reached it. The zero value is no limit, which
+	// is what every install has until someone chooses otherwise.
+	//
+	// It lives here rather than in the caller so that every way a backup
+	// starts is covered by it -- and the scheduled 3am run, the one nobody
+	// watches, is the one that most needs to be.
+	Budget cost.Budget
+
 	Now func() time.Time
 }
 
@@ -163,6 +174,23 @@ var ErrRootMissing = errors.New("the folder this set points at no longer exists"
 // was never written to be shown to a person and used to leak straight through
 // into runstate.Past.Error and onto the screen.
 var ErrCancelled = errors.New("run cancelled")
+
+// ErrBudgetPaused means this run had work to do and did not do it, because
+// the month's estimated spending has reached the limit that was set.
+//
+// Paused, not failed, and the wording matters. A failed backup should be
+// retried; this one should not be, and retrying it every thirty minutes for
+// the rest of the month would just spend operations discovering the same
+// thing. But it is also not final: whoever set the limit can say carry on
+// with `r2b budget continue`, and uploads resume for the rest of the month.
+//
+// Callers must surface it where a person will see it, and must say how to
+// lift it. A backup that stops running is the whole risk of having a limit at
+// all; it must never look like a run with nothing to do, and a pause nobody
+// knows how to end is just a stop with better manners.
+//
+// It never blocks a restore. See cost.Budget.AllowsRestore.
+var ErrBudgetPaused = errors.New("monthly spending limit reached; backups are paused and nothing was uploaded")
 
 // Run performs one backup.
 func Run(ctx context.Context, opts Options) (*Report, error) {
@@ -224,6 +252,42 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 		rep.Elapsed = now().Sub(started)
 		obs.Phase(PhaseDone, rep)
 		return rep, nil
+	}
+
+	// --- 2a. The spending limit --------------------------------------------
+	//
+	// After the plan, not before it, for two reasons. A run with nothing to
+	// do has already returned above and costs nothing, so a limit has no
+	// business stopping it; and the trash sweep below is the one action that
+	// makes a bill smaller rather than larger, so it still runs.
+	//
+	// The figure compared against the limit is month-to-date -- money that
+	// has actually been spent -- and never the projection. See
+	// cost.Budget.Check.
+	if opts.Budget.Enabled() {
+		snap, err := spend.Read(opts.Index, opts.Budget, now())
+		if err != nil {
+			// A limit that cannot be evaluated must not silently stop a
+			// backup. Failing open here is the deliberate choice: the cost
+			// of getting this wrong is an unprotected folder, and the cost
+			// of the other direction is some money.
+			rep.Problems = append(rep.Problems, scan.Problem{
+				Path: set.Root,
+				Err:  fmt.Errorf("could not check the spending limit, so the backup ran anyway: %w", err),
+			})
+		} else if !opts.Budget.AllowsBackup(snap.EstimatedUSD(), now()) {
+			expireTrash(ctx, opts, rep)
+			rep.Operations = rep.Pruned.Ops
+			if rep.Operations > 0 {
+				if err := opts.Index.AddOps(rep.Operations); err != nil {
+					return nil, fmt.Errorf("record operation count: %w", err)
+				}
+			}
+			rep.Elapsed = now().Sub(started)
+			obs.Phase(PhaseDone, rep)
+			return rep, fmt.Errorf("%w: about $%.2f of $%.2f this month. To carry on: r2b budget continue",
+				ErrBudgetPaused, snap.EstimatedUSD(), opts.Budget.LimitUSD)
+		}
 	}
 
 	// --- 3. Trash the outgoing versions ------------------------------------
@@ -409,6 +473,21 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 	rep.Operations = rep.Uploaded + rep.Moved + trashOps + rep.Pruned.Ops
 	if err := opts.Index.AddOps(rep.Operations); err != nil {
 		return nil, fmt.Errorf("record operation count: %w", err)
+	}
+
+	// One reading a day of how much is stored, so the storage estimate is
+	// built from what was actually held over the month rather than from
+	// whatever happens to be there when someone opens the dashboard. A
+	// failure here costs accuracy in an estimate and nothing else, so it is
+	// recorded rather than returned -- the backup itself has succeeded by
+	// this point and must not be reported as failed over bookkeeping.
+	if stored, _, err := opts.Index.StoredBytes(); err == nil {
+		if err := opts.Index.RecordStorageSample(stored); err != nil {
+			rep.Problems = append(rep.Problems, scan.Problem{
+				Path: set.Root,
+				Err:  fmt.Errorf("could not record the storage reading used for cost estimates: %w", err),
+			})
+		}
 	}
 
 	rep.Elapsed = now().Sub(started)
