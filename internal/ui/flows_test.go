@@ -265,10 +265,12 @@ func TestTabsMoveBetweenModes(t *testing.T) {
 	if m.tab != tabFolders {
 		t.Errorf("tab should wrap round to Folders, got %v", m.tab)
 	}
-	// And the numbers jump straight there.
-	press(m, "3")
+	// And the numbers jump straight there. Derived from the constant rather
+	// than written as a literal, so inserting a tab moves the key with it
+	// instead of failing this for the wrong reason.
+	press(m, tabDigit(tabTrash))
 	if m.tab != tabTrash {
-		t.Errorf("3 should go to Trash, got %v", m.tab)
+		t.Errorf("%s should go to Trash, got %v", tabDigit(tabTrash), m.tab)
 	}
 }
 
@@ -282,8 +284,8 @@ func TestAStaleScanResultIsDropped(t *testing.T) {
 	press(m, "a")                                  // browse
 	apply(t, m, m.scanFolder("/home/me/work", "")) // request 1 in flight
 	stale := m.request
-	press(m, "esc") // changed their mind
-	press(m, "4")   // and went to Account
+	press(m, "esc")                // changed their mind
+	press(m, tabDigit(tabAccount)) // and went to Account
 
 	m.Update(scannedMsg{root: "/home/me/work", res: b.mustScan(), req: stale - 1})
 	if m.overlay == overlayPicker {

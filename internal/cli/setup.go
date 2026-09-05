@@ -99,7 +99,7 @@ func runSetup(ctx context.Context, a *app, opts *Options, keysOnly bool) error {
 		}
 	}
 
-	c, err := askForKeys(p)
+	c, err := askForKeys(ctx, p)
 	if err != nil {
 		return err
 	}
@@ -310,28 +310,59 @@ func pushCredentials(ctx context.Context, p *prompter, client *account.Client, t
 }
 
 // askForKeys collects the four values that make an R2 connection.
-func askForKeys(p *prompter) (creds.Credentials, error) {
+//
+// It offers the browser sign-in first, which answers two of the four -- the
+// account ID and the bucket -- and can make the bucket if there is not one
+// yet. Whatever that does or does not manage, the remaining questions are
+// asked here, so a declined sign-in, a machine with no browser and a
+// Cloudflare outage all land in the same place: the four prompts this
+// function has always had.
+//
+// The access key and secret are asked for either way. Cloudflare offers no
+// OAuth scope that can mint an API token, by design, so nothing that happens
+// in a browser can produce them -- see discoverViaCloudflare.
+func askForKeys(ctx context.Context, p *prompter) (creds.Credentials, error) {
 	var c creds.Credentials
+	if found, ok := discoverViaCloudflare(ctx, p); ok {
+		c.AccountID = found.AccountID
+		c.Bucket = found.Bucket
+	}
+
 	fmt.Fprintln(p.out)
-	for _, f := range []struct {
-		label string
-		into  *string
-	}{
-		{"Cloudflare account ID", &c.AccountID},
-		{"R2 access key ID", &c.AccessKeyID},
-		{"R2 bucket name", &c.Bucket},
-	} {
-		v, err := p.askRequired(f.label)
+	if c.AccountID == "" {
+		v, err := p.askRequired("Cloudflare account ID")
 		if err != nil {
 			return c, err
 		}
-		*f.into = v
+		c.AccountID = v
 	}
+
+	// The link matters more than it looks. "R2 -> Manage API tokens" is a
+	// page people have to go and find, and with the account already known
+	// this is the exact page, one click away.
+	fmt.Fprintln(p.out, "Now an R2 API token. Make one here:")
+	fmt.Fprintf(p.out, "  %s\n", tokenPageURL(c.AccountID))
+	fmt.Fprintln(p.out)
+
+	accessKey, err := p.askRequired("R2 access key ID")
+	if err != nil {
+		return c, err
+	}
+	c.AccessKeyID = accessKey
+
 	secret, err := p.secret("R2 secret access key")
 	if err != nil {
 		return c, err
 	}
 	c.SecretAccessKey = secret
+
+	if c.Bucket == "" {
+		v, err := p.askRequired("R2 bucket name")
+		if err != nil {
+			return c, err
+		}
+		c.Bucket = v
+	}
 	return c, nil
 }
 

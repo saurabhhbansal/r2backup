@@ -279,6 +279,8 @@ func (m *Model) bodyView() string {
 		return m.foldersView()
 	case tabSchedule:
 		return m.scheduleView()
+	case tabCost:
+		return m.costView()
 	case tabTrash:
 		return m.trashView()
 	case tabAccount:

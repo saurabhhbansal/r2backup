@@ -6,6 +6,7 @@ import { handleRequestCode, handleVerify } from "./handlers/auth";
 import { handleGetVault, handlePutVault } from "./handlers/vault";
 import { handlePostDevice, handleGetDevices } from "./handlers/devices";
 import { handleHealth } from "./handlers/health";
+import { handleLanding, handleLogo } from "./handlers/site";
 import { jsonResponse } from "./http";
 
 function buildContext(env: Env): AppContext {
@@ -30,6 +31,15 @@ export default {
     try {
       if (url.pathname === "/health" && request.method === "GET") {
         return handleHealth();
+      }
+      // The public pages. They exist because Cloudflare's OAuth consent
+      // screen links to this origin, and a verified badge next to a 404 in
+      // JSON is not a thing anyone should grant account access to.
+      if (url.pathname === "/" && (request.method === "GET" || request.method === "HEAD")) {
+        return handleLanding();
+      }
+      if (url.pathname === "/logo.png" && (request.method === "GET" || request.method === "HEAD")) {
+        return handleLogo();
       }
       if (url.pathname === "/auth/request" && request.method === "POST") {
         return await handleRequestCode(request, ctx, clientIp);

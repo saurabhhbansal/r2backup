@@ -1,6 +1,10 @@
 package ui
 
-import "github.com/charmbracelet/bubbles/key"
+import (
+	"strconv"
+
+	"github.com/charmbracelet/bubbles/key"
+)
 
 // keyMap is the whole keyboard surface, declared once.
 //
@@ -8,37 +12,40 @@ import "github.com/charmbracelet/bubbles/key"
 // text, so bubbles/help renders the footer straight from these values and the
 // hint the user reads cannot drift from the key that is actually bound.
 type keyMap struct {
-	Up      key.Binding
-	Down    key.Binding
-	Enter   key.Binding
-	Back    key.Binding
-	NextTab key.Binding
-	PrevTab key.Binding
-	Backup  key.Binding
-	All     key.Binding
-	Add     key.Binding
-	Edit    key.Binding
-	Restore key.Binding
-	Recover key.Binding
-	Remove  key.Binding
-	Purge   key.Binding
-	Rename  key.Binding
-	Relink  key.Binding
-	Files   key.Binding
-	Remote  key.Binding
-	Toggle  key.Binding
-	Every   key.Binding
-	Repair  key.Binding
-	SignIn  key.Binding
-	SignOut key.Binding
-	Share   key.Binding
-	Keys    key.Binding
-	Unlock  key.Binding
-	Update  key.Binding
-	Watch   key.Binding
-	Refresh key.Binding
-	Help    key.Binding
-	Quit    key.Binding
+	Up       key.Binding
+	Down     key.Binding
+	Enter    key.Binding
+	Back     key.Binding
+	NextTab  key.Binding
+	PrevTab  key.Binding
+	Backup   key.Binding
+	All      key.Binding
+	Add      key.Binding
+	Edit     key.Binding
+	Restore  key.Binding
+	Recover  key.Binding
+	Remove   key.Binding
+	Purge    key.Binding
+	Rename   key.Binding
+	Relink   key.Binding
+	Files    key.Binding
+	Remote   key.Binding
+	Toggle   key.Binding
+	Every    key.Binding
+	Repair   key.Binding
+	SignIn   key.Binding
+	SignOut  key.Binding
+	Share    key.Binding
+	Keys     key.Binding
+	Unlock   key.Binding
+	Limit    key.Binding
+	Continue key.Binding
+	NoLimit  key.Binding
+	Update   key.Binding
+	Watch    key.Binding
+	Refresh  key.Binding
+	Help     key.Binding
+	Quit     key.Binding
 }
 
 var keys = keyMap{
@@ -65,6 +72,10 @@ var keys = keyMap{
 	Toggle: key.NewBinding(key.WithKeys("s"), key.WithHelp("s", "turn automatic backups on/off")),
 	Every:  key.NewBinding(key.WithKeys("e"), key.WithHelp("e", "change how often")),
 	Repair: key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "re-point it at this copy of r2b")),
+
+	Limit:    key.NewBinding(key.WithKeys("b"), key.WithHelp("b", "set a monthly limit")),
+	Continue: key.NewBinding(key.WithKeys("c"), key.WithHelp("c", "carry on this month")),
+	NoLimit:  key.NewBinding(key.WithKeys("x"), key.WithHelp("x", "remove the limit")),
 
 	SignIn:  key.NewBinding(key.WithKeys("i"), key.WithHelp("i", "sign in")),
 	SignOut: key.NewBinding(key.WithKeys("o"), key.WithHelp("o", "sign out")),
@@ -132,6 +143,7 @@ func (k keyMap) FullHelp() [][]key.Binding {
 			k.Files, k.Remote, k.Rename, k.Relink},
 		{k.Remove, k.Purge,
 			k.Toggle, k.Every, k.Repair,
+			k.Limit, k.Continue, k.NoLimit,
 			k.SignIn, k.Unlock, k.Share, k.Keys, k.SignOut,
 			k.Watch, k.Update, k.Refresh, k.Help, k.Quit},
 	}
@@ -154,7 +166,13 @@ func BoundKeys() []string {
 	out = append(out, keys.Refresh.Keys()...)
 	// Bound in overlayBrowse and overlayPicker rather than in the keymap:
 	// they belong to a screen, not to the whole interface.
-	out = append(out, "t", ".", " ", "1", "2", "3", "4")
+	out = append(out, "t", ".", " ")
+	// One digit per tab, derived rather than listed: a tab added without a
+	// key added here would make the coverage test fail for a reason that has
+	// nothing to do with the change.
+	for i := 1; i <= int(numTabs); i++ {
+		out = append(out, strconv.Itoa(i))
+	}
 	// y/n answer a confirmation, which is a screen rather than a mode.
 	out = append(out, "y", "n")
 	return out

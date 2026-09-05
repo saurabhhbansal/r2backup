@@ -664,77 +664,27 @@ func (db *DB) ForgetDailyPrune(set string) error {
 	})
 }
 
-// AddOps records n more R2 operations against the current calendar month.
-// r2backup performs every operation against R2 itself -- there is no billing
-// API to poll -- so this local tally is the only way it can warn a user
-// before they run past the free tier. If the stored counter belongs to an
-// earlier month, it is zeroed first: the count is "operations this month",
+// AddOps records n more Class A R2 operations against the current calendar
+// month. r2backup performs every operation against R2 itself -- there is no
+// billing API to poll -- so this local tally is the only way it can warn a
+// user before they run past the free tier. If the stored counter belongs to
+// an earlier month, it is zeroed first: the count is "operations this month",
 // not a running total since install.
 //
 // This deviates from a bare `AddOps(n int)` signature: swallowing a bbolt
 // write failure here would let the counter silently fall behind actual
 // usage, defeating the point of tracking it, and returning an error is the
 // only alternative to a panic.
-func (db *DB) AddOps(n int) error {
-	if n == 0 {
-		return nil
-	}
-	cur := monthKey(db.now())
-	bolt, err := db.handle()
-	if err != nil {
-		return err
-	}
-	err = bolt.Update(func(tx *bbolt.Tx) error {
-		meta := tx.Bucket(metaBucketName)
-		var st opsState
-		if data := meta.Get(opsKey); data != nil {
-			if err := json.Unmarshal(data, &st); err != nil {
-				return fmt.Errorf("decode ops counter: %w", err)
-			}
-		}
-		if st.Month != cur {
-			st.Month = cur
-			st.Used = 0
-		}
-		st.Used += int64(n)
-		data, err := json.Marshal(st)
-		if err != nil {
-			return err
-		}
-		return meta.Put(opsKey, data)
-	})
-	if err != nil {
-		return fmt.Errorf("add %d ops: %w", n, err)
-	}
-	return nil
-}
+//
+// The month-rollover rule itself lives in addMonthly, shared with the Class B
+// counter -- see internal/index/usage.go.
+func (db *DB) AddOps(n int) error { return db.addMonthly(opsKey, n) }
 
-// OpsThisMonth returns operations counted so far in the current calendar
-// month and when that count will next reset. It computes the rollover from
-// the current time rather than trusting the stored month, so a query made
-// after the month has turned -- with no AddOps call in between to trigger
-// the reset itself -- still reports 0 rather than a stale total.
+// OpsThisMonth returns Class A operations counted so far in the current
+// calendar month and when that count will next reset. It computes the
+// rollover from the current time rather than trusting the stored month, so a
+// query made after the month has turned -- with no AddOps call in between to
+// trigger the reset itself -- still reports 0 rather than a stale total.
 func (db *DB) OpsThisMonth() (used int, resetAt time.Time, err error) {
-	now := db.now()
-	cur := monthKey(now)
-	var st opsState
-	bolt, err := db.handle()
-	if err != nil {
-		return 0, time.Time{}, err
-	}
-	txErr := bolt.View(func(tx *bbolt.Tx) error {
-		meta := tx.Bucket(metaBucketName)
-		data := meta.Get(opsKey)
-		if data == nil {
-			return nil
-		}
-		return json.Unmarshal(data, &st)
-	})
-	if txErr != nil {
-		return 0, time.Time{}, fmt.Errorf("read ops counter: %w", txErr)
-	}
-	if st.Month != cur {
-		return 0, startOfNextMonth(now), nil
-	}
-	return int(st.Used), startOfNextMonth(now), nil
+	return db.readMonthly(opsKey)
 }

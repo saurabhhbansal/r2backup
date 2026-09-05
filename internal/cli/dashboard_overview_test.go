@@ -126,6 +126,17 @@ var overviewZeroOnAFreshlyConfiguredMachine = map[string]string{
 	"PendingDone":  "no large upload has ever been started",
 	"PendingTotal": "meaningless without PendingDone",
 	"PendingFiles": "meaningless without PendingDone",
+
+	"StoredBytes":   "nothing has been uploaded yet",
+	"StoredObjects": "meaningless without StoredBytes",
+	"ClassBUsed":    "no restore has read anything back yet",
+
+	"EstimatedUSD":  "a machine inside the free tier has spent nothing, which is the ordinary case",
+	"ProjectedUSD":  "projecting nothing forward is still nothing",
+	"StorageUSD":    "meaningless without EstimatedUSD",
+	"OperationsUSD": "meaningless without EstimatedUSD",
+
+	"BudgetUSD": "no spending limit is set, and none is ever set for someone -- see internal/cost.Budget",
 }
 
 // assertOverviewFullyPopulated walks every field of ui.Overview by name and

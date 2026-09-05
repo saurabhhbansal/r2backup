@@ -89,6 +89,49 @@ type Overview struct {
 	PendingDone  int64
 	PendingTotal int64
 	PendingFiles int
+
+	// --- What it costs -----------------------------------------------------
+	//
+	// Every figure here is an estimate built from what r2backup itself did,
+	// priced at R2's published rates. Cloudflare exposes no billing figure
+	// this tool can read, so anything shown from these fields has to be
+	// labelled as an estimate -- and it is a floor, not a forecast: another
+	// tool writing to the same bucket, or anything else on the account, is
+	// on the same bill and invisible here. See internal/cost.
+
+	// StoredBytes and StoredObjects are what the index believes is in the
+	// bucket.
+	StoredBytes   int64
+	StoredObjects int64
+
+	// ClassBUsed and ClassBLimit are the read operations -- restores --
+	// against their free allowance, the counterpart to OpsUsed/OpsLimit.
+	ClassBUsed  int
+	ClassBLimit int
+
+	// EstimatedUSD is the month so far. ProjectedUSD is where it lands if
+	// the rest of the month looks like the part that has happened, which
+	// early in a month means very little; show it as a projection or not at
+	// all.
+	EstimatedUSD  float64
+	ProjectedUSD  float64
+	StorageUSD    float64
+	OperationsUSD float64
+
+	// WithinFreeTier is true when nothing has cost anything yet, which is
+	// the ordinary case and worth saying outright rather than showing
+	// somebody a row of zeroes.
+	WithinFreeTier bool
+
+	// BudgetUSD is the monthly limit, zero when none is set. BudgetState is
+	// "off", "within", "near" or "exceeded".
+	//
+	// An exceeded budget has stopped backups from uploading, and the screen
+	// is the only place that can say so -- a stopped run otherwise looks
+	// exactly like a run with nothing to do. It must not be rendered
+	// quietly.
+	BudgetUSD   float64
+	BudgetState string
 }
 
 // AccountView is the Account tab's state.
@@ -281,6 +324,17 @@ type Backend interface {
 	// SaveKeys stores R2 credentials typed in directly, after checking they
 	// reach the bucket.
 	SaveKeys(ctx context.Context, k Keys) error
+
+	// SetBudget sets the monthly spending limit in US dollars. Zero removes
+	// it. Setting one also clears any earlier "carry on", because choosing a
+	// new ceiling is a fresh decision and inheriting a waiver from before it
+	// would leave the new limit doing nothing until next month.
+	SetBudget(ctx context.Context, usd float64) error
+
+	// ResumeBudget lifts a pause for the rest of this calendar month,
+	// leaving the limit itself alone. It expires on the 1st, so nobody has
+	// to remember to put the limit back.
+	ResumeBudget(ctx context.Context) error
 
 	// CheckUpdate returns the newer version available, or "" for none.
 	CheckUpdate(ctx context.Context) (string, error)

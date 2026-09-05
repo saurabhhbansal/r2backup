@@ -2,6 +2,7 @@ package ui
 
 import (
 	"sort"
+	"strconv"
 
 	"github.com/saurabhhbansal/r2backup/internal/scan"
 )
@@ -19,3 +20,7 @@ func newResult(files map[string]int64) *scan.Result {
 	sort.Slice(r.Entries, func(i, j int) bool { return r.Entries[i].Key < r.Entries[j].Key })
 	return r
 }
+
+// tabDigit is the number key that jumps to t. Tests derive it rather than
+// writing a literal, so adding a tab moves every key with it.
+func tabDigit(t tab) string { return strconv.Itoa(int(t) + 1) }
