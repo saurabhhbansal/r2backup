@@ -56,6 +56,20 @@ func newPKCE() (pkce, error) {
 	}, nil
 }
 
+// MinStateLen is the shortest state Cloudflare will accept.
+//
+// Not in any documentation -- it came from asking the live authorization
+// endpoint, which rejects a shorter one outright with "The state is missing or
+// does not have enough characters and is therefore considered too weak.
+// Request parameter 'state' must be at least be 8 characters long to ensure
+// sufficient entropy."
+//
+// newState produces far more than this and there is no reason to go near the
+// floor. It is written down because the failure it causes is a bad one to
+// debug: every sign-in breaks at once, at the consent screen, with an error
+// that never reaches this process.
+const MinStateLen = 8
+
 // newState generates the CSRF value that ties the callback we receive back to
 // the authorization we started.
 //
