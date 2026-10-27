@@ -126,31 +126,59 @@ func (d *dir) addFile(name string, it item) {
 // anything inside it is asked about and then kept up to date by this
 // process's own writes, so a backup run lists each folder at most once.
 //
-// One lock covers it all. Listing and creating folders happen once per folder
-// per run, so serialising them costs little, and it is what stops two uploads
-// into the same new folder from creating it twice -- Drime allows two folders
-// with one name side by side.
+// One lock covers the cache, and folder creation happens under it: that is
+// what stops two uploads into the same new folder from creating it twice --
+// Drime allows two folders with one name side by side. Listings are the
+// exception; see load.
 type tree struct {
 	api    *api
 	rootID string
 
 	mu   sync.Mutex
 	dirs map[string]*dir
+	// inflight marks folders being listed right now; see load.
+	inflight map[string]chan struct{}
 	// missing remembers paths found not to exist, so a restore asking about
 	// a folder that is not there does not list its parent again per file.
 	missing map[string]bool
 }
 
 func newTree(a *api, rootID string) *tree {
-	return &tree{api: a, rootID: rootID, dirs: map[string]*dir{}, missing: map[string]bool{}}
+	return &tree{api: a, rootID: rootID, dirs: map[string]*dir{}, missing: map[string]bool{},
+		inflight: map[string]chan struct{}{}}
 }
 
 // load lists folder id as path p, caching the result. Caller holds t.mu.
+//
+// The lock is let go for the listing itself, which is a network round trip
+// of a second or two: holding it would make every upload into every other
+// folder wait in line behind it. Two callers wanting the same folder share
+// one listing -- the second waits for the first rather than asking again.
 func (t *tree) load(ctx context.Context, p, id string) (*dir, error) {
-	if d, ok := t.dirs[p]; ok {
-		return d, nil
+	for {
+		if d, ok := t.dirs[p]; ok {
+			return d, nil
+		}
+		wait, busy := t.inflight[p]
+		if !busy {
+			break
+		}
+		t.mu.Unlock()
+		select {
+		case <-wait:
+		case <-ctx.Done():
+			t.mu.Lock()
+			return nil, ctx.Err()
+		}
+		t.mu.Lock()
 	}
+	done := make(chan struct{})
+	t.inflight[p] = done
+	t.mu.Unlock()
 	items, err := t.api.listFolder(ctx, id, false)
+	t.mu.Lock()
+	delete(t.inflight, p)
+	close(done)
 	if err != nil {
 		return nil, err
 	}

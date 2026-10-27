@@ -195,6 +195,23 @@ Drime does not publish its API. r2backup uses the endpoints its web app uses,
 as documented by [rclone's Drime backend](https://rclone.org/drime/), so a
 change on Drime's side could break it until a release catches up.
 
+### Compared with rclone
+
+rclone can copy to Drime too. Timed side by side on the same data and
+connection ([details](docs/benchmark-rclone-drime.md)):
+
+| | r2backup | rclone |
+|---|---:|---:|
+| First upload, 1,000 small files | **116 s** | 759 s (397 s with `--transfers 16`) |
+| First upload, 2 × 128 MB | 45 s | 46 s (38 s with `--transfers 16`) |
+| Re-run, nothing changed | **1.1 s** | 20.5 s |
+| Re-run after a day's edits and a folder rename | **47 s** | 91 s |
+| Files edited without changing size, backed up | **5 of 5** | 0 of 5 |
+
+Large files are a tie — both are limited by Drime's bandwidth. The last row
+is the one to read twice: Drime keeps no file dates, so a default `rclone
+sync` decides by size alone and skips an edit that keeps the size the same.
+
 ## Mirror: a backup of the backup
 
 `r2b mirror` copies what is stored in one place to a second — Drime to R2 or

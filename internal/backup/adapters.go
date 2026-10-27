@@ -49,7 +49,17 @@ func (u uploader) Put(ctx context.Context, key string, r io.Reader, size int64, 
 	return "", nil
 }
 
+// Copy is how the engine carries out a rename: the object goes to its new
+// key, and the old key is in the run's delete list. On a store that can move
+// (Drime) it is moved instead -- the same end state, and on Drime a copy
+// duplicates the content and takes seconds per file where a move is one
+// quick request. The later delete of the old key then finds nothing, which
+// every store treats as success. Each source is renamed at most once per
+// plan (see plan.detectMoves), so nothing reads it after it has gone.
 func (u uploader) Copy(ctx context.Context, from, to string) error {
+	if mv, ok := u.client.(remote.Mover); ok {
+		return mv.Move(ctx, u.key(from), u.key(to))
+	}
 	return u.client.Copy(ctx, u.key(from), u.key(to))
 }
 

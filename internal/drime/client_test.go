@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -363,4 +364,46 @@ func keys(m map[string][]byte) []string {
 		out = append(out, k)
 	}
 	return out
+}
+
+// Uploads into many new folders at once must create each folder once --
+// Drime would happily hold two folders of the same name -- and lose nothing,
+// now that listings run outside the tree's lock.
+func TestConcurrentPutsCreateEachFolderOnce(t *testing.T) {
+	f := newFake(t)
+	c := newClient(t, f, nil)
+	var wg sync.WaitGroup
+	errs := make(chan error, 60)
+	for i := 0; i < 60; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			key := fmt.Sprintf("%s/current/d%d/sub/f%d.txt", set, i%10, i)
+			errs <- c.Put(context.Background(), remote.PutInput{Key: key, Body: strings.NewReader("x"), Size: 1})
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.mu.Lock()
+	seen := map[string]int{}
+	for _, e := range f.entries {
+		if e.Type == itemTypeFolder {
+			seen[f.path(e)]++
+		}
+	}
+	f.mu.Unlock()
+	for p, n := range seen {
+		if n > 1 {
+			t.Errorf("folder %s created %d times", p, n)
+		}
+	}
+	got, err := newClient(t, f, nil).List(context.Background(), set+"/current/")
+	if err != nil || len(got) != 60 {
+		t.Fatalf("listed %d files, err %v", len(got), err)
+	}
 }
