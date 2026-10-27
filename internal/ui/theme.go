@@ -24,12 +24,12 @@ var (
 	warnStyle  = lipgloss.NewStyle().Foreground(warn)
 	badStyle   = lipgloss.NewStyle().Foreground(bad)
 
-	// panelStyle frames a screen's body. The border is rounded and in the
-	// subtle colour so it reads as a boundary and not as content.
-	panelStyle = lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(subtle).
-			Padding(0, 1)
+	// panelStyle holds a screen's body. No border: the rule under the tabs
+	// and the one over the status bar already mark where it starts and
+	// ends, and a box inside them was a second frame saying the same thing.
+	// The padding takes the same two rows and four columns the border and
+	// its padding used to, so every size computed from them still holds.
+	panelStyle = lipgloss.NewStyle().Padding(1, 2)
 
 	labelStyle = lipgloss.NewStyle().Foreground(muted).Width(14)
 
@@ -62,14 +62,40 @@ func stateStyle(s string) lipgloss.Style {
 // into its own stacked block with the rules misaligned underneath. The active
 // mode is filled instead, which also survives a terminal with a small palette
 // better than a colour difference alone.
+//
+// The active tab is marked the way a desktop app marks one: in the accent
+// colour, with a heavier rule underneath it (see tabBar), rather than a
+// filled block. The digit stays dim so the names read first.
 var (
-	tabStyle = lipgloss.NewStyle().Foreground(muted).Padding(0, 1)
+	tabStyle       = lipgloss.NewStyle().Foreground(muted).Padding(0, 1)
+	activeTabStyle = lipgloss.NewStyle().Foreground(accent).Bold(true).Padding(0, 1)
+	tabDigitStyle  = lipgloss.NewStyle().Foreground(subtle)
+	tabGapStyle    = lipgloss.NewStyle().Foreground(subtle)
+	ruleStyle      = lipgloss.NewStyle().Foreground(subtle)
+	activeRule     = lipgloss.NewStyle().Foreground(accent)
 
-	activeTabStyle = lipgloss.NewStyle().
-			Foreground(lipgloss.Color("0")).
-			Background(accent).
-			Bold(true).
-			Padding(0, 1)
-
-	tabGapStyle = lipgloss.NewStyle().Foreground(subtle)
+	wordmarkStyle = lipgloss.NewStyle().Foreground(accent).Bold(true)
 )
+
+// Glyphs for a folder's state. One shape per meaning, so the list can be
+// read without colour.
+const (
+	iconOK      = "✓"
+	iconBad     = "!"
+	iconNever   = "○"
+	iconStopped = "◌"
+)
+
+// stateIcon is the glyph, in its colour, for a set's state.
+func stateIcon(s string) string {
+	switch s {
+	case "ok":
+		return goodStyle.Render(iconOK)
+	case "needs attention", "failed":
+		return badStyle.Bold(true).Render(iconBad)
+	case "never run":
+		return dimStyle.Render(iconNever)
+	default:
+		return warnStyle.Render(iconStopped)
+	}
+}

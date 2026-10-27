@@ -854,11 +854,12 @@ func TestALiveRunIsNotReportedAsInterrupted(t *testing.T) {
 	b.ov.Interrupted = "Photos"
 	m := sized(b, 120, 40)
 
-	body := m.bodyView()
-	if !strings.Contains(body, "running now") {
-		t.Errorf("a live run should be shown as live:\n%s", body)
+	// The live run is in the status bar, which is on every tab.
+	view := m.View()
+	if !strings.Contains(view, "Backing up Photos") || !strings.Contains(view, "2m remaining") {
+		t.Errorf("a live run should be shown as live:\n%s", view)
 	}
-	if strings.Contains(body, "interrupted") {
-		t.Errorf("a live run must not also read as interrupted:\n%s", body)
+	if strings.Contains(view, "interrupted") {
+		t.Errorf("a live run must not also read as interrupted:\n%s", view)
 	}
 }

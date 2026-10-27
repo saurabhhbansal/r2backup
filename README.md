@@ -152,6 +152,27 @@ the prefix it was created with, for good, so any other computer still has to
 original name on success whenever it differs from the new one, so you don't
 have to remember it.
 
+## In the Windows taskbar
+
+```powershell
+r2bw tray
+```
+
+puts an icon in the notification area. Its colour says how the backups are
+doing — green when they are fine, blue while one runs, red when a folder
+needs a look — and a click opens a panel with:
+
+- how the last backups went, and a running one's progress and time left
+- each folder, with **Back up** and **Open**, and **Back up now** for all
+- the recent runs, what each uploaded, moved or put in trash
+- automatic backups on or off, and how often
+- **Start with Windows**, **Back up another folder…**, and **Open r2b** for
+  restore, trash and everything else
+
+It starts the same `r2b` commands the terminal does, so a backup started from
+the panel is exactly the one the scheduler runs. Windows only for now; it uses
+WebView2, which comes with Windows 11.
+
 ## Drime
 
 Drime has no S3 interface, so r2backup speaks its own API. What you get is

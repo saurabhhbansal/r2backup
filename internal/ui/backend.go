@@ -47,6 +47,10 @@ type Overview struct {
 	Machine string
 	Bucket  string
 	Version string
+	// Provider is "drime" when backups go to Drime and "" or "r2" for
+	// Cloudflare R2. The interface uses it to leave out what only R2 has: a
+	// bucket name, an operations allowance, a bill.
+	Provider string
 
 	OpsUsed    int
 	OpsLimit   int

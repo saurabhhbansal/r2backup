@@ -178,20 +178,33 @@ func TestEveryVariantUsesOnlyHashAndText(t *testing.T) {
 	}
 }
 
-// TestHeaderShowsABannerOnEveryOverlayFreeTab is the integration half of the
-// ladder: header() used to call Banner only on the Folders tab because
-// nineteen rows was too much to spend on every screen. With a ladder that
-// reason is gone, so every tab without an overlay open should show some
-// rung once the terminal has room for one -- this is what actually answers
-// "the banner only shows up on the folders page" from the original report.
-func TestHeaderShowsABannerOnEveryOverlayFreeTab(t *testing.T) {
+// TestWorkingTabsKeepTheHeaderCompact: the header is three rows -- the
+// wordmark line, the tabs, the rule under them -- on every tab, however tall
+// the terminal. The art used to sit above them on every tab, and on a
+// 36-row terminal it took half the window before any content.
+func TestWorkingTabsKeepTheHeaderCompact(t *testing.T) {
 	m := sized(twoSets(), 150, 44)
 	for tb := tab(0); tb < numTabs; tb++ {
 		m.tab, m.overlay = tb, overlayNone
 		m.layout()
-		if h := m.header(); !isArt(h) {
-			t.Errorf("tab %v at 150x44 should show a banner rung, got the plain word:\n%s", tb, h)
+		h := m.header()
+		if isArt(h) || lipgloss.Height(h) != 3 {
+			t.Errorf("tab %v: header should be three plain rows, got %d:\n%s", tb, lipgloss.Height(h), h)
 		}
+		if !strings.Contains(h, "r2backup") {
+			t.Errorf("tab %v: header should still say what this is", tb)
+		}
+	}
+}
+
+// TestTheWelcomeScreenShowsTheArt: the logo greets a computer that has
+// nothing to show yet, where the rows are free.
+func TestTheWelcomeScreenShowsTheArt(t *testing.T) {
+	b := twoSets()
+	b.ov.Configured = false
+	m := sized(b, 150, 44)
+	if body := m.bodyView(); !isArt(body) {
+		t.Errorf("the not-set-up screen should show the art:\n%s", body)
 	}
 }
 

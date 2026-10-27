@@ -1,0 +1,306 @@
+// Package tray is r2backup's Windows taskbar app: an icon in the
+// notification area and, on a click, a small panel that answers "are my
+// backups all right?" and offers the handful of things worth doing from
+// there.
+//
+// It shows only what r2backup actually does. Every number comes from the
+// same places the terminal interface reads -- the sets, the run history, the
+// progress file a running backup writes -- and every button starts one of
+// r2backup's own commands. Nothing here is a second implementation of a
+// backup; the panel is a window onto the program, not a fork of it.
+//
+// This file is the panel's data model, built from those sources by a pure
+// function so it can be tested anywhere. The window itself is Windows-only
+// (tray_windows.go).
+package tray
+
+import (
+	"fmt"
+	"sort"
+	"time"
+
+	"github.com/saurabhhbansal/r2backup/internal/progress"
+	"github.com/saurabhhbansal/r2backup/internal/runstate"
+	"github.com/saurabhhbansal/r2backup/internal/ui"
+)
+
+// Status kinds. The panel and the tray icon pick their colour from these.
+const (
+	KindOK          = "ok"
+	KindRunning     = "running"
+	KindAttention   = "attention"
+	KindPending     = "pending"
+	KindInterrupted = "interrupted"
+	KindSetup       = "setup"
+)
+
+// State is everything the panel draws, sent to it as JSON.
+type State struct {
+	Configured  bool   `json:"configured"`
+	Provider    string `json:"provider"`    // "drime" or "r2"
+	Destination string `json:"destination"` // "Drime · r2backup", "my-bucket"
+	Machine     string `json:"machine"`
+	Version     string `json:"version"`
+
+	Status  Status    `json:"status"`
+	Running *Running  `json:"running,omitempty"`
+	Folders []Folder  `json:"folders"`
+	Recent  []Recent  `json:"recent"`
+	Sched   Schedule  `json:"schedule"`
+	Login   bool      `json:"startAtLogin"`
+	Busy    string    `json:"busy,omitempty"` // a command the panel started and is waiting on
+	Notice  string    `json:"notice,omitempty"`
+	At      time.Time `json:"at"`
+}
+
+// Status is the one-line answer at the top of the panel, and the tooltip.
+type Status struct {
+	Kind   string `json:"kind"`
+	Title  string `json:"title"`
+	Detail string `json:"detail"`
+}
+
+// Running is a backup in progress, from this panel or the scheduler.
+type Running struct {
+	Set     string  `json:"set"`
+	Percent float64 `json:"percent"` // 0-100; 0 while it is still working out how much
+	ETA     string  `json:"eta"`
+}
+
+// Folder is one backed-up folder.
+type Folder struct {
+	Name     string `json:"name"`
+	Root     string `json:"root"`
+	Kind     string `json:"kind"` // ok, attention, never, stopped
+	State    string `json:"state"`
+	LastRun  string `json:"lastRun"` // "22m ago · 12 MB uploaded"
+	Note     string `json:"note,omitempty"`
+	Excludes int    `json:"excludes"`
+}
+
+// Recent is one finished run, for the activity list.
+type Recent struct {
+	Set  string    `json:"set"`
+	At   time.Time `json:"at"`
+	Day  string    `json:"day"` // "Today", "Yesterday", "Mon 26 Oct"
+	Time string    `json:"time"`
+	Kind string    `json:"kind"` // ok, failed, cancelled, nochange
+	Text string    `json:"text"`
+}
+
+// Schedule is whether backups run by themselves.
+type Schedule struct {
+	Available bool   `json:"available"`
+	On        bool   `json:"on"`
+	Every     int    `json:"every"` // minutes
+	EveryText string `json:"everyText"`
+	Next      string `json:"next,omitempty"`
+}
+
+// recentLimit is how many finished runs the activity list keeps. The
+// history file holds more; the panel is for what happened lately.
+const recentLimit = 30
+
+// Summarize builds the panel's state from what the dashboard loads and the
+// run history.
+func Summarize(views []ui.SetView, ov ui.Overview, hist []runstate.Past, now time.Time) State {
+	st := State{
+		Configured:  ov.Configured,
+		Provider:    ov.Provider,
+		Destination: ov.Bucket,
+		Machine:     ov.Machine,
+		Version:     ov.Version,
+		At:          now,
+		Sched: Schedule{
+			Available: ov.SchedulerAvailable,
+			On:        ov.Scheduled,
+			Every:     int(ov.Interval / time.Minute),
+		},
+	}
+	if st.Provider == "" && st.Configured {
+		st.Provider = "r2"
+	}
+	if ov.Scheduled {
+		st.Sched.EveryText = progress.FormatInterval(ov.Interval)
+		if !ov.NextRun.IsZero() {
+			st.Sched.Next = clock(ov.NextRun, now)
+		}
+	}
+
+	var bad, never int
+	var last time.Time
+	for _, v := range views {
+		f := Folder{Name: v.Name, Root: v.Root, State: v.State, Note: v.Note, Excludes: len(v.Excludes)}
+		switch v.State {
+		case "ok":
+			f.Kind = "ok"
+		case "needs attention", "failed":
+			f.Kind = "attention"
+			bad++
+		case "never run":
+			f.Kind = "never"
+			never++
+		default:
+			f.Kind = "stopped"
+		}
+		f.LastRun = lastRunText(v, now)
+		if v.LastRun.After(last) {
+			last = v.LastRun
+		}
+		st.Folders = append(st.Folders, f)
+	}
+
+	if ov.Running != "" {
+		// RunPercent is a fraction; the panel wants a percentage.
+		st.Running = &Running{Set: ov.Running, Percent: ov.RunPercent * 100, ETA: ov.RunETA}
+	}
+
+	st.Status = status(st, ov, len(views), bad, never, last, now)
+	st.Recent = recent(hist, now)
+	return st
+}
+
+func status(st State, ov ui.Overview, n, bad, never int, last time.Time, now time.Time) Status {
+	switch {
+	case !st.Configured:
+		return Status{Kind: KindSetup, Title: "Not set up yet",
+			Detail: "Connect Drime or Cloudflare R2 to start backing up."}
+	case st.Running != nil:
+		d := "Working out what changed"
+		if st.Running.Percent > 0 {
+			d = fmt.Sprintf("%.0f%% done", st.Running.Percent)
+			if st.Running.ETA != "" {
+				d += " · " + st.Running.ETA
+			}
+		}
+		return Status{Kind: KindRunning, Title: "Backing up " + st.Running.Set, Detail: d}
+	case ov.Interrupted != "":
+		return Status{Kind: KindInterrupted, Title: ov.Interrupted + " was interrupted",
+			Detail: "It carries on from where it stopped at the next run."}
+	case n == 0:
+		return Status{Kind: KindPending, Title: "Nothing backed up yet",
+			Detail: "Add a folder to start."}
+	case bad == 1:
+		return Status{Kind: KindAttention, Title: "1 folder needs a look", Detail: sinceLast(last, now)}
+	case bad > 1:
+		return Status{Kind: KindAttention, Title: fmt.Sprintf("%d folders need a look", bad), Detail: sinceLast(last, now)}
+	case never == n:
+		return Status{Kind: KindPending, Title: "Not backed up yet", Detail: "Back up now, or wait for the next scheduled run."}
+	case never > 0:
+		return Status{Kind: KindPending, Title: fmt.Sprintf("%d of %d folders backed up", n-never, n), Detail: sinceLast(last, now)}
+	}
+	return Status{Kind: KindOK, Title: "Your folders are backed up", Detail: sinceLast(last, now)}
+}
+
+func sinceLast(last, now time.Time) string {
+	if last.IsZero() {
+		return ""
+	}
+	return "Last backup " + ago(now.Sub(last))
+}
+
+func recent(hist []runstate.Past, now time.Time) []Recent {
+	runs := append([]runstate.Past(nil), hist...)
+	sort.SliceStable(runs, func(i, j int) bool { return runs[i].FinishedAt.After(runs[j].FinishedAt) })
+	if len(runs) > recentLimit {
+		runs = runs[:recentLimit]
+	}
+	out := make([]Recent, 0, len(runs))
+	for _, p := range runs {
+		r := Recent{Set: p.Set, At: p.FinishedAt, Day: day(p.FinishedAt, now), Time: p.FinishedAt.Local().Format("15:04")}
+		switch {
+		case p.Cancelled:
+			r.Kind, r.Text = "cancelled", "Stopped before it finished"
+		case p.Error != "":
+			r.Kind, r.Text = "failed", p.Error
+		case p.Uploaded+p.Moved+p.Deleted == 0:
+			r.Kind, r.Text = "nochange", "No changes"
+		default:
+			r.Kind, r.Text = "ok", changeText(p)
+		}
+		if r.Kind == "ok" && p.Failures > 0 {
+			r.Kind = "failed"
+			r.Text += fmt.Sprintf(" · %d failed", p.Failures)
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+func changeText(p runstate.Past) string {
+	var parts []string
+	if p.Uploaded > 0 {
+		parts = append(parts, fmt.Sprintf("%s uploaded (%s)", plural(p.Uploaded, "file"), progress.FormatBytes(p.Bytes)))
+	}
+	if p.Moved > 0 {
+		parts = append(parts, plural(p.Moved, "file")+" moved")
+	}
+	if p.Deleted > 0 {
+		parts = append(parts, plural(p.Deleted, "file")+" to trash")
+	}
+	s := ""
+	for i, part := range parts {
+		if i > 0 {
+			s += " · "
+		}
+		s += part
+	}
+	return s
+}
+
+func plural(n int, noun string) string {
+	if n == 1 {
+		return "1 " + noun
+	}
+	return progress.FormatCount(int64(n)) + " " + noun + "s"
+}
+
+func lastRunText(v ui.SetView, now time.Time) string {
+	if !v.HasRun {
+		return "Not backed up yet"
+	}
+	when := ago(now.Sub(v.LastRun))
+	switch {
+	case v.State == "failed":
+		return when + " · failed"
+	case v.State == "cancelled":
+		return when + " · stopped"
+	case v.Uploaded == 0 && v.Deleted == 0 && v.Moved == 0:
+		return when + " · no changes"
+	}
+	return when + " · " + progress.FormatBytes(v.Bytes) + " uploaded"
+}
+
+func ago(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	}
+	return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+}
+
+func day(t, now time.Time) string {
+	t, now = t.Local(), now.Local()
+	y1, m1, d1 := t.Date()
+	y2, m2, d2 := now.Date()
+	if y1 == y2 && m1 == m2 && d1 == d2 {
+		return "Today"
+	}
+	if y, m, d := now.AddDate(0, 0, -1).Date(); y1 == y && m1 == m && d1 == d {
+		return "Yesterday"
+	}
+	return t.Format("Mon 2 Jan")
+}
+
+// clock is a time the way a person reads one: "15:30" today, "Tue 15:30"
+// otherwise.
+func clock(t, now time.Time) string {
+	if day(t, now) == "Today" {
+		return t.Local().Format("15:04")
+	}
+	return t.Local().Format("Mon 15:04")
+}

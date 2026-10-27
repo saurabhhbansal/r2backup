@@ -57,6 +57,9 @@ var tuiSurface = map[string]surface{
 	"r2b mirror setup --provider": {NA: "part of r2b mirror setup."},
 	"r2b mirror auto":             {NA: "a one-word switch; set once and forgotten."},
 
+	"r2b tray": {NA: "the taskbar app is a second interface of its own, started from the Start menu " +
+		"or at sign-in; opening it from inside the terminal one would be a window opening a window."},
+
 	"r2b add":             {Keys: []string{"a"}, Where: "Folders: a browses to a folder, then the tree picker"},
 	"r2b add --all":       {Keys: []string{"enter"}, Where: "the picker opens with everything ticked; enter takes all of it"},
 	"r2b add --name":      {Keys: []string{"a"}, Where: "the form after the picker asks what to call it"},

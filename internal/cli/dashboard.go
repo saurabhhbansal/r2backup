@@ -252,7 +252,14 @@ func (d *dashboard) Load(ctx context.Context) ([]ui.SetView, ui.Overview, error)
 	// Read from the stored credentials rather than by connecting: Load runs
 	// once a second, and this must stay free.
 	if c, err := a.creds.Load(); err == nil {
-		ov.Bucket = c.Bucket
+		ov.Bucket, ov.Provider = c.Bucket, creds.ProviderR2
+		if c.IsDrime() {
+			root := c.DrimeRoot
+			if root == "" {
+				root = "r2backup"
+			}
+			ov.Provider, ov.Bucket = creds.ProviderDrime, "Drime · "+root
+		}
 		// Configured is what the Folders and Account tabs gate on, and it has
 		// to mean the same thing connect() would check: a credential set that
 		// is actually usable, not merely a file that exists. A bucket left
@@ -301,31 +308,7 @@ func (d *dashboard) Load(ctx context.Context) ([]ui.SetView, ui.Overview, error)
 		// the tab either.
 		ov.SchedulerAvailable = true
 	}
-	// A run in another process -- the scheduler's, typically -- is read from
-	// the same progress file `status --watch` reads, so the interface and the
-	// command agree about what is happening without either owning it.
-	if p, err := config.ProgressPath(); err == nil {
-		now := time.Now()
-		if live, err := runstate.ReadLive(p); err == nil && !live.Stale(now) {
-			ov.Running = live.Set
-			if live.BytesTotal > 0 {
-				ov.RunPercent = float64(live.BytesDone) / float64(live.BytesTotal)
-			}
-			if live.ETAKnown {
-				ov.RunETA = progress.FormatDuration(time.Duration(live.ETASeconds*float64(time.Second))) + " remaining"
-			} else {
-				ov.RunETA = "estimating..."
-			}
-		} else if stopped, ok := runstate.ReadInterrupted(p, now); ok {
-			// The same file, left behind by a run that was not allowed to
-			// finish. Reported rather than ignored: a backup that stopped
-			// when the machine did is the thing the user most wants to know
-			// about when they open this, and it showed nothing at all.
-			ov.Interrupted = stopped.Set
-			ov.InterruptedAt = stopped.UpdatedAt
-			ov.InterruptedDone, ov.InterruptedTotal = stopped.BytesDone, stopped.BytesTotal
-		}
-	}
+	applyLiveRun(&ov, time.Now())
 	// What the bucket is already holding of uploads that were cut off. Read
 	// from the index, so it costs nothing and survives the program being
 	// closed and reopened -- which is the point.
@@ -333,6 +316,42 @@ func (d *dashboard) Load(ctx context.Context) ([]ui.SetView, ui.Overview, error)
 		ov.PendingDone, ov.PendingTotal, ov.PendingFiles = done, total, files
 	}
 	return views, ov, nil
+}
+
+// applyLiveRun fills in a run happening in another process -- the
+// scheduler's, typically -- from the same progress file `status --watch`
+// reads, so the interface and the command agree about what is happening
+// without either owning it. It touches no index, so it works while that run
+// holds the index's lock. It reports whether a run is live.
+func applyLiveRun(ov *ui.Overview, now time.Time) bool {
+	ov.Running, ov.RunPercent, ov.RunETA = "", 0, ""
+	ov.Interrupted, ov.InterruptedAt, ov.InterruptedDone, ov.InterruptedTotal = "", time.Time{}, 0, 0
+	p, err := config.ProgressPath()
+	if err != nil {
+		return false
+	}
+	if live, err := runstate.ReadLive(p); err == nil && !live.Stale(now) {
+		ov.Running = live.Set
+		if live.BytesTotal > 0 {
+			ov.RunPercent = float64(live.BytesDone) / float64(live.BytesTotal)
+		}
+		if live.ETAKnown {
+			ov.RunETA = progress.FormatDuration(time.Duration(live.ETASeconds*float64(time.Second))) + " remaining"
+		} else {
+			ov.RunETA = "estimating..."
+		}
+		return true
+	}
+	if stopped, ok := runstate.ReadInterrupted(p, now); ok {
+		// The same file, left behind by a run that was not allowed to
+		// finish. Reported rather than ignored: a backup that stopped when
+		// the machine did is the thing the user most wants to know about
+		// when they open this, and it showed nothing at all.
+		ov.Interrupted = stopped.Set
+		ov.InterruptedAt = stopped.UpdatedAt
+		ov.InterruptedDone, ov.InterruptedTotal = stopped.BytesDone, stopped.BytesTotal
+	}
+	return false
 }
 
 // uiObserver adapts backup.Observer to the two callbacks the interface wants,

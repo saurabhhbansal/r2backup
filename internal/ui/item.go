@@ -40,14 +40,22 @@ func (d setDelegate) Render(w io.Writer, m list.Model, index int, item list.Item
 	v := it.v
 	selected := index == m.Index()
 
-	cursor := "  "
+	// The selected row gets an accent bar down its left edge, across both of
+	// its lines, the way a desktop list highlights a row -- not only a caret
+	// on the first line.
+	bar := "  "
 	name := titleStyle.Render(v.Name)
 	if selected {
-		cursor = lipgloss.NewStyle().Foreground(accent).Render("▸ ")
+		bar = lipgloss.NewStyle().Foreground(accent).Render("▌ ")
 		name = lipgloss.NewStyle().Foreground(accent).Bold(true).Render(v.Name)
 	}
 
-	left := cursor + name + "  " + stateStyle(v.State).Render(v.State)
+	// "ok" is the normal case and says nothing the tick does not; any other
+	// state is spelled out, because it is the thing to notice.
+	left := bar + stateIcon(v.State) + " " + name
+	if v.State != "ok" {
+		left += "  " + stateStyle(v.State).Render(v.State)
+	}
 	right := dimStyle.Render(lastRunText(v))
 
 	width := d.width
@@ -55,7 +63,7 @@ func (d setDelegate) Render(w io.Writer, m list.Model, index int, item list.Item
 		width = 20
 	}
 	fmt.Fprintln(w, padBetween(left, right, width))
-	fmt.Fprint(w, "  "+dimStyle.Render(truncate(v.Root, width-4)))
+	fmt.Fprint(w, bar+"  "+dimStyle.Render(truncate(v.Root, width-6)))
 }
 
 // lastRunText is the right-hand column: when it ran and what it did.

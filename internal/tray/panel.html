@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="color-scheme" content="dark light">
+<title>r2backup</title>
+<style>
+:root {
+  --bg: #121214; --card: #1b1b1f; --card-2: #232328; --line: #2c2c32;
+  --text: #ececf0; --muted: #8d8d97; --faint: #5c5c66;
+  --accent: #38bdf8; --accent-ink: #04212f;
+  --ok: #34d399; --warn: #fbbf24; --bad: #f87171;
+  --radius: 12px;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f6f6f8; --card: #ffffff; --card-2: #f0f0f3; --line: #e3e3e8;
+    --text: #18181b; --muted: #6b6b75; --faint: #a1a1aa;
+    --accent: #0284c7; --accent-ink: #ffffff;
+    --ok: #059669; --warn: #d97706; --bad: #dc2626;
+  }
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--text);
+  font: 13px/1.4 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  display: flex; flex-direction: column; overflow: hidden;
+  user-select: none; -webkit-user-select: none;
+  border: 1px solid var(--line); border-radius: 10px;
+}
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+button:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* header */
+header { display: flex; align-items: center; gap: 10px; padding: 14px 14px 10px; }
+.mark { width: 30px; height: 30px; border-radius: 8px; background: var(--accent); display: grid; place-items: center; flex: none; }
+.mark svg { width: 16px; height: 16px; fill: var(--accent-ink); }
+.brand { flex: 1; min-width: 0; }
+.brand b { display: block; font-size: 14px; font-weight: 600; letter-spacing: .1px; }
+.brand span { display: block; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.icon-btn { width: 32px; height: 32px; border-radius: 8px; display: grid; place-items: center; color: var(--muted); }
+.icon-btn:hover { background: var(--card-2); color: var(--text); }
+.icon-btn svg { width: 17px; height: 17px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+
+/* status card */
+.status { margin: 2px 14px 10px; padding: 12px; border-radius: var(--radius); background: var(--card); border: 1px solid var(--line); display: grid; grid-template-columns: 34px 1fr; gap: 10px; align-items: center; }
+.badge { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; }
+.badge svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.k-ok .badge { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+.k-running .badge, .k-interrupted .badge { color: var(--accent); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.k-attention .badge { color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent); }
+.k-pending .badge, .k-setup .badge { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
+.status h1 { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.status p { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bar { grid-column: 1 / -1; height: 4px; border-radius: 4px; background: var(--card-2); overflow: hidden; }
+.bar i { display: block; height: 100%; background: var(--accent); border-radius: 4px; transition: width .4s ease; }
+.bar.indet i { width: 35% !important; animation: slide 1.2s ease-in-out infinite; }
+@keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(290%); } }
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* tabs */
+nav { display: flex; gap: 18px; padding: 0 16px; border-bottom: 1px solid var(--line); }
+nav button { padding: 8px 0 9px; color: var(--muted); font-weight: 500; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+nav button[aria-selected="true"] { color: var(--text); border-color: var(--accent); }
+nav button .n { color: var(--faint); font-weight: 400; margin-left: 4px; }
+
+/* lists */
+main { flex: 1; overflow-y: auto; padding: 6px 8px 8px; }
+main::-webkit-scrollbar { width: 8px; } main::-webkit-scrollbar-thumb { background: var(--line); border-radius: 8px; }
+.row { display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: center; padding: 9px 8px; border-radius: 9px; }
+.row:hover { background: var(--card); }
+.row .ic { width: 18px; height: 18px; }
+.row .ic svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.i-ok { color: var(--ok); } .i-attention, .i-failed { color: var(--bad); } .i-never, .i-nochange { color: var(--faint); } .i-stopped, .i-cancelled { color: var(--warn); }
+.row .t { min-width: 0; }
+.row .t b { display: block; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .t span { display: block; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row .t span.err { color: var(--bad); }
+.row .r { color: var(--faint); font-size: 12px; white-space: nowrap; }
+.row .acts { display: none; gap: 2px; }
+.row:hover .acts, .row:focus-within .acts { display: flex; }
+.row:hover .r.hide-on-hover { display: none; }
+.mini { height: 26px; padding: 0 9px; border-radius: 7px; font-size: 12px; color: var(--text); background: var(--card-2); }
+.mini:hover { background: var(--line); }
+.mini:disabled { opacity: .45; cursor: default; }
+.day { color: var(--muted); font-size: 12px; font-weight: 600; padding: 12px 8px 4px; }
+.empty { text-align: center; color: var(--muted); padding: 42px 24px; }
+.empty b { display: block; color: var(--text); font-size: 14px; margin-bottom: 6px; }
+.empty .mini { margin-top: 14px; height: 30px; padding: 0 14px; }
+
+/* footer */
+footer { display: flex; align-items: center; gap: 10px; padding: 10px 14px 12px; border-top: 1px solid var(--line); }
+.primary { height: 34px; padding: 0 14px; border-radius: 9px; background: var(--accent); color: var(--accent-ink); font-weight: 600; display: inline-flex; align-items: center; gap: 7px; }
+.primary:hover { filter: brightness(1.08); }
+.primary:disabled { opacity: .5; cursor: default; filter: none; }
+.primary svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.sched { flex: 1; min-width: 0; text-align: right; color: var(--muted); font-size: 12px; padding: 6px 8px; border-radius: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sched:hover { background: var(--card); color: var(--text); }
+.dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; background: var(--faint); }
+.dot.on { background: var(--ok); }
+
+/* settings sheet */
+.sheet { position: absolute; inset: 0; background: var(--bg); display: flex; flex-direction: column; transform: translateX(100%); transition: transform .18s ease; border-radius: 10px; }
+.sheet.open { transform: none; }
+.sheet header { border-bottom: 1px solid var(--line); padding-bottom: 12px; }
+.sheet header b { flex: 1; font-size: 14px; font-weight: 600; }
+.sheet main { padding: 10px 14px; }
+.group { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); margin-bottom: 12px; }
+.item { display: flex; align-items: center; gap: 10px; padding: 11px 12px; }
+.item + .item { border-top: 1px solid var(--line); }
+.item .t { flex: 1; min-width: 0; }
+.item .t b { display: block; font-weight: 500; }
+.item .t span { display: block; color: var(--muted); font-size: 12px; }
+.toggle { width: 38px; height: 22px; border-radius: 11px; background: var(--line); position: relative; flex: none; transition: background .15s; }
+.toggle::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .15s; }
+.toggle[aria-checked="true"] { background: var(--accent); }
+.toggle[aria-checked="true"]::after { transform: translateX(16px); }
+.toggle:disabled { opacity: .45; cursor: default; }
+select { font: inherit; color: var(--text); background: var(--card-2); border: 1px solid var(--line); border-radius: 7px; padding: 4px 6px; }
+.link { color: var(--text); width: 100%; text-align: left; }
+.link:hover { background: var(--card-2); }
+.group .link:first-child { border-radius: var(--radius) var(--radius) 0 0; }
+.group .link:last-child { border-radius: 0 0 var(--radius) var(--radius); }
+.group .link:only-child { border-radius: var(--radius); }
+.danger b { color: var(--bad); }
+.foot { color: var(--faint); font-size: 11px; text-align: center; padding: 6px 0 4px; }
+
+.toast { position: absolute; left: 14px; right: 14px; bottom: 66px; background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; font-size: 12px; opacity: 0; transform: translateY(6px); transition: all .2s; pointer-events: none; }
+.toast.show { opacity: 1; transform: none; }
+</style>
+</head>
+<body>
+<header>
+  <div class="mark" aria-hidden="true"><svg viewBox="0 0 16 16"><path d="M8 1.5 14.5 8 8 14.5 1.5 8z"/></svg></div>
+  <div class="brand"><b>r2backup</b><span id="dest">&nbsp;</span></div>
+  <button class="icon-btn" id="b-web" title="See your backups in the browser" aria-label="See your backups in the browser"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></button>
+  <button class="icon-btn" id="b-term" title="Open the full r2b interface (restore, trash, more)" aria-label="Open the full r2b interface"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2.5"/><path d="m7 9 3 3-3 3M12.5 15H17"/></svg></button>
+  <button class="icon-btn" id="b-set" title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+</header>
+
+<section class="status" id="status" aria-live="polite">
+  <div class="badge" id="badge"></div>
+  <div><h1 id="s-title">Loading…</h1><p id="s-detail">&nbsp;</p></div>
+  <div class="bar" id="bar" hidden><i id="bar-fill" style="width:0"></i></div>
+</section>
+
+<nav role="tablist">
+  <button role="tab" id="t-folders" aria-selected="true">Folders<span class="n" id="n-folders"></span></button>
+  <button role="tab" id="t-recent" aria-selected="false">Activity</button>
+</nav>
+
+<main id="list"></main>
+
+<footer>
+  <button class="primary" id="b-all"><svg viewBox="0 0 24 24"><path d="M12 16V4m0 0-4.5 4.5M12 4l4.5 4.5M5 20h14"/></svg><span id="b-all-t">Back up now</span></button>
+  <button class="sched" id="b-sched"><span class="dot" id="sched-dot"></span><span id="sched-t"></span></button>
+</footer>
+
+<div class="toast" id="toast" role="status"></div>
+
+<section class="sheet" id="sheet" aria-label="Settings">
+  <header>
+    <button class="icon-btn" id="b-back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button>
+    <b>Settings</b>
+  </header>
+  <main>
+    <div class="group">
+      <div class="item">
+        <div class="t"><b>Back up automatically</b><span id="sched-help">Runs in the background, even with this closed.</span></div>
+        <button class="toggle" id="sw-sched" role="switch" aria-checked="false" aria-label="Back up automatically"></button>
+      </div>
+      <div class="item">
+        <div class="t"><b>How often</b></div>
+        <select id="sel-every" aria-label="How often">
+          <option value="15">Every 15 minutes</option>
+          <option value="30" selected>Every 30 minutes</option>
+          <option value="60">Every hour</option>
+          <option value="240">Every 4 hours</option>
+          <option value="1440">Once a day</option>
+        </select>
+      </div>
+    </div>
+    <div class="group">
+      <div class="item">
+        <div class="t"><b>Start with Windows</b><span>Keep this icon in the taskbar after a restart.</span></div>
+        <button class="toggle" id="sw-login" role="switch" aria-checked="false" aria-label="Start with Windows"></button>
+      </div>
+    </div>
+    <div class="group">
+      <button class="item link" id="b-add"><div class="t"><b>Back up another folder…</b><span>Everything in it, from now on.</span></div></button>
+      <button class="item link" id="b-term2"><div class="t"><b>Open r2b</b><span>Restore, trash, exclusions, account and more.</span></div></button>
+    </div>
+    <div class="group">
+      <button class="item link danger" id="b-quit"><div class="t"><b>Quit r2backup</b><span>Scheduled backups still run.</span></div></button>
+    </div>
+    <p class="foot" id="ver"></p>
+  </main>
+</section>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const send = (cmd, arg) => window.chrome.webview.postMessage(JSON.stringify({ cmd, arg: arg === undefined ? "" : String(arg) }));
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+
+const ICON = {
+  ok: '<svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>',
+  attention: '<svg viewBox="0 0 24 24"><path d="M12 7v6m0 4h.01"/></svg>',
+  pending: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/></svg>',
+  setup: '<svg viewBox="0 0 24 24"><path d="M12 7v6m0 4h.01"/></svg>',
+  interrupted: '<svg viewBox="0 0 24 24"><path d="M9 7v10M15 7v10"/></svg>',
+  running: '<svg class="spin" viewBox="0 0 24 24"><path d="M12 4a8 8 0 1 1-8 8"/></svg>',
+  folder: { ok: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12.3 2.7 2.7L16 9.7"/></svg>',
+            attention: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5m0 3.5h.01"/></svg>',
+            never: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke-dasharray="3 3"/></svg>',
+            stopped: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M10 9v6m4-6v6"/></svg>' },
+  run: { ok: '<svg viewBox="0 0 24 24"><path d="M12 16V5m0 0-4 4m4-4 4 4M5 19h14"/></svg>',
+         nochange: '<svg viewBox="0 0 24 24"><path d="M6 12h12"/></svg>',
+         failed: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5m0 3.5h.01"/></svg>',
+         cancelled: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M10 9v6m4-6v6"/></svg>' },
+};
+
+let S = null;
+let tab = "folders";
+let toastTimer = 0;
+
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 3200);
+}
+
+function render(state) {
+  S = state;
+  $("dest").textContent = state.configured ? state.destination + "  ·  " + state.machine : state.machine;
+  $("b-web").hidden = !state.configured;
+
+  const st = $("status");
+  st.className = "status k-" + state.status.kind;
+  $("badge").innerHTML = ICON[state.status.kind] || ICON.pending;
+  $("s-title").textContent = state.status.title;
+  $("s-detail").textContent = state.status.detail || " ";
+  const bar = $("bar");
+  if (state.running) {
+    bar.hidden = false;
+    bar.classList.toggle("indet", !(state.running.percent > 0));
+    $("bar-fill").style.width = Math.min(100, state.running.percent) + "%";
+  } else { bar.hidden = true; }
+
+  $("n-folders").textContent = state.folders && state.folders.length ? state.folders.length : "";
+  const busy = !!state.running || !!state.busy;
+  $("b-all").disabled = busy || !state.configured || !(state.folders && state.folders.length);
+  $("b-all-t").textContent = state.running ? "Backing up…" : (state.busy || "Back up now");
+
+  const sc = state.schedule;
+  $("sched-dot").className = "dot" + (sc.on ? " on" : "");
+  $("sched-t").textContent = !sc.available ? "No scheduler here"
+    : sc.on ? "Automatic · every " + sc.everyText + (sc.next ? " · next " + sc.next : "")
+    : "Automatic backups off";
+  $("sw-sched").setAttribute("aria-checked", sc.on);
+  $("sw-sched").disabled = !sc.available || !state.configured;
+  if (sc.on && sc.every) $("sel-every").value = String(sc.every);
+  $("sel-every").disabled = !sc.available || !state.configured;
+  $("sw-login").setAttribute("aria-checked", state.startAtLogin);
+  $("b-add").disabled = !state.configured;
+  $("ver").textContent = "r2backup " + (state.version ? "v" + state.version : "");
+  if (state.notice) toast(state.notice);
+  renderList();
+}
+
+function renderList() {
+  if (!S) return;
+  const list = $("list");
+  const busy = !!S.running || !!S.busy;
+  let html = "";
+  if (!S.configured) {
+    html = '<div class="empty"><b>Connect your storage</b>Choose Drime or Cloudflare R2 in r2b to start backing up.<br><button class="mini" data-cmd="dashboard">Open r2b</button></div>';
+  } else if (tab === "folders") {
+    if (!S.folders || !S.folders.length) {
+      html = '<div class="empty"><b>No folders yet</b>Pick a folder and everything in it is backed up from then on.<br><button class="mini" data-cmd="add">Choose a folder…</button></div>';
+    } else {
+      for (const f of S.folders) {
+        const sub = f.kind === "attention" && f.note ? '<span class="err">' + esc(f.note) + "</span>" : "<span>" + esc(f.root) + "</span>";
+        html += '<div class="row" title="' + esc(f.root) + '">' +
+          '<div class="ic i-' + f.kind + '">' + (ICON.folder[f.kind] || ICON.folder.never) + "</div>" +
+          '<div class="t"><b>' + esc(f.name) + "</b>" + sub + "</div>" +
+          '<div><span class="r hide-on-hover">' + esc(f.lastRun) + "</span>" +
+          '<span class="acts"><button class="mini" data-cmd="open" data-arg="' + esc(f.root) + '">Open</button>' +
+          '<button class="mini" data-cmd="backup" data-arg="' + esc(f.name) + '"' + (busy ? " disabled" : "") + ">Back up</button></span></div></div>";
+      }
+    }
+  } else {
+    if (!S.recent || !S.recent.length) {
+      html = '<div class="empty"><b>No backups have run yet</b>Each run will be listed here with what it did.</div>';
+    } else {
+      let day = "";
+      for (const r of S.recent) {
+        if (r.day !== day) { day = r.day; html += '<div class="day">' + esc(day) + "</div>"; }
+        html += '<div class="row"><div class="ic i-' + r.kind + '">' + (ICON.run[r.kind] || ICON.run.nochange) + "</div>" +
+          '<div class="t"><b>' + esc(r.set) + "</b><span" + (r.kind === "failed" ? ' class="err"' : "") + ' title="' + esc(r.text) + '">' + esc(r.text) + "</span></div>" +
+          '<span class="r">' + esc(r.time) + "</span></div>";
+      }
+    }
+  }
+  list.innerHTML = html;
+}
+
+function setTab(t) {
+  tab = t;
+  $("t-folders").setAttribute("aria-selected", t === "folders");
+  $("t-recent").setAttribute("aria-selected", t === "recent");
+  $("list").scrollTop = 0;
+  renderList();
+}
+
+$("t-folders").onclick = () => setTab("folders");
+$("t-recent").onclick = () => setTab("recent");
+$("b-web").onclick = () => send("browser");
+$("b-term").onclick = $("b-term2").onclick = () => send("dashboard");
+$("b-set").onclick = $("b-sched").onclick = () => $("sheet").classList.add("open");
+$("b-back").onclick = () => $("sheet").classList.remove("open");
+$("b-all").onclick = () => send("backup", "");
+$("b-add").onclick = () => send("add");
+$("b-quit").onclick = () => send("quit");
+$("sw-sched").onclick = () => { const on = $("sw-sched").getAttribute("aria-checked") !== "true"; send("schedule", (on ? "on:" : "off:") + $("sel-every").value); };
+$("sel-every").onchange = () => send("schedule", "on:" + $("sel-every").value);
+$("sw-login").onclick = () => send("login", $("sw-login").getAttribute("aria-checked") !== "true");
+$("list").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-cmd]");
+  if (b && !b.disabled) send(b.dataset.cmd, b.dataset.arg || "");
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { if ($("sheet").classList.contains("open")) $("sheet").classList.remove("open"); else send("hide"); }
+});
+document.addEventListener("contextmenu", (e) => e.preventDefault());
+window.r2b = { render, toast };
+send("ready");
+</script>
+</body>
+</html>

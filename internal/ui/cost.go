@@ -33,6 +33,17 @@ func (m *Model) costView() string {
 		b.WriteString(dimStyle.Render("  Nothing yet -- this computer is not set up.") + "\n")
 		return b.String()
 	}
+	if m.isDrime() {
+		// Drime is a flat plan: no request charges to count, no bill to
+		// estimate, and so nothing for a spending limit to guard.
+		b.WriteString(labelStyle.Render("  stored") +
+			fmt.Sprintf("%s in %s files\n",
+				progress.FormatBytes(m.ov.StoredBytes),
+				progress.FormatCount(m.ov.StoredObjects)))
+		b.WriteString("\n" + dimStyle.Render("  Drime is a flat plan with no charge per request, so there is no bill\n"+
+			"  to estimate and the spending limit does not apply.") + "\n")
+		return b.String()
+	}
 
 	b.WriteString(labelStyle.Render("  stored") +
 		fmt.Sprintf("%s in %s objects\n",
