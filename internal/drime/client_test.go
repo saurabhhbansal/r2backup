@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -296,9 +297,10 @@ func TestLargeUploadResumes(t *testing.T) {
 
 	f.failParts[4] = 1 // first attempt dies on the last part
 	file, _ := os.Open(path)
-	var sent int64
+	// Parts go up side by side, so progress arrives from several goroutines.
+	var sent atomic.Int64
 	err := c.Put(context.Background(), remote.PutInput{Key: key, Body: file, Size: int64(len(data)), Metadata: md,
-		Progress: func(n int64) { sent += n }})
+		Progress: func(n int64) { sent.Add(n) }})
 	file.Close()
 	if err == nil {
 		t.Fatal("expected the first attempt to fail")
@@ -310,9 +312,9 @@ func TestLargeUploadResumes(t *testing.T) {
 
 	before := f.calls["PUT /part/"+strings.Split(rec.UploadID, "\n")[0]+"/1"]
 	file, _ = os.Open(path)
-	sent = 0
+	sent.Store(0)
 	err = c.Put(context.Background(), remote.PutInput{Key: key, Body: file, Size: int64(len(data)), Metadata: md,
-		Progress: func(n int64) { sent += n }})
+		Progress: func(n int64) { sent.Add(n) }})
 	file.Close()
 	if err != nil {
 		t.Fatal(err)
@@ -320,8 +322,8 @@ func TestLargeUploadResumes(t *testing.T) {
 	if after := f.calls["PUT /part/"+strings.Split(rec.UploadID, "\n")[0]+"/1"]; after != before {
 		t.Fatal("part 1 was sent again on resume")
 	}
-	if sent != int64(len(data)) {
-		t.Fatalf("progress reported %d of %d bytes", sent, len(data))
+	if sent.Load() != int64(len(data)) {
+		t.Fatalf("progress reported %d of %d bytes", sent.Load(), len(data))
 	}
 	if _, ok, _ := resume.Resumable(key); ok {
 		t.Fatal("resume record not forgotten after success")
