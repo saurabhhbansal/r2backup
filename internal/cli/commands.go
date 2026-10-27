@@ -175,6 +175,7 @@ func newBackupCmd(opts *Options) *cobra.Command {
 				return err
 			}
 			var failed int
+			done := map[string]*backup.Report{}
 			for _, s := range list {
 				rep, err := runOne(cmd.Context(), a, s, opts.Out, interactive())
 				// A vanished folder is never a deletion. Before anything is
@@ -204,7 +205,12 @@ func newBackupCmd(opts *Options) *cobra.Command {
 					continue
 				}
 				summarise(opts.Out, rep)
+				done[s.Name] = rep
 			}
+			// Sets that backed up are mirrored, if mirroring is on, even
+			// when another set failed: one missing folder is no reason to
+			// leave every other set's second copy behind.
+			autoMirror(cmd.Context(), a, opts.Out, done)
 			if failed > 0 {
 				return fmt.Errorf("%d of %d set(s) did not finish", failed, len(list))
 			}

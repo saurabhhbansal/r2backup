@@ -3,9 +3,9 @@ package cli
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/saurabhhbansal/r2backup/internal/backup"
 	"github.com/saurabhhbansal/r2backup/internal/config"
@@ -27,7 +27,11 @@ type app struct {
 	sets   *sets.Store
 	index  *index.DB
 	creds  *creds.Store
-	client *remote.Client
+	client remote.Store
+	// provider is which kind of storage client talks to, once connected.
+	provider string
+	// mirror is the second destination `r2b mirror` copies to, if any.
+	mirror *creds.Store
 }
 
 // openApp opens local state only. Commands that never touch the network --
@@ -55,10 +59,11 @@ func openApp() (*app, error) {
 		return nil, err
 	}
 	return &app{
-		dir:   dir,
-		sets:  st,
-		index: index.New(idxPath),
-		creds: creds.Open(filepath.Join(dir, "credentials")),
+		dir:    dir,
+		sets:   st,
+		index:  index.New(idxPath),
+		creds:  creds.Open(filepath.Join(dir, "credentials")),
+		mirror: creds.Open(filepath.Join(dir, "credentials-mirror")),
 	}, nil
 }
 
@@ -83,12 +88,30 @@ func (a *app) checkoutIndex() (*index.DB, func(), error) {
 }
 
 func (a *app) close() {
+	// A store that holds writes back (Drime's manifest of file dates) is
+	// flushed on the way out, whatever the command was: a trash restore or a
+	// remove changes it as much as a backup does.
+	if a.client != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		_ = remote.FlushStore(ctx, a.client)
+		cancel()
+	}
 	if a.index != nil {
 		_ = a.index.Close()
 	}
 }
 
-// connect adds the R2 client. Kept separate from openApp so a command only
+// isDrime reports whether this machine backs up to Drime. It reads the
+// credentials file when not yet connected, and is false when there is none.
+func (a *app) isDrime() bool {
+	if a.provider != "" {
+		return a.provider == creds.ProviderDrime
+	}
+	c, err := a.creds.Load()
+	return err == nil && c.IsDrime()
+}
+
+// connect adds the storage client. Kept separate from openApp so a command only
 // pays for -- and only fails on -- what it actually needs.
 func (a *app) connect(ctx context.Context) error {
 	if a.client != nil {
@@ -101,32 +124,26 @@ func (a *app) connect(ctx context.Context) error {
 		}
 		return err
 	}
-	client, err := remote.New(ctx, remote.Config{
-		AccountID:       c.AccountID,
-		Endpoint:        c.Endpoint,
-		Bucket:          c.Bucket,
-		AccessKeyID:     c.AccessKeyID,
-		SecretAccessKey: c.SecretAccessKey,
-		// Attached here, once, so every command that reaches the bucket can
-		// pick up a large upload where the last one stopped. Without it a
-		// file interrupted partway starts again from the beginning, which on
-		// a connection bad enough to interrupt it once may mean it never
-		// finishes at all.
-		//
-		// a.index is safe to capture here even though connect runs long
-		// before, and independently of, any particular checkout: it is the
-		// same *index.DB for the app's whole life (see the app struct's
-		// comment), and every place that actually reads or writes through
-		// this Resume store -- all inside backup.Run's upload path -- runs
-		// only while that same call's own checkoutIndex is held. If index
-		// were ever replaced with a freshly-opened *index.DB per checkout
-		// instead of reused, this captured pointer would go stale the moment
-		// the first checkout after connect released it.
-		Resume: backup.ResumeStoreFor(a.index),
-	})
+	// Resume is attached here, once, so every command that reaches the
+	// store can pick up a large upload where the last one stopped. Without
+	// it a file interrupted partway starts again from the beginning, which
+	// on a connection bad enough to interrupt it once may mean it never
+	// finishes at all.
+	//
+	// a.index is safe to capture here even though connect runs long
+	// before, and independently of, any particular checkout: it is the
+	// same *index.DB for the app's whole life (see the app struct's
+	// comment), and every place that actually reads or writes through
+	// this Resume store -- all inside backup.Run's upload path -- runs
+	// only while that same call's own checkoutIndex is held. If index
+	// were ever replaced with a freshly-opened *index.DB per checkout
+	// instead of reused, this captured pointer would go stale the moment
+	// the first checkout after connect released it.
+	client, err := openStore(ctx, c, backup.ResumeStoreFor(a.index))
 	if err != nil {
-		return fmt.Errorf("connect to R2: %w", err)
+		return err
 	}
+	a.provider = c.Provider
 	a.client = client
 	return nil
 }

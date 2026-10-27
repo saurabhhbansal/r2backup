@@ -127,7 +127,7 @@ type Pruned struct {
 type Options struct {
 	Set    sets.Set
 	Index  *index.DB
-	Client *remote.Client
+	Client remote.Store
 
 	// Trash, when non-nil, is given every key about to be overwritten or
 	// deleted, before that happens.
@@ -197,6 +197,21 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 	if opts.Index == nil || opts.Client == nil {
 		return nil, errors.New("backup: index and client are required")
 	}
+	rep, err := run(ctx, opts)
+	// A store that holds writes back (Drime's per-set manifest of dates and
+	// permissions) is flushed however the run ended: a run cancelled halfway
+	// still uploaded half the files, and their dates belong on record. The
+	// flush gets a context of its own because the run's may be the thing that
+	// was cancelled.
+	fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+	defer cancel()
+	if ferr := remote.FlushStore(fctx, opts.Client); ferr != nil && err == nil {
+		err = fmt.Errorf("save file details: %w", ferr)
+	}
+	return rep, err
+}
+
+func run(ctx context.Context, opts Options) (*Report, error) {
 	now := opts.Now
 	if now == nil {
 		now = time.Now

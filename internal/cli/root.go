@@ -115,6 +115,7 @@ func NewRoot(opts *Options) *cobra.Command {
 		newRemoveCmd(opts),
 		newTrashCmd(opts),
 		newBudgetCmd(opts),
+		newMirrorCmd(opts),
 		newUpdateCmd(opts),
 		newAccountCmd(opts),
 	)

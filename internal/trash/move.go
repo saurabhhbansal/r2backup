@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"sync"
+
+	"github.com/saurabhhbansal/r2backup/internal/remote"
 )
 
 // moveConcurrency bounds how many CopyObject calls Move has in flight at
@@ -69,7 +71,18 @@ func (t *Trash) Move(ctx context.Context, prefix string, relPaths []string, rete
 
 			src := liveKey(prefix, relPath)
 			dst := buildTrashKey(prefix, relPath, now)
-			if err := t.backend.Copy(ctx, src, dst); err != nil {
+			// A store that can move does: it is the same result -- the
+			// object is in trash -- for one cheap request, and the live key
+			// is about to be overwritten or deleted anyway. The caller's
+			// later delete of the live key then finds nothing, which every
+			// store treats as success.
+			var err error
+			if mv, ok := t.backend.(remote.Mover); ok {
+				err = mv.Move(ctx, src, dst)
+			} else {
+				err = t.backend.Copy(ctx, src, dst)
+			}
+			if err != nil {
 				results[i] = outcome{err: fmt.Errorf("trash: move %q: %w", relPath, err)}
 				return
 			}

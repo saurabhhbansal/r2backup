@@ -413,6 +413,9 @@ func (d *dashboard) SaveKeys(ctx context.Context, k ui.Keys) error {
 		SecretAccessKey: strings.TrimSpace(k.Secret),
 		Bucket:          strings.TrimSpace(k.Bucket),
 	}
+	if t := strings.TrimSpace(k.DrimeToken); t != "" {
+		c = creds.Credentials{Provider: creds.ProviderDrime, DrimeToken: t}
+	}
 	if err := c.Valid(); err != nil {
 		return err
 	}

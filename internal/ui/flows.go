@@ -431,6 +431,28 @@ func (m *Model) askKeys() {
 		}))
 }
 
+// askDrime takes a Drime API token: Drime's whole setup is this one field.
+func (m *Model) askDrime() {
+	m.showForm(newForm(
+		"Drime API token",
+		"In Drime: Settings → Developer → Create token. Backups go in a folder called r2backup, browsable in Drime. Checked before it is saved.",
+		[]field{
+			{Label: "API token", Secret: true},
+		},
+		func(vals []string) (string, tea.Cmd) {
+			if strings.TrimSpace(vals[0]) == "" {
+				return "Paste the token from Drime.", nil
+			}
+			k := Keys{DrimeToken: vals[0]}
+			return "", func() tea.Msg {
+				if err := m.backend.SaveKeys(m.ctx, k); err != nil {
+					return errMsg{err}
+				}
+				return noticeMsg("Saved, and Drime answers. Backups go there from now on.")
+			}
+		}))
+}
+
 // cleanPath tidies a pasted path: quotes from a file manager's "copy as
 // path", stray whitespace, and a trailing separator that is not the root.
 func cleanPath(s string) string {

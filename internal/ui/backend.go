@@ -237,6 +237,9 @@ type Keys struct {
 	AccessKeyID string
 	Secret      string
 	Bucket      string
+	// DrimeToken, when set, means back up to Drime instead, and the R2
+	// fields are ignored.
+	DrimeToken string
 }
 
 // Backend is everything the interface needs from the rest of the program.

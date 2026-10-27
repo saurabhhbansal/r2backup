@@ -627,7 +627,7 @@ func (m *Model) accountView() string {
 	if m.ov.Configured {
 		b.WriteString("  " + goodStyle.Render("● Ready") + dimStyle.Render(" — bucket ") + m.ov.Bucket + "\n")
 	} else {
-		b.WriteString("  " + badStyle.Render("● No credentials yet") + dimStyle.Render(" — sign in, or press k to enter your R2 keys.") + "\n")
+		b.WriteString("  " + badStyle.Render("● No credentials yet") + dimStyle.Render(" — sign in, press k to enter R2 keys, or D for a Drime token.") + "\n")
 	}
 	if m.ov.Scheduled {
 		b.WriteString("  " + goodStyle.Render("● Automatic") + dimStyle.Render(" — every "+humanEvery(m.ov.Interval)))
@@ -687,7 +687,7 @@ func (m *Model) accountView() string {
 		}
 	}
 
-	b.WriteString("\n" + dimStyle.Render("  i sign in · d download saved keys · p save keys for other computers\n  k enter R2 keys · o sign out · u check for an update"))
+	b.WriteString("\n" + dimStyle.Render("  i sign in · d download saved keys · p save keys for other computers\n  k enter R2 keys · D use Drime · o sign out · u check for an update"))
 	return b.String()
 }
 

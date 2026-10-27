@@ -20,7 +20,7 @@ import (
 
 // uploader bridges the R2 client to engine.Uploader.
 type uploader struct {
-	client *remote.Client
+	client remote.Store
 	prefix string // "<machine>/<set>/current"
 }
 
@@ -126,7 +126,7 @@ func (a trashAdapter) Prune(ctx context.Context, prefix string) (Pruned, error) 
 
 // NewTrash builds the Trash a run should use, or nil when the set keeps no
 // history. A set that is pure build output does not need thirty days of it.
-func NewTrash(client *remote.Client, retentionDays int) Trash {
+func NewTrash(client remote.Store, retentionDays int) Trash {
 	if retentionDays <= 0 {
 		return nil
 	}
