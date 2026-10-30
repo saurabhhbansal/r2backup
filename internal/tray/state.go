@@ -42,6 +42,12 @@ type State struct {
 	Destination string `json:"destination"` // "Drime · r2backup", "my-bucket"
 	Machine     string `json:"machine"`
 	Version     string `json:"version"`
+	// SignedIn and Email come from the session saved on this computer, so
+	// the panel can show who is signed in, and ask for it when nobody is.
+	SignedIn bool   `json:"signedIn"`
+	Email    string `json:"email,omitempty"`
+	// Second is where the second copy goes, "" when there is none.
+	Second string `json:"second,omitempty"`
 
 	Status  Status   `json:"status"`
 	Running *Running `json:"running,omitempty"`

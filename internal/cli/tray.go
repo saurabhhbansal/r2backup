@@ -177,6 +177,10 @@ func (t *trayBackend) summarize(views []ui.SetView, ov ui.Overview, now time.Tim
 		}
 	}
 	st := tray.Summarize(views, ov, runs, now)
+	st.Email, st.SignedIn = signedInHere(now)
+	if mc, err := t.d.app.mirror.Load(); err == nil {
+		st.Second = destLabel(mc)
+	}
 	t.mu.Lock()
 	st.CanStop = t.child != nil && !t.stopped && t.busy == busyBackingUp
 	if t.notice != "" && now.Sub(t.noticeAt) < noticeFor {

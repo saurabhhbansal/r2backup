@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/saurabhhbansal/r2backup/internal/progress"
+	"github.com/saurabhhbansal/r2backup/internal/remote"
 	"github.com/saurabhhbansal/r2backup/internal/trash"
 	"github.com/saurabhhbansal/r2backup/internal/ui"
 )
@@ -65,8 +66,9 @@ func (t *trayBackend) trashRows(ctx context.Context, only string) ([]trashRowOut
 }
 
 // trashDelete removes the trashed copies of one path, or all of a folder's
-// trash when key is empty. It returns how many objects went.
-func (t *trayBackend) trashDelete(ctx context.Context, set, key string) (int, error) {
+// trash when key is empty, and from the second copy too when where says so.
+// It returns how many objects went.
+func (t *trayBackend) trashDelete(ctx context.Context, set, key string, where deleteWhere) (int, error) {
 	a, err := t.d.connected(ctx)
 	if err != nil {
 		return 0, err
@@ -91,7 +93,9 @@ func (t *trayBackend) trashDelete(ctx context.Context, set, key string) (int, er
 	if err := a.client.DeleteBatch(ctx, keys); err != nil {
 		return 0, err
 	}
-	return len(keys), nil
+	// The second copy holds the same keys: a copy is key for key.
+	err = t.alsoFromSecond(ctx, where, func(s remote.Store) error { return s.DeleteBatch(ctx, keys) })
+	return len(keys), err
 }
 
 // trashCall serves the panel's deleted-files requests.
@@ -122,8 +126,9 @@ func (t *trayBackend) trashCall(ctx context.Context, method string, raw []byte) 
 
 	case "trashDelete":
 		var a struct {
-			Set string `json:"set"`
-			Key string `json:"key"`
+			Set   string `json:"set"`
+			Key   string `json:"key"`
+			Where string `json:"where"`
 		}
 		if err := decodeArgs(raw, &a); err != nil {
 			return nil, true, err
@@ -131,12 +136,13 @@ func (t *trayBackend) trashCall(ctx context.Context, method string, raw []byte) 
 		if a.Set == "" || a.Key == "" {
 			return nil, true, errors.New("choose a file to delete")
 		}
-		n, err := t.trashDelete(ctx, a.Set, a.Key)
+		n, err := t.trashDelete(ctx, a.Set, a.Key, deleteWhere(a.Where))
 		return map[string]int{"deleted": n}, true, err
 
 	case "trashEmpty":
 		var a struct {
-			Set string `json:"set"`
+			Set   string `json:"set"`
+			Where string `json:"where"`
 		}
 		if err := decodeArgs(raw, &a); err != nil {
 			return nil, true, err
@@ -159,7 +165,7 @@ func (t *trayBackend) trashCall(ctx context.Context, method string, raw []byte) 
 		}
 		total := 0
 		for _, name := range names {
-			n, err := t.trashDelete(ctx, name, "")
+			n, err := t.trashDelete(ctx, name, "", deleteWhere(a.Where))
 			total += n
 			if err != nil {
 				return map[string]int{"deleted": total}, true, err

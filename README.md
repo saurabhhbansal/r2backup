@@ -172,6 +172,19 @@ needs a look — and a click opens a panel with:
 - **Start with Windows**, **Back up another folder…**, and **Open r2b** for
   restore, trash and everything else
 
+The panel asks you to sign in first, with a code sent to your email — there is
+no password. Your account is at the top: choose where backups go (Drime or
+Cloudflare R2) and a second copy (none, Drime or R2), and once a key is entered
+it shows as saved. The keys are kept with your account, so another computer
+signed in with the same email gets them without typing them again. Unlike
+`r2b setup`'s password-locked copy, these are encrypted by the account server
+itself, which could read them.
+
+Deleting a backup from the panel — a folder's, or one another computer made —
+asks first, and with a second copy it asks whether to delete it from both
+places or only from where backups go. Files deleted from the trash go from
+both, since the second copy follows the first file by file.
+
 It starts the same `r2b` commands the terminal does, so a backup started from
 the panel is exactly the one the scheduler runs. Windows only for now; it uses
 WebView2, which comes with Windows 11 (on Windows 10, install the

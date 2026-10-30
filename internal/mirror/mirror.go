@@ -89,6 +89,20 @@ type Plan struct {
 // changed file is recognised by its size or by when it was written: the
 // destination's copy is written after the source's, so a source object newer
 // than its destination copy has been replaced since the last mirror.
+// backupScope is the one backup a key belongs to: machines/<machine>/<set>/
+// for the layout `add` builds, and "" for anything else, which counts as one
+// scope of its own.
+func backupScope(key string) string {
+	if !strings.HasPrefix(key, "machines/") {
+		return ""
+	}
+	parts := strings.SplitN(key, "/", 4)
+	if len(parts) < 4 {
+		return ""
+	}
+	return parts[0] + "/" + parts[1] + "/" + parts[2] + "/"
+}
+
 func plan(src, dst []remote.ListEntry, del bool) Plan {
 	have := make(map[string]remote.ListEntry, len(dst))
 	for _, e := range dst {
@@ -96,8 +110,10 @@ func plan(src, dst []remote.ListEntry, del bool) Plan {
 	}
 	var p Plan
 	seen := make(map[string]bool, len(src))
+	scopes := make(map[string]bool)
 	for _, e := range src {
 		seen[e.Key] = true
+		scopes[backupScope(e.Key)] = true
 		d, ok := have[e.Key]
 		switch {
 		case !ok, d.Size != e.Size, e.ModTime.After(d.ModTime):
@@ -115,7 +131,12 @@ func plan(src, dst []remote.ListEntry, del bool) Plan {
 		// token or an outage than a person deleting every file they own. The
 		// mirror exists for exactly the day the source goes wrong, so it
 		// must not empty itself on that day.
-		if !del || len(src) == 0 {
+		//
+		// The same holds one backup at a time: a whole backup the source no
+		// longer has was deleted on purpose, from where backups go only --
+		// deleting it from both is done directly, not by copying -- so the
+		// second copy keeps it.
+		if !del || len(src) == 0 || !scopes[backupScope(e.Key)] {
 			if del {
 				p.Withheld++
 			}

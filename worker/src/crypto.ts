@@ -86,6 +86,51 @@ export async function verifyJWT(token: string, secret: string): Promise<JWTPaylo
   return payload;
 }
 
+// --- stored keys ---------------------------------------------------------
+//
+// The storage keys an account keeps are encrypted at rest with AES-256-GCM.
+// The key is SHA-256 of the KEYS_SECRET Worker secret, and the account's
+// email is the additional data: a ciphertext moved to another account's row
+// fails to open rather than handing that account someone else's keys.
+
+async function keysKey(secret: string): Promise<CryptoKey> {
+  const raw = await crypto.subtle.digest("SHA-256", encoder.encode(secret));
+  return crypto.subtle.importKey("raw", raw, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
+}
+
+export interface SealedKeys {
+  ciphertext: string; // base64url
+  iv: string; // base64url, 12 bytes
+}
+
+export async function sealKeys(plaintext: string, email: string, secret: string): Promise<SealedKeys> {
+  if (!secret) throw new Error("KEYS_SECRET is not set");
+  const iv = new Uint8Array(12);
+  crypto.getRandomValues(iv);
+  const sealed = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv, additionalData: encoder.encode(email) },
+    await keysKey(secret),
+    encoder.encode(plaintext),
+  );
+  return { ciphertext: base64UrlEncode(sealed), iv: base64UrlEncode(iv) };
+}
+
+// Returns null for anything that does not open: a wrong secret, a row from
+// another account, or a damaged value. The caller treats all of them alike.
+export async function openKeys(sealed: SealedKeys, email: string, secret: string): Promise<string | null> {
+  if (!secret) return null;
+  try {
+    const plain = await crypto.subtle.decrypt(
+      { name: "AES-GCM", iv: base64UrlDecode(sealed.iv), additionalData: encoder.encode(email) },
+      await keysKey(secret),
+      base64UrlDecode(sealed.ciphertext),
+    );
+    return decoder.decode(plain);
+  } catch {
+    return null;
+  }
+}
+
 // Six digits from a CSPRNG, not Math.random -- this code is, briefly, the
 // only thing standing between an attacker who knows the email and someone
 // else's R2 credentials.

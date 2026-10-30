@@ -10,5 +10,6 @@ export interface AppContext {
   storage: Storage;
   mailer: Mailer;
   jwtSecret: string;
+  keysSecret: string;
   now: () => number; // seconds since epoch; a fixed function in tests
 }

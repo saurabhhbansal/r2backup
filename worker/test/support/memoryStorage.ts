@@ -1,4 +1,4 @@
-import type { Storage, OtpRow, VaultRow, DeviceRow } from "../../src/storage";
+import type { Storage, OtpRow, VaultRow, DeviceRow, StoredKeysRow } from "../../src/storage";
 import type { RateLimitState } from "../../src/ratelimit";
 
 // An in-memory Storage for tests, so handler logic (including the
@@ -9,6 +9,7 @@ export class MemoryStorage implements Storage {
   users = new Map<string, { created_at: number }>();
   otps = new Map<string, OtpRow>();
   vaults = new Map<string, VaultRow>();
+  keys = new Map<string, StoredKeysRow>();
   devices = new Map<string, DeviceRow[]>();
   rateLimits = new Map<string, RateLimitState>();
 
@@ -41,6 +42,18 @@ export class MemoryStorage implements Storage {
 
   async putVault(email: string, row: VaultRow): Promise<void> {
     this.vaults.set(email, row);
+  }
+
+  async getKeys(email: string): Promise<StoredKeysRow | null> {
+    return this.keys.get(email) ?? null;
+  }
+
+  async putKeys(email: string, row: StoredKeysRow): Promise<void> {
+    this.keys.set(email, row);
+  }
+
+  async deleteKeys(email: string): Promise<void> {
+    this.keys.delete(email);
   }
 
   async listDevices(email: string): Promise<DeviceRow[]> {

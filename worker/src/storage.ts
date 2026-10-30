@@ -14,6 +14,12 @@ export interface VaultRow {
   updated_at: number;
 }
 
+export interface StoredKeysRow {
+  ciphertext: string;
+  iv: string;
+  updated_at: number;
+}
+
 export interface DeviceRow {
   device_name: string;
   os: string;
@@ -31,6 +37,9 @@ export interface Storage extends RateLimitStore {
   deleteOtp(email: string): Promise<void>;
   getVault(email: string): Promise<VaultRow | null>;
   putVault(email: string, row: VaultRow): Promise<void>;
+  getKeys(email: string): Promise<StoredKeysRow | null>;
+  putKeys(email: string, row: StoredKeysRow): Promise<void>;
+  deleteKeys(email: string): Promise<void>;
   listDevices(email: string): Promise<DeviceRow[]>;
   upsertDevice(email: string, device: DeviceRow): Promise<void>;
 }
@@ -95,6 +104,28 @@ export class D1Storage implements Storage {
       )
       .bind(email, row.salt, row.ciphertext, row.nonce, row.kdf_params, row.updated_at)
       .run();
+  }
+
+  async getKeys(email: string): Promise<StoredKeysRow | null> {
+    const row = await this.db
+      .prepare("SELECT ciphertext, iv, updated_at FROM stored_keys WHERE email = ?")
+      .bind(email)
+      .first<StoredKeysRow>();
+    return row ?? null;
+  }
+
+  async putKeys(email: string, row: StoredKeysRow): Promise<void> {
+    await this.db
+      .prepare(
+        `INSERT INTO stored_keys (email, ciphertext, iv, updated_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(email) DO UPDATE SET ciphertext = excluded.ciphertext, iv = excluded.iv, updated_at = excluded.updated_at`,
+      )
+      .bind(email, row.ciphertext, row.iv, row.updated_at)
+      .run();
+  }
+
+  async deleteKeys(email: string): Promise<void> {
+    await this.db.prepare("DELETE FROM stored_keys WHERE email = ?").bind(email).run();
   }
 
   async listDevices(email: string): Promise<DeviceRow[]> {

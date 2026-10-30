@@ -9,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/saurabhhbansal/r2backup/internal/creds"
 )
 
 // Sentinel errors a caller can match with errors.Is. They mirror the
@@ -57,7 +59,7 @@ type Client struct {
 }
 
 // NewClient builds a Client against baseURL (e.g.
-// "https://r2backup.flexpod.cc"). A nil http.Client is replaced with one
+// "https://r2backup-account.cloudflaredd.workers.dev"). A nil http.Client is replaced with one
 // carrying a sane timeout, so a caller who doesn't care about transport
 // details can't accidentally hang forever on a stalled connection.
 func NewClient(baseURL string, httpClient *http.Client) *Client {
@@ -110,6 +112,34 @@ func (c *Client) GetVault(ctx context.Context, token string) (*EncryptedVault, e
 // -- see EncryptedVault -- and this call sends them exactly that way.
 func (c *Client) PutVault(ctx context.Context, token string, vault *EncryptedVault) error {
 	_, err := c.do(ctx, http.MethodPut, "/vault", token, vault, nil)
+	return err
+}
+
+// StoredKeys is what an account keeps for its computers: where backups go,
+// and the second copy if there is one. Signing in with an email code is
+// enough to get them back; the account server encrypts them at rest with a
+// key of its own (see worker/migrations/0003_stored_keys.sql), so unlike the
+// password-locked vault this replaced, the server could read them.
+type StoredKeys struct {
+	Primary *creds.Credentials `json:"primary,omitempty"`
+	Second  *creds.Credentials `json:"second,omitempty"`
+}
+
+// GetKeys fetches the keys kept for the account behind token. ErrNotFound
+// means none have been saved yet.
+func (c *Client) GetKeys(ctx context.Context, token string) (*StoredKeys, error) {
+	var out struct {
+		Keys StoredKeys `json:"keys"`
+	}
+	if _, err := c.do(ctx, http.MethodGet, "/keys", token, nil, &out); err != nil {
+		return nil, err
+	}
+	return &out.Keys, nil
+}
+
+// PutKeys replaces the keys kept for the account behind token.
+func (c *Client) PutKeys(ctx context.Context, token string, k StoredKeys) error {
+	_, err := c.do(ctx, http.MethodPut, "/keys", token, map[string]any{"keys": k}, nil)
 	return err
 }
 

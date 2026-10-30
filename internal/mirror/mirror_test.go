@@ -168,6 +168,30 @@ func TestEmptySourceNeverEmptiesMirror(t *testing.T) {
 	}
 }
 
+// A backup deleted from where backups go only stays on the second copy, even
+// when everything is mirrored at once; a file deleted inside a backup that is
+// still there goes from both.
+func TestWholeBackupGoneFromSourceIsKept(t *testing.T) {
+	src, dst := newMem(time.Unix(0, 0)), newMem(time.Unix(0, 0))
+	src.put(t, scope+"current/a.txt", "a")
+	dst.put(t, scope+"current/a.txt", "a")
+	dst.put(t, scope+"current/gone.txt", "g")
+	dst.put(t, "machines/pc/Removed/current/keep.txt", "k")
+	rep, err := Run(context.Background(), Options{Src: src, Dst: dst, Prefixes: []string{"machines/"}, Delete: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Deleted != 1 || rep.SkippedDeletes != 1 {
+		t.Fatalf("report: %+v", rep)
+	}
+	if _, ok := dst.objs[scope+"current/gone.txt"]; ok {
+		t.Fatal("a file deleted inside a kept backup stayed on the mirror")
+	}
+	if dst.content("machines/pc/Removed/current/keep.txt") != "k" {
+		t.Fatal("a whole backup missing from the source was deleted from the mirror")
+	}
+}
+
 func TestDryRunChangesNothing(t *testing.T) {
 	src, dst := newMem(time.Unix(0, 0)), newMem(time.Unix(0, 0))
 	src.put(t, scope+"current/a", "1")
