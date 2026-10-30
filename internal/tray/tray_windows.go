@@ -9,12 +9,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 	"unsafe"
 
@@ -130,6 +132,7 @@ type panel struct {
 	visible  atomic.Bool
 	ready    atomic.Bool
 	lastHide atomic.Int64 // unix nanos
+	updated  atomic.Bool  // the program file was replaced: start the new one on the way out
 	kick     chan struct{}
 	lastKind string
 }
@@ -141,7 +144,9 @@ var current *panel
 // copy started while one is running asks the first to open its panel and
 // returns at once.
 func Run(ctx context.Context, be Backend) error {
-	name, _ := windows.UTF16PtrFromString(`Local\r2backup-tray`)
+	// One copy per data directory: a second r2backup kept elsewhere gets
+	// an icon of its own.
+	name, _ := windows.UTF16PtrFromString(`Local\` + config.InstanceName() + `-tray`)
 	mutex, err := windows.CreateMutex(nil, false, name)
 	if errors.Is(err, windows.ERROR_ALREADY_EXISTS) {
 		signalOpen()
@@ -150,7 +155,8 @@ func Run(ctx context.Context, be Backend) error {
 	if err != nil {
 		return fmt.Errorf("tray: %w", err)
 	}
-	defer windows.CloseHandle(mutex)
+	release := sync.OnceFunc(func() { _ = windows.CloseHandle(mutex) })
+	defer release()
 
 	_, _, _ = pSetProcessDpiAwarenessContext.Call(^uintptr(3)) // PER_MONITOR_AWARE_V2 (-4)
 
@@ -166,10 +172,63 @@ func Run(ctx context.Context, be Backend) error {
 	}
 	go p.watchOpenRequests()
 	go p.refreshLoop()
+	go p.watchForUpdate()
 	go func() { <-ctx.Done(); systray.Quit() }()
 
 	systray.Run(p.onReady, func() { cancel() })
+	if p.updated.Load() {
+		// The lock goes first, or the new copy would find this one still
+		// running and only ask it to open its panel.
+		release()
+		if err := relaunch(); err != nil {
+			Fail(fmt.Errorf("restart after an update: %w", err))
+		}
+	}
 	return nil
+}
+
+// watchForUpdate restarts the app when its program file is replaced --
+// `r2b update` swaps it in place, and so does the installer -- so the icon
+// does not go on running the old version until the next sign-in. Windows
+// lets a running program be renamed but not overwritten, so the path this
+// process was started from now holds the new file.
+func (p *panel) watchForUpdate() {
+	exe, err := os.Executable()
+	if err != nil {
+		return
+	}
+	started, err := os.Stat(exe)
+	if err != nil {
+		return
+	}
+	changed := func(fi os.FileInfo) bool {
+		return !os.SameFile(started, fi) || !fi.ModTime().Equal(started.ModTime()) || fi.Size() != started.Size()
+	}
+	for {
+		select {
+		case <-p.ctx.Done():
+			return
+		case <-time.After(10 * time.Second):
+		}
+		seen, err := os.Stat(exe)
+		if err != nil || !changed(seen) {
+			continue // mid-swap, or nothing new
+		}
+		// The installer copies the new file into place; wait for it to stop
+		// growing before starting it.
+		select {
+		case <-p.ctx.Done():
+			return
+		case <-time.After(3 * time.Second):
+		}
+		again, err := os.Stat(exe)
+		if err != nil || again.Size() != seen.Size() || !again.ModTime().Equal(seen.ModTime()) {
+			continue
+		}
+		p.updated.Store(true)
+		p.cancel()
+		return
+	}
 }
 
 // Fail tells someone why the taskbar app did not start. Started from the
@@ -692,10 +751,10 @@ func (p *panel) onReady() {
 
 // --- one copy at a time -------------------------------------------------------------
 
-const openEventName = `Local\r2backup-tray-open`
+func openEventName() string { return `Local\` + config.InstanceName() + `-tray-open` }
 
 func signalOpen() {
-	name, _ := windows.UTF16PtrFromString(openEventName)
+	name, _ := windows.UTF16PtrFromString(openEventName())
 	h, err := windows.OpenEvent(windows.EVENT_MODIFY_STATE, false, name)
 	if err != nil {
 		return
@@ -713,7 +772,7 @@ func signalOpen() {
 // watchOpenRequests opens the panel when another copy is started, which is
 // what someone means by starting it again.
 func (p *panel) watchOpenRequests() {
-	name, _ := windows.UTF16PtrFromString(openEventName)
+	name, _ := windows.UTF16PtrFromString(openEventName())
 	h, err := windows.CreateEvent(nil, 0, 0, name)
 	if err != nil {
 		return
@@ -735,22 +794,51 @@ func shellOpen(target string) {
 	_, _, _ = pShellExecuteW.Call(0, uintptr(unsafe.Pointer(verb)), uintptr(unsafe.Pointer(t)), 0, 0, swShowNormal)
 }
 
-const (
-	runKey   = `Software\Microsoft\Windows\CurrentVersion\Run`
-	runValue = "r2backup"
-)
+const runKey = `Software\Microsoft\Windows\CurrentVersion\Run`
 
-// launchCommand is what Windows runs at sign-in: the windowless launcher
-// beside this program, so no console window appears.
-func launchCommand() (string, error) {
+// runValue names the sign-in entry: "r2backup" for the default data
+// directory, as it always was, and its own name for any other.
+func runValue() string { return config.InstanceName() }
+
+// launcher is how this app is started with no console window: through the
+// windowless launcher beside this program when there is one, else this
+// program asked to hide its own. The arguments carry the data directory,
+// since neither Windows at sign-in nor a restart passes on an environment
+// variable reliably.
+func launcher() (string, []string, error) {
 	exe, err := os.Executable()
+	if err != nil {
+		return "", nil, err
+	}
+	args := append([]string{"tray"}, config.DataDirArgs()...)
+	if w := filepath.Join(filepath.Dir(exe), "r2bw.exe"); fileExists(w) {
+		return w, args, nil
+	}
+	return exe, append(args, "--hidden"), nil
+}
+
+// launchCommand is what Windows runs at sign-in.
+func launchCommand() (string, error) {
+	exe, args, err := launcher()
 	if err != nil {
 		return "", err
 	}
-	if w := filepath.Join(filepath.Dir(exe), "r2bw.exe"); fileExists(w) {
-		return `"` + w + `" tray`, nil
+	line := syscall.EscapeArg(exe)
+	for _, a := range args {
+		line += " " + syscall.EscapeArg(a)
 	}
-	return `"` + exe + `" tray --hidden`, nil
+	return line, nil
+}
+
+// relaunch starts a new copy of the app, after an update.
+func relaunch() error {
+	exe, args, err := launcher()
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(exe, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NO_WINDOW}
+	return cmd.Start()
 }
 
 func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
@@ -773,7 +861,7 @@ func startAtLogin() bool {
 		return false
 	}
 	defer k.Close()
-	_, _, err = k.GetStringValue(runValue)
+	_, _, err = k.GetStringValue(runValue())
 	return err == nil
 }
 
@@ -784,7 +872,7 @@ func setStartAtLogin(on bool) error {
 	}
 	defer k.Close()
 	if !on {
-		if err := k.DeleteValue(runValue); err != nil && !errors.Is(err, registry.ErrNotExist) {
+		if err := k.DeleteValue(runValue()); err != nil && !errors.Is(err, registry.ErrNotExist) {
 			return err
 		}
 		return nil
@@ -793,7 +881,7 @@ func setStartAtLogin(on bool) error {
 	if err != nil {
 		return err
 	}
-	return k.SetStringValue(runValue, cmd)
+	return k.SetStringValue(runValue(), cmd)
 }
 
 // pickFolder shows Windows' own folder picker -- the same dialog Explorer

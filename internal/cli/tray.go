@@ -14,6 +14,7 @@ import (
 
 	"github.com/saurabhhbansal/r2backup/internal/index"
 	"github.com/saurabhhbansal/r2backup/internal/runstate"
+	"github.com/saurabhhbansal/r2backup/internal/sets"
 	"github.com/saurabhhbansal/r2backup/internal/tray"
 	"github.com/saurabhhbansal/r2backup/internal/ui"
 )
@@ -79,18 +80,22 @@ func (t *trayBackend) State(ctx context.Context) (tray.State, error) {
 
 	// A run in progress -- ours, or one whose progress file is live -- holds
 	// the index, so the folders come from the last load.
+	// Folders are added and removed by other r2b processes -- the panel's
+	// own "Back up another folder" runs `r2b add` -- so the list is read
+	// again rather than kept from start-up. A failed read keeps the last one.
+	_ = t.d.app.sets.Reload()
 	if cached && (applyLiveRun(&ov, now) || ours) {
 		if ours && ov.Running == "" {
 			// Ours, still scanning: no progress written yet, but it is
 			// running, and the panel should say so from the first moment.
 			ov.Running = what
 		}
-		return t.summarize(views, ov, now), nil
+		// The index is held, so what each folder holds comes from the last
+		// load -- but the list of folders does not need the index, and a
+		// folder just added (the one being backed up, often) belongs in it
+		// now rather than when the run ends.
+		return t.summarize(withCurrentSets(views, t.d.app.sets.List()), ov, now), nil
 	}
-	// Folders are added and removed by other r2b processes -- the panel's
-	// own "Back up another folder" runs `r2b add` -- so the list is read
-	// again rather than kept from start-up. A failed read keeps the last one.
-	_ = t.d.app.sets.Reload()
 	fresh, freshOV, err := t.d.Load(ctx)
 	if err != nil {
 		if errors.Is(err, index.ErrLocked) && cached {
@@ -104,6 +109,28 @@ func (t *trayBackend) State(ctx context.Context) (tray.State, error) {
 	t.last.views, t.last.ov, t.last.ok = views, ov, true
 	t.mu.Unlock()
 	return t.summarize(views, ov, now), nil
+}
+
+// withCurrentSets brings views loaded earlier in line with the sets as they
+// are now: a set added since appears, not yet run, and a removed one goes.
+func withCurrentSets(views []ui.SetView, current []sets.Set) []ui.SetView {
+	byName := make(map[string]ui.SetView, len(views))
+	for _, v := range views {
+		byName[v.Name] = v
+	}
+	out := make([]ui.SetView, 0, len(current))
+	for _, s := range current {
+		if v, ok := byName[s.Name]; ok {
+			out = append(out, v)
+			continue
+		}
+		out = append(out, ui.SetView{
+			Name: s.Name, Root: s.Root, Prefix: s.Prefix,
+			Excludes: s.Excludes, Retention: s.RetentionDays,
+			State: "never run",
+		})
+	}
+	return out
 }
 
 func (t *trayBackend) summarize(views []ui.SetView, ov ui.Overview, now time.Time) tray.State {

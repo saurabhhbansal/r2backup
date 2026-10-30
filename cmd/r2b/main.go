@@ -9,6 +9,7 @@ import (
 	"os"
 
 	"github.com/saurabhhbansal/r2backup/internal/cli"
+	"github.com/saurabhhbansal/r2backup/internal/config"
 	"github.com/saurabhhbansal/r2backup/internal/selfupdate"
 	"github.com/saurabhhbansal/r2backup/internal/winconsole"
 )
@@ -26,6 +27,10 @@ func main() {
 	if winconsole.WantsHidden(os.Args[1:]) {
 		winconsole.Hide()
 	}
+	// Next, --data-dir, before anything reads the data directory. A
+	// scheduled run is started with none of the environment of the shell
+	// that registered it, so this is how it finds the right one.
+	config.ApplyDataDirArg(os.Args[1:])
 	cli.Version = version
 	// Remove the binary a previous update moved aside. Doing it here means the
 	// scheduler clears it within one interval without anyone being asked to.

@@ -135,7 +135,14 @@ try {
       # It was running the old version: swap it for the new one.
       $trayWasRunning | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
       Start-Sleep -Milliseconds 500
-      Start-Process $trayCmd -ArgumentList 'tray' -WorkingDirectory $installDir
+      # A taskbar app from this release or later notices its file was
+      # replaced and restarts itself; only start one if that has not happened.
+      $old = $trayWasRunning | ForEach-Object { $_.ProcessId }
+      $already = @(Get-CimInstance Win32_Process -Filter "Name='r2b.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.ExecutablePath -eq (Join-Path $installDir 'r2b.exe') -and $_.CommandLine -match '\stray(\s|$)' -and $old -notcontains $_.ProcessId })
+      if ($already.Count -eq 0) {
+        Start-Process $trayCmd -ArgumentList 'tray' -WorkingDirectory $installDir
+      }
       Write-Host "Restarted the taskbar app."
     } elseif ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
       $answer = $null

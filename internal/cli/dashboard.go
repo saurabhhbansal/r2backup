@@ -152,10 +152,12 @@ func (d *dashboard) forgetClient() {
 }
 
 // scheduleName is the OS scheduler entry's identity, spelled once here rather
-// than at each call site. It is deliberately still "r2backup": an installed
-// machine already has a task under that name, and changing it would leave the
-// old one running and the new one duplicating it.
-const scheduleName = "r2backup"
+// than at each call site. For the default data directory it is deliberately
+// still "r2backup": an installed machine already has a task under that name,
+// and changing it would leave the old one running and the new one
+// duplicating it. Any other data directory gets a name of its own, so it
+// neither replaces nor removes the default one's schedule.
+func scheduleName() string { return config.InstanceName() }
 
 // currentSchedule returns the OS scheduler's status for scheduleName,
 // answering from the cache described on the dashboard struct when it is
@@ -172,7 +174,7 @@ func (d *dashboard) currentSchedule() (schedule.Status, error) {
 	if !d.scheduleAt.IsZero() && now.Sub(d.scheduleAt) < scheduleCacheTTL {
 		return d.scheduleState, d.scheduleErr
 	}
-	st, err := scheduleCurrent(scheduleName)
+	st, err := scheduleCurrent(scheduleName())
 	d.scheduleState, d.scheduleErr, d.scheduleAt = st, err, now
 	return st, err
 }
@@ -552,7 +554,7 @@ func (d *dashboard) Schedule(ctx context.Context, every int, off bool) error {
 		return errors.New("no scheduler is available on this platform")
 	}
 	if off {
-		if err := scheduleRemove(scheduleName); err != nil {
+		if err := scheduleRemove(scheduleName()); err != nil {
 			return err
 		}
 		// The Schedule tab reads Overview.Scheduled, which came from the
@@ -568,10 +570,10 @@ func (d *dashboard) Schedule(ctx context.Context, every int, off bool) error {
 	}
 	binary, _ := scheduledBinary(runtime.GOOS, self, fileExists)
 	if err := scheduleInstall(schedule.Entry{
-		Name:       scheduleName,
+		Name:       scheduleName(),
 		Interval:   time.Duration(every) * time.Minute,
 		BinaryPath: binary,
-		Args:       scheduledRunArgs(runtime.GOOS),
+		Args:       scheduledRunArgs(runtime.GOOS, config.DataDirArgs()),
 	}); err != nil {
 		return err
 	}
