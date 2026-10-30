@@ -75,7 +75,7 @@ components:
     textColor: "{colors.ink}"
     rounded: "{rounded.sm}"
     padding: "0 9px"
-    height: "26px"
+    height: "28px"
   button-mini-hover:
     backgroundColor: "{colors.hairline}"
   status-card:
@@ -164,9 +164,11 @@ Windows 11 roundness throughout: 10px window corners, 12px for the status block 
 
 ### Buttons
 - **Primary** (Back up now): Signal fill, inverse ink text, 9px radius, 34px tall, icon plus label; brightens slightly on hover; half opacity when disabled.
-- **Mini** (row Open / Back up, empty-state actions): Raised Surface fill, 7px radius, 26px tall, 12px text; Hairline on hover.
+- **Wide** (secondary full-width actions, dialog buttons): Raised Surface fill, 9px radius, 34px tall, 500 weight; Hairline on hover.
+- **Mini** (row Open / Back up, empty-state actions): Raised Surface fill, 7px radius, 28px tall, 12px text at 500; Hairline on hover. Only three button sizes exist: Primary and Wide at 34, Mini at 28 (34 beside a field).
+- **Text link** (resend a code, get a token): Muted Ink, no underline until hover; one that opens the browser carries a small out-arrow.
 - **Icon buttons** (header): 32px square, 8px radius, Muted Ink icon, Raised Surface and Ink on hover.
-- **Focus:** 2px Signal outline, 2px offset, on every control.
+- **Focus:** 2px Signal outline, 2px offset, on every control; full-width rows draw it inside (-2px) so the next row does not cover it.
 
 ### Status block
 - Surface fill, 12px radius, hairline border, a 34px circular badge tinted with the state colour (14% fill), title and one-line detail, and a 4px progress bar while running (indeterminate slide until a percentage is known).
@@ -181,7 +183,7 @@ Windows 11 roundness throughout: 10px window corners, 12px for the status block 
 
 ### Sheets and forms
 - A sheet is a back arrow and a title over a scrolling body, with an optional footer holding one action. Steps inside a sheet (choose storage, then enter a token) swap in place and the back arrow walks them back.
-- Fields: Surface fill, hairline border, 8px radius, a Signal outline on focus, the label above in Muted Ink. Errors sit under the field in Alarm Red, in plain words, and the action that failed stays pressable.
+- Fields: 34px tall, Surface fill, hairline border, 8px radius, a Signal ring on focus, the label above in Muted Ink. Errors sit under the field in Alarm Red, in plain words, and the action that failed stays pressable.
 - A button that waits on something says what it is doing ("Checking…") and puts itself back.
 - Destroying anything asks twice: a second press within a few seconds, or typing the folder's name for the permanent kind. Plain-ink switches mean "backed up" / "on"; a half-state shows as a half-slid switch.
 
@@ -191,8 +193,16 @@ Windows 11 roundness throughout: 10px window corners, 12px for the status block 
 - **Run detail**: a title in words (Backed up, Did not finish), the day and time, the full error in a selectable Surface block, the counts as stat rows, up to three examples, and the actions that follow (Back up again, Find the folder, Folder settings).
 - **Lists of choices inside a form** (Cloudflare account and bucket): a Surface box above the fields it fills in, so the manual fields stay visible and editable.
 
+### Copy
+- A sheet says what it is in its title and nothing more. No paragraph explains a screen; a row has a title and, only when it carries live information (a count, a time, where something is stored), one short line or a trailing value.
+- Sign-in is an email field and a button, then a code field and a button, with Resend and Change email as text links.
+- Dialogs: a question as the title, one line of consequence ("This can’t be undone."), the choice if there is one, then Cancel and the action.
+
+### Dialog
+- Surface card, 12px radius, soft lift shadow, over a dimmed scrim; fades and rises 6px in. A destructive action is Alarm Red with inverse ink.
+
 ### Toast
-- Raised Surface pill-ish bar above the footer, slides up 6px and fades in, gone after about three seconds. It sits above open sheets, so a message is never hidden behind one.
+- Raised Surface bar, centred above the footer and only as wide as its words, with the soft lift shadow; slides up 6px and fades in, gone after about three seconds. It sits above open sheets, so a message is never hidden behind one.
 - A notice from the app (why a backup it started did not run) is shown once, however many refreshes still carry it.
 
 ### Motion
