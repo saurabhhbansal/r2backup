@@ -199,6 +199,9 @@ type RemoteSet struct {
 	// Here is true when this computer already keeps its own record of this
 	// set, so restoring it needs no destination and no machine.
 	Here bool
+	// Mine is true when this computer made the backup, under its current
+	// name or one it had before.
+	Mine bool
 }
 
 // AddRequest is a new folder to back up.

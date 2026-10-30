@@ -42,6 +42,7 @@ export interface Storage extends RateLimitStore {
   deleteKeys(email: string): Promise<void>;
   listDevices(email: string): Promise<DeviceRow[]>;
   upsertDevice(email: string, device: DeviceRow): Promise<void>;
+  deleteDevice(email: string, deviceName: string): Promise<void>;
 }
 
 export class D1Storage implements Storage {
@@ -144,6 +145,10 @@ export class D1Storage implements Storage {
       )
       .bind(email, device.device_name, device.os, device.last_seen)
       .run();
+  }
+
+  async deleteDevice(email: string, deviceName: string): Promise<void> {
+    await this.db.prepare("DELETE FROM devices WHERE email = ? AND device_name = ?").bind(email, deviceName).run();
   }
 
   async getRateLimit(key: string): Promise<RateLimitState | null> {

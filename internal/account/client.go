@@ -152,6 +152,15 @@ func (c *Client) RegisterDevice(ctx context.Context, token, name, os string) err
 	return err
 }
 
+// RenameDevice records this device under a new name, replacing the entry it
+// had under from. A server from before renames existed ignores from and
+// simply adds the new name; the old entry then ages out of use.
+func (c *Client) RenameDevice(ctx context.Context, token, from, to, os string) error {
+	body := map[string]string{"device_name": to, "os": os, "previous_name": from}
+	_, err := c.do(ctx, http.MethodPost, "/devices", token, body, nil)
+	return err
+}
+
 // Device is one entry from ListDevices.
 type Device struct {
 	DeviceName string `json:"device_name"`

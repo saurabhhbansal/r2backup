@@ -132,6 +132,7 @@ type restoreSetOut struct {
 	Name       string `json:"name"`
 	Machine    string `json:"machine"`
 	Here       bool   `json:"here"`
+	Mine       bool   `json:"mine"`
 	Root       string `json:"root,omitempty"`
 	RootExists bool   `json:"rootExists"`
 }
@@ -235,7 +236,7 @@ func (t *trayBackend) restoreCall(ctx context.Context, method string, raw []byte
 		}
 		res := make([]restoreSetOut, 0, len(rows))
 		for _, r := range rows {
-			o := restoreSetOut{Name: r.Name, Machine: r.Machine, Here: r.Here}
+			o := restoreSetOut{Name: r.Name, Machine: r.Machine, Here: r.Here, Mine: r.Mine}
 			if r.Here {
 				if s, err := a.sets.Get(r.Name); err == nil && s.Root != "" {
 					o.Root = s.Root

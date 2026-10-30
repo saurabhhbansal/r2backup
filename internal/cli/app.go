@@ -168,11 +168,20 @@ func (a *app) forgetClient() {
 	a.client = nil
 }
 
-// machineName is what this computer is filed under in the bucket.
+// machineName is what this computer is filed under in the bucket: the name
+// chosen in the panel if there is one, else the hostname.
 func machineName() string {
 	if n := os.Getenv("R2BACKUP_MACHINE"); n != "" {
 		return n
 	}
+	if s, err := config.LoadSettings(); err == nil && s.MachineName != "" {
+		return s.MachineName
+	}
+	return hostName()
+}
+
+// hostName is the name the operating system gives this computer.
+func hostName() string {
 	h, err := os.Hostname()
 	if err != nil || h == "" {
 		return "this-computer"

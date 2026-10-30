@@ -57,6 +57,33 @@ describe("devices", () => {
     expect(devices).toHaveLength(1);
   });
 
+  it("renaming a device replaces its entry and leaves other devices alone", async () => {
+    const storage = new MemoryStorage();
+    const ctx: AppContext = { storage, mailer: new FakeMailer(), jwtSecret: SECRET, keysSecret: "", now: () => 1 };
+
+    await handlePostDevice(await authedRequest("POST", "erin@example.com", { device_name: "DESKTOP-7Q2", os: "windows" }), ctx);
+    await handlePostDevice(await authedRequest("POST", "erin@example.com", { device_name: "Laptop", os: "windows" }), ctx);
+    const res = await handlePostDevice(
+      await authedRequest("POST", "erin@example.com", { device_name: "Office PC", os: "windows", previous_name: "DESKTOP-7Q2" }),
+      ctx,
+    );
+    expect(res.status).toBe(200);
+
+    const listRes = await handleGetDevices(await authedRequest("GET", "erin@example.com"), ctx);
+    const { devices } = (await listRes.json()) as { devices: Array<{ device_name: string }> };
+    expect(devices.map((d) => d.device_name).sort()).toEqual(["Laptop", "Office PC"]);
+  });
+
+  it("rejects a previous_name that is not a string", async () => {
+    const storage = new MemoryStorage();
+    const ctx: AppContext = { storage, mailer: new FakeMailer(), jwtSecret: SECRET, keysSecret: "", now: () => 1 };
+    const res = await handlePostDevice(
+      await authedRequest("POST", "erin@example.com", { device_name: "Office PC", os: "windows", previous_name: 7 }),
+      ctx,
+    );
+    expect(res.status).toBe(400);
+  });
+
   it("requires authentication", async () => {
     const storage = new MemoryStorage();
     const ctx: AppContext = { storage, mailer: new FakeMailer(), jwtSecret: SECRET, keysSecret: "", now: () => 1 };

@@ -70,16 +70,15 @@ func (t *trayBackend) deleteStoredBackup(ctx context.Context, machine, name stri
 	if err != nil {
 		return "", err
 	}
-	me := machineName()
 	for _, f := range found {
 		if f.Machine != machine || f.Name != name {
 			continue
 		}
-		if f.Machine == me {
-			for _, s := range a.sets.List() {
-				if s.Prefix == f.Prefix {
-					return "", fmt.Errorf("%q is backed up by this computer. Stop backing it up from its folder settings", s.Name)
-				}
+		// By location, not by this computer's name: a folder backed up
+		// before a rename is filed under the old one.
+		for _, s := range a.sets.List() {
+			if s.Prefix == f.Prefix {
+				return "", fmt.Errorf("%q is backed up by this computer. Stop backing it up from its folder settings", s.Name)
 			}
 		}
 		scope := f.Prefix + "/"
