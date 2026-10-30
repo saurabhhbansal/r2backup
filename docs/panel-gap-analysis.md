@@ -94,7 +94,6 @@ it is: in a terminal, a command is the right answer.
 | `folderRelink` | `name, path` | point at the folder's new place | `d.Relink` |
 | `folderRetention` | `name, days` | keep deleted files for N days | `sets.Update` |
 | `folderInfo` (extended) | | retention, note, last run | |
-| `runDetail` | `set, at` | one run from the history, in full | `runstate.ReadHistory` |
 | `backupStop` | | stops a backup this panel started | the child process |
 | `restoreStart` (extended) | `verify` | byte-compares after writing | `restore.Options.Verify` |
 | `cfSignIn` / `cfBuckets` / `cfCreateBucket` / `cfDone` / `cfCancel` | | Cloudflare browser sign-in, account and bucket, make a bucket; the token is revoked when done | `oauth.Config`, `cfapi` |
@@ -108,7 +107,8 @@ it is: in a terminal, a command is the right answer.
 | `updateCheck` / `updateApply` | | newest release, install it | `d.CheckUpdate`, `d.ApplyUpdate` |
 | `resumeBudget` | | (existed) now also on the main panel | |
 
-State additions: `status.action` (what the status card's button does),
+A run's full detail (error, counts, examples) comes in the state's `recent`
+rows, so opening one needs no request. State additions: `status.action` (what the status card's button does),
 `update` (a newer version, from a check made at most once a day),
 `noticeAt` (so a toast shows once), and fuller `recent` rows (counts,
 examples, the whole error).

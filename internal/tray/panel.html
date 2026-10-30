@@ -7,7 +7,7 @@
 <style>
 :root {
   --bg: #121214; --card: #1b1b1f; --card-2: #232328; --line: #2c2c32;
-  --text: #ececf0; --muted: #8d8d97; --faint: #5c5c66;
+  --text: #ececf0; --muted: #a6a6b0; --faint: #84848e;
   --accent: #ececf0; --accent-ink: #121214;
   --ok: #34d399; --warn: #fbbf24; --bad: #f87171;
   --radius: 12px;
@@ -15,9 +15,9 @@
 @media (prefers-color-scheme: light) {
   :root {
     --bg: #f6f6f8; --card: #ffffff; --card-2: #f0f0f3; --line: #e3e3e8;
-    --text: #18181b; --muted: #6b6b75; --faint: #a1a1aa;
+    --text: #18181b; --muted: #4f4f58; --faint: #6b6b75;
     --accent: #18181b; --accent-ink: #ffffff;
-    --ok: #059669; --warn: #d97706; --bad: #dc2626;
+    --ok: #047857; --warn: #b45309; --bad: #c42020;
   }
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -27,7 +27,7 @@ html, body { height: 100%; }
 body {
   background: var(--bg); color: var(--text);
   font: 13px/1.4 "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
-  display: flex; flex-direction: column; overflow: hidden;
+  display: flex; flex-direction: column; overflow: hidden; position: relative;
   user-select: none; -webkit-user-select: none;
   border: 1px solid var(--line); border-radius: 10px;
 }
@@ -189,7 +189,7 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .drow .t span { display: block; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .drow .r { color: var(--faint); font-size: 12px; white-space: nowrap; }
 .stack { display: flex; flex-direction: column; gap: 8px; margin-top: 14px; }
-.stack .primary, .stack .wide { width: 100%; justify-content: center; }
+.stack .primary, .stack .wide { width: 100%; justify-content: center; flex: none; }
 .wide { height: 34px; border-radius: 9px; background: var(--card-2); color: var(--text); font-weight: 500; display: inline-flex; align-items: center; justify-content: center; }
 .wide:hover { background: var(--line); }
 .wide:disabled { opacity: .45; cursor: default; }
@@ -226,8 +226,45 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .inline .mini { height: 34px; padding: 0 12px; }
 .tip { color: var(--faint); font-size: 11px; padding: 4px 4px 12px; }
 
+/* status actions, update dot, more sheets */
+.status { grid-template-columns: 34px 1fr auto; }
+.s-acts { display: flex; gap: 6px; }
+.s-acts .mini { height: 28px; padding: 0 11px; }
+.icon-btn { position: relative; }
+.icon-btn .dot { position: absolute; top: 6px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--text); box-shadow: 0 0 0 2px var(--bg); }
+.row[data-run] { cursor: pointer; }
+.row[data-run]:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.chip { display: inline-block; font-size: 11px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 0 7px; margin-left: 6px; font-weight: 400; vertical-align: 1px; }
+.alert { border: 1px solid color-mix(in srgb, var(--bad) 45%, var(--line)); background: color-mix(in srgb, var(--bad) 8%, var(--card)); border-radius: var(--radius); padding: 11px 12px; margin-bottom: 12px; }
+.alert b { display: block; font-weight: 600; margin-bottom: 2px; }
+.alert p { color: var(--muted); font-size: 12px; margin-bottom: 10px; overflow-wrap: anywhere; }
+.alert .mini { height: 30px; padding: 0 12px; }
+.item select { max-width: 150px; }
+.pre { color: var(--text); font-size: 12px; background: var(--card); border: 1px solid var(--line); border-radius: 9px; padding: 9px 10px; margin: 8px 0 12px; overflow-wrap: anywhere; white-space: pre-wrap; user-select: text; -webkit-user-select: text; }
+.examples { margin: 0 0 12px; padding: 0; list-style: none; }
+.examples li { font-size: 12px; color: var(--muted); padding: 5px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; user-select: text; -webkit-user-select: text; }
+.cfbox { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 11px 12px; margin-bottom: 14px; }
+.cfbox p { color: var(--muted); font-size: 12px; margin-bottom: 8px; }
+.cfbox .field { margin-bottom: 8px; }
+.cfbox select { width: 100%; padding: 7px 8px; }
+.cfbox .mini { height: 30px; padding: 0 12px; }
+.dev { display: flex; justify-content: space-between; gap: 10px; padding: 10px 12px; }
+.dev + .dev { border-top: 1px solid var(--line); }
+.dev b { font-weight: 500; }
+.dev span { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.field select { width: 100%; padding: 7px 8px; }
+
 .toast { position: absolute; left: 14px; right: 14px; bottom: 66px; background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; font-size: 12px; opacity: 0; transform: translateY(6px); transition: all .2s; pointer-events: none; }
 .toast.show { opacity: 1; transform: none; }
+.toast { z-index: 10; }
+
+/* A closed sheet is off to the side; it must not be reachable with Tab either. */
+.sheet { visibility: hidden; transition: transform .18s ease, visibility 0s linear .18s; }
+.sheet.open { visibility: visible; transition: transform .18s ease; }
+@media (prefers-reduced-motion: reduce) {
+  .sheet, .sheet.open, .toast, .bar i, .toggle, .toggle::after, .erow .sw, .erow .sw::after { transition: none; }
+  .spin, .bar.indet i { animation: none; }
+}
 </style>
 </head>
 <body>
@@ -241,7 +278,8 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 <section class="status" id="status" aria-live="polite">
   <div class="badge" id="badge"></div>
-  <div><h1 id="s-title">Loading…</h1><p id="s-detail">&nbsp;</p></div>
+  <div style="min-width:0"><h1 id="s-title">Loading…</h1><p id="s-detail">&nbsp;</p></div>
+  <div class="s-acts" id="s-acts"></div>
   <div class="bar" id="bar" hidden><i id="bar-fill" style="width:0"></i></div>
 </section>
 
@@ -287,13 +325,18 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
       </div>
     </div>
     <div class="group">
-      <button class="item link" id="b-storage"><div class="t"><b id="storage-name">Storage</b><span>Change where your backups go, or sign in.</span></div></button>
+      <button class="item link" id="b-storage"><div class="t"><b id="storage-name">Storage</b><span>Change where your backups go.</span></div></button>
+      <button class="item link" id="b-account"><div class="t"><b>Account</b><span>Sign in, and set up your other computers.</span></div></button>
+      <button class="item link" id="b-mirror"><div class="t"><b>Second copy</b><span id="mirror-sub">Keep a copy with a second company.</span></div></button>
     </div>
     <div class="group">
       <button class="item link" id="b-trash2"><div class="t"><b>Deleted files…</b><span>Recover files that were removed from your folders.</span></div></button>
       <button class="item link" id="b-restore2"><div class="t"><b>Restore files…</b><span>Bring back files from a backup.</span></div></button>
-      <button class="item link" id="b-add"><div class="t"><b>Back up another folder…</b><span>Everything in it, from now on.</span></div></button>
+      <button class="item link" id="b-add"><div class="t"><b>Back up another folder…</b><span>Choose a folder, and what in it to leave out.</span></div></button>
       <button class="item link" id="b-cost"><div class="t"><b>Usage and cost</b><span>What your backups use, and a monthly limit.</span></div></button>
+    </div>
+    <div class="group">
+      <button class="item link" id="b-update"><div class="t"><b id="update-t">Check for updates</b><span id="update-sub">&nbsp;</span></div></button>
     </div>
     <div class="group">
       <button class="item link danger" id="b-quit"><div class="t"><b>Quit r2backup</b><span>Scheduled backups still run.</span></div></button>
@@ -329,6 +372,17 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
     <div class="pane" data-pane="r2" hidden>
       <h2>Connect Cloudflare R2</h2>
       <p>Your account ID and bucket are on the R2 page. The keys come from an API token.</p>
+      <div class="cfbox" id="c-cf">
+        <div id="c-cf-start"><p>Sign in with Cloudflare in your browser and r2backup finds your account and bucket for you. It only asks to manage R2 storage.</p>
+          <button class="mini" id="c-cf-go"><span>Sign in with Cloudflare</span></button></div>
+        <div id="c-cf-wait" hidden><p>Finish signing in in your browser. This comes back by itself.</p><button class="mini" id="c-cf-stop">Cancel</button></div>
+        <div id="c-cf-pick" hidden>
+          <label class="field" id="c-cf-acct-f"><span>Account</span><select id="c-cf-acct"></select></label>
+          <label class="field"><span>Bucket</span><select id="c-cf-bucket"></select></label>
+          <div class="inline" id="c-cf-new" hidden><input id="c-cf-newname" placeholder="new-bucket-name" autocomplete="off" spellcheck="false" aria-label="New bucket name"><button class="mini" id="c-cf-make"><span>Make it</span></button></div>
+        </div>
+        <div class="err-line" id="c-cf-err" hidden style="margin:8px 0 0"></div>
+      </div>
       <label class="field"><span>Account ID</span><input id="c-acct" autocomplete="off" spellcheck="false"></label>
       <label class="field"><span>Bucket name</span><input id="c-bucket" autocomplete="off" spellcheck="false"></label>
       <button class="textbtn" id="c-r2-token" style="margin:-4px 0 10px">Make an API token in Cloudflare</button>
@@ -385,6 +439,10 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
           <div class="t"><b>Replace files already there</b><span>Off: anything already in place is left alone.</span></div>
           <button class="toggle" id="r-overwrite" role="switch" aria-checked="false" aria-label="Replace files already there"></button>
         </div>
+        <div class="item">
+          <div class="t"><b>Check every file afterwards</b><span>Reads each one back and compares it. Slower.</span></div>
+          <button class="toggle" id="r-verify" role="switch" aria-checked="false" aria-label="Check every file afterwards"></button>
+        </div>
       </div>
       <div class="err-line" id="r-where-err" hidden></div>
     </div>
@@ -427,15 +485,37 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   </header>
   <main id="f-main">
     <div class="pane" data-fpane="home">
+      <div class="alert" id="f-missing" hidden>
+        <b>This folder is not where it was</b>
+        <p>Nothing was deleted from your backup. If you moved or renamed it, show r2backup where it is now and it carries on, without uploading anything again.</p>
+        <button class="mini" id="f-find"><span>Find it…</span></button>
+      </div>
       <div class="facts" id="f-facts" style="margin-bottom:12px"></div>
       <div class="group">
+        <button class="item link" id="f-backup"><div class="t"><b>Back up now</b><span id="f-backup-sub">Just this folder.</span></div></button>
         <button class="item link" id="f-excl"><div class="t"><b>Choose what is backed up</b><span id="f-excl-sub"></span></div></button>
         <button class="item link" id="f-open"><div class="t"><b>Open folder</b><span>Show it in Explorer.</span></div></button>
         <button class="item link" id="f-restore"><div class="t"><b>Restore files…</b><span>Bring back files from this backup.</span></div></button>
       </div>
       <div class="group">
+        <button class="item link" id="f-rename"><div class="t"><b>Rename…</b><span id="f-rename-sub">The name shown here.</span></div></button>
+        <button class="item link" id="f-move"><div class="t"><b>Moved it?</b><span>Show r2backup where the folder is now.</span></div></button>
+        <div class="item">
+          <div class="t"><b>Keep deleted files for</b><span>Removed or changed files can be recovered this long.</span></div>
+          <select id="f-keep" aria-label="Keep deleted files for"></select>
+        </div>
+      </div>
+      <div class="group">
         <button class="item link danger" id="f-stop"><div class="t"><b>Stop backing up this folder…</b><span>Your files on this computer are not touched.</span></div></button>
       </div>
+      <div class="err-line" id="f-err" hidden></div>
+    </div>
+    <div class="pane" data-fpane="rename" hidden>
+      <h2>Rename</h2>
+      <p id="f-rn-help">Only the name changes. Nothing is uploaded again.</p>
+      <label class="field"><span>Name</span><input id="f-rn-name" autocomplete="off" spellcheck="false"></label>
+      <div class="err-line" id="f-rn-err" hidden></div>
+      <button class="primary" id="f-rn-go"><span>Rename</span></button>
     </div>
     <div class="pane" data-fpane="excl" hidden></div>
     <div class="pane" data-fpane="remove" hidden>
@@ -454,6 +534,93 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
     <div class="facts" style="flex:1;margin:0">Left-out files move to trash on the next backup.</div>
     <button class="mini" id="f-apply" style="height:34px;padding:0 14px"><span>Back up now</span></button>
   </footer>
+</section>
+
+<section class="sheet" id="sheet-add" aria-label="Back up a folder">
+  <header>
+    <button class="icon-btn" id="a-back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button>
+    <b id="a-title">Back up a folder</b>
+  </header>
+  <main id="a-main">
+    <div class="pane" data-apane="form">
+      <div class="facts" id="a-path" style="margin-bottom:12px"></div>
+      <div class="banner" id="a-overlap" hidden></div>
+      <label class="field"><span>Name</span><input id="a-name" autocomplete="off" spellcheck="false"></label>
+      <div class="err-line" id="a-name-err" hidden></div>
+      <div class="group">
+        <button class="item link" id="a-excl"><div class="t"><b>What is backed up</b><span id="a-excl-sub">Everything in it.</span></div></button>
+        <div class="item">
+          <div class="t"><b>Keep deleted files for</b><span>Removed or changed files can be recovered this long.</span></div>
+          <select id="a-keep" aria-label="Keep deleted files for"></select>
+        </div>
+        <div class="item" id="a-sched-row" hidden>
+          <div class="t"><b>Back up automatically</b><span>Every 30 minutes, in the background.</span></div>
+          <button class="toggle" id="a-sched" role="switch" aria-checked="true" aria-label="Back up automatically"></button>
+        </div>
+      </div>
+      <div class="err-line" id="a-err" hidden></div>
+    </div>
+    <div class="pane" data-apane="excl" hidden></div>
+  </main>
+  <footer class="sheetfoot" id="a-foot">
+    <button class="primary" id="a-go"><span>Back up this folder</span></button>
+  </footer>
+</section>
+
+<section class="sheet" id="sheet-run" aria-label="Backup run">
+  <header>
+    <button class="icon-btn" id="u-back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button>
+    <b id="u-title">Backup</b>
+  </header>
+  <main id="u-main"></main>
+</section>
+
+<section class="sheet" id="sheet-account" aria-label="Account">
+  <header>
+    <button class="icon-btn" id="ac-back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button>
+    <b id="ac-title">Account</b>
+  </header>
+  <main id="ac-main">
+    <div class="pane" data-acpane="home"></div>
+    <div class="pane" data-acpane="save" hidden>
+      <h2>Save your storage keys</h2>
+      <p id="ac-save-help">Your other computers can then pick them up when you sign in there. They are locked with a password you choose here, so the account service cannot read them.</p>
+      <label class="field"><span>Password (at least 8 characters)</span><input id="ac-pass" type="password" autocomplete="new-password" spellcheck="false"></label>
+      <label class="field"><span>The same again</span><input id="ac-pass2" type="password" autocomplete="new-password" spellcheck="false"></label>
+      <div class="err-line" id="ac-save-err" hidden></div>
+      <button class="primary" id="ac-save-go"><span>Save keys</span></button>
+    </div>
+  </main>
+</section>
+
+<section class="sheet" id="sheet-mirror" aria-label="Second copy">
+  <header>
+    <button class="icon-btn" id="m-back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button>
+    <b id="m-title">Second copy</b>
+  </header>
+  <main id="m-main">
+    <div class="pane" data-mpane="home"></div>
+    <div class="pane" data-mpane="drime" hidden>
+      <h2>Second copy on Drime</h2>
+      <p>Make an access token in your Drime account, then paste it here. The copy goes in a folder called r2backup.</p>
+      <button class="mini" id="m-drime-open" style="margin-bottom:14px;height:30px;padding:0 12px">Open Drime to make a token</button>
+      <label class="field"><span>Access token</span><input id="m-token" type="password" autocomplete="off" spellcheck="false"></label>
+      <div class="err-line" id="m-drime-err" hidden></div>
+      <button class="primary" id="m-drime-go"><span>Set up the second copy</span></button>
+    </div>
+    <div class="pane" data-mpane="r2" hidden>
+      <h2>Second copy on Cloudflare R2</h2>
+      <p>A bucket of your own. Your account ID and bucket are on the R2 page; the keys come from an API token.</p>
+      <label class="field"><span>Account ID</span><input id="m-acct" autocomplete="off" spellcheck="false"></label>
+      <label class="field"><span>Bucket name</span><input id="m-bucket" autocomplete="off" spellcheck="false"></label>
+      <button class="textbtn" id="m-r2-token" style="margin:-4px 0 10px">Make an API token in Cloudflare</button>
+      <label class="field"><span>Access key ID</span><input id="m-key" autocomplete="off" spellcheck="false"></label>
+      <label class="field"><span>Secret access key</span><input id="m-secret" type="password" autocomplete="off" spellcheck="false"></label>
+      <div class="err-line" id="m-r2-err" hidden></div>
+      <button class="primary" id="m-r2-go"><span>Set up the second copy</span></button>
+    </div>
+    <div class="pane" data-mpane="run" hidden><div class="runbox" id="m-run"></div></div>
+  </main>
 </section>
 
 <section class="sheet" id="sheet-cost" aria-label="Usage and cost">
@@ -504,9 +671,31 @@ function reply(r) {
   if (r.ok) p.resolve(r.data); else p.reject(new Error(r.error || "That did not work."));
 }
 
-// Sheets slide over the panel; the one opened last is on top.
-const openSheet = (id) => $(id).classList.add("open");
-const closeSheet = (id) => $(id).classList.remove("open");
+// Sheets slide over the panel; the one opened last is on top. Opening one
+// puts the keyboard on its back arrow, so Tab starts inside it.
+const openSheet = (id) => {
+  const s = $(id);
+  // Last in the document is drawn on top, and is the one Escape closes.
+  if (s.nextElementSibling && s.nextElementSibling.tagName !== "SCRIPT") {
+    s.parentNode.insertBefore(s, document.querySelector("body > script"));
+    void s.offsetWidth; // let it start from the side, so it still slides in
+  }
+  s.classList.add("open");
+  const back = s.querySelector("header .icon-btn");
+  if (back) setTimeout(() => back.focus({ preventScroll: true }), 0);
+};
+// Focusing something in a sheet that is still sliding in would scroll the
+// whole window sideways to show it; the window itself never scrolls.
+window.addEventListener("scroll", (e) => {
+  const t = e.target === document ? document.scrollingElement : e.target;
+  if (t && (t === document.body || t === document.documentElement || t.classList && t.classList.contains("sheet")) && (t.scrollLeft || t.scrollTop)) { t.scrollLeft = 0; t.scrollTop = 0; }
+}, true);
+function closeSheet(id) {
+  $(id).classList.remove("open");
+  // Whatever a sheet was waiting on stops with it.
+  if (id === "sheet-connect") cfAbort();
+  if (id === "sheet-mirror") clearInterval(M.poll);
+}
 function topSheet() { const o = [...document.querySelectorAll(".sheet.open")]; return o.length ? o[o.length - 1] : null; }
 
 // A button that waits on a call: shows what it is doing, and puts itself back.
@@ -557,9 +746,40 @@ function render(state) {
   $("b-add").disabled = !state.configured;
   $("storage-name").textContent = state.configured ? "Storage: " + state.destination : "Connect your storage";
   $("ver").textContent = "r2backup " + (state.version ? "v" + state.version : "");
-  if (state.notice) toast(state.notice);
+  $("b-mirror").disabled = !state.configured;
+  // A notice is said once, however many refreshes still carry it.
+  if (state.notice && state.noticeAt !== lastNotice) { lastNotice = state.noticeAt; toast(state.notice); }
+  $("upd-dot").hidden = !state.update;
+  $("b-set").setAttribute("aria-label", state.update ? "Settings, an update is ready" : "Settings");
+  if (state.update) { $("update-t").textContent = "Update to " + state.update; $("update-sub").textContent = "A newer r2backup is ready. It restarts by itself."; }
+  else if (!updChecked) { $("update-t").textContent = "Check for updates"; $("update-sub").textContent = "You have " + (state.version ? "v" + state.version : "this version") + "."; }
+  renderStatusActions(state);
   renderList();
 }
+
+let lastNotice = 0;
+let updChecked = false;
+function renderStatusActions(state) {
+  const box = $("s-acts");
+  let html = "";
+  const a = state.status.action || "";
+  if (state.canStop) html = '<button class="mini" data-sact="stop">Stop</button>';
+  else if (a === "cost") html = '<button class="mini" data-sact="cost">Review</button>';
+  else if (a === "backup" && !state.busy) html = '<button class="mini" data-sact="backup">Carry on</button>';
+  else if (a.startsWith("folder:")) html = '<button class="mini" data-sact="folder">Show me</button>';
+  if (box.dataset.html !== html) { box.dataset.html = html; box.innerHTML = html; }
+}
+$("s-acts").addEventListener("click", (e) => {
+  const b = e.target.closest("button[data-sact]");
+  if (!b || !S) return;
+  const a = S.status.action || "";
+  switch (b.dataset.sact) {
+    case "stop": b.disabled = true; call("backupStop").catch((err) => toast(err.message)); break;
+    case "cost": openCost(); break;
+    case "backup": send("backup", ""); break;
+    case "folder": openFolder(a.slice(7)); break;
+  }
+});
 
 function renderList() {
   if (!S) return;
@@ -570,10 +790,12 @@ function renderList() {
     html = '<div class="empty"><div class="logo" aria-hidden="true"></div><b>Connect your storage</b>Choose where your backups go, then pick the folders to protect.<br><button class="mini" data-act="connect">Connect storage</button></div>';
   } else if (tab === "folders") {
     if (!S.folders || !S.folders.length) {
-      html = '<div class="empty"><div class="logo" aria-hidden="true"></div><b>No folders yet</b>Pick a folder and everything in it is backed up from then on.<br><button class="mini" data-cmd="add">Choose a folder…</button></div>';
+      html = '<div class="empty"><div class="logo" aria-hidden="true"></div><b>No folders yet</b>Pick a folder and everything in it is backed up from then on.<br><button class="mini" data-act="add">Choose a folder…</button>' +
+        (remoteBackups ? '<br><button class="textbtn" data-act="restore-other" style="margin-top:8px">' + esc(remoteBackups) + "</button>" : "") + "</div>";
     } else {
       for (const f of S.folders) {
-        const sub = f.kind === "attention" && f.note ? '<span class="err">' + esc(f.note) + "</span>" : "<span>" + esc(f.root) + "</span>";
+        const note = f.missing ? "Not where it was. Open it to say where it went." : f.note;
+        const sub = f.kind === "attention" && note ? '<span class="err" title="' + esc(f.note) + '">' + esc(note) + "</span>" : "<span>" + esc(f.root) + "</span>";
         html += '<div class="row" data-folder="' + esc(f.name) + '" tabindex="0" role="button" title="' + esc(f.root) + '">' +
           '<div class="ic i-' + f.kind + '">' + (ICON.folder[f.kind] || ICON.folder.never) + "</div>" +
           '<div class="t"><b>' + esc(f.name) + "</b>" + sub + "</div>" +
@@ -588,12 +810,12 @@ function renderList() {
       html = '<div class="empty"><b>No backups have run yet</b>Each run will be listed here with what it did.</div>';
     } else {
       let day = "";
-      for (const r of S.recent) {
+      S.recent.forEach((r, i) => {
         if (r.day !== day) { day = r.day; html += '<div class="day">' + esc(day) + "</div>"; }
-        html += '<div class="row"><div class="ic i-' + r.kind + '">' + (ICON.run[r.kind] || ICON.run.nochange) + "</div>" +
+        html += '<div class="row" data-run="' + i + '" tabindex="0" role="button" aria-label="' + esc(r.set + ", " + r.time + ", " + r.text) + '"><div class="ic i-' + r.kind + '">' + (ICON.run[r.kind] || ICON.run.nochange) + "</div>" +
           '<div class="t"><b>' + esc(r.set) + "</b><span" + (r.kind === "failed" ? ' class="err"' : "") + ' title="' + esc(r.text) + '">' + esc(r.text) + "</span></div>" +
           '<span class="r">' + esc(r.time) + "</span></div>";
-      }
+      });
     }
   }
   list.innerHTML = html;
@@ -611,30 +833,33 @@ $("t-folders").onclick = () => setTab("folders");
 $("t-recent").onclick = () => setTab("recent");
 $("b-web").onclick = () => send("browser");
 $("b-cost").onclick = () => openCost();
-$("b-set").onclick = () => $("sheet").classList.add("open");
+$("b-set").onclick = () => openSheet("sheet");
 $("b-back").onclick = () => $("sheet").classList.remove("open");
 $("b-all").onclick = () => send("backup", "");
-// Back to the folder list, where the new folder and its progress will show
-// when the panel reopens after the picker.
-$("b-add").onclick = () => { $("sheet").classList.remove("open"); send("add"); };
+$("b-add").onclick = () => openAdd();
 $("b-quit").onclick = () => send("quit");
 $("sw-sched").onclick = () => { const on = $("sw-sched").getAttribute("aria-checked") !== "true"; send("schedule", (on ? "on:" : "off:") + $("sel-every").value); };
 $("sel-every").onchange = () => send("schedule", "on:" + $("sel-every").value);
 $("sw-login").onclick = () => send("login", $("sw-login").getAttribute("aria-checked") !== "true");
 $("list").addEventListener("keydown", (e) => {
-  const r = e.target.closest(".row[data-folder]");
-  if (r && e.target === r && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openFolder(r.dataset.folder); }
+  const r = e.target.closest(".row[data-folder], .row[data-run]");
+  if (r && e.target === r && (e.key === "Enter" || e.key === " ")) {
+    e.preventDefault();
+    if (r.dataset.folder !== undefined) openFolder(r.dataset.folder); else openRun(S.recent[+r.dataset.run]);
+  }
 });
 $("list").addEventListener("click", (e) => {
   const row = e.target.closest(".row[data-folder]");
   if (row && !e.target.closest("button")) { openFolder(row.dataset.folder); return; }
+  const run = e.target.closest(".row[data-run]");
+  if (run) { openRun(S.recent[+run.dataset.run]); return; }
   const b = e.target.closest("button[data-cmd]");
   if (b && !b.disabled) send(b.dataset.cmd, b.dataset.arg || "");
   const a = e.target.closest("button[data-act]");
   if (a && !a.disabled) actions[a.dataset.act](a.dataset.arg);
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") { const t = topSheet(); if (t) t.classList.remove("open"); else send("hide"); }
+  if (e.key === "Escape") { const t = topSheet(); if (t) closeSheet(t.id); else send("hide"); }
 });
 document.addEventListener("contextmenu", (e) => e.preventDefault());
 // --- connect storage and sign in -----------------------------------------------------
@@ -652,22 +877,42 @@ function showPane(name) {
   const first = document.querySelector('#sheet-connect .pane[data-pane="' + name + '"] input');
   if (first) first.focus();
 }
-function openConnect(start) {
+function openConnect(start, then) {
+  connectThen = then || null;
   document.querySelectorAll("#sheet-connect input").forEach((i) => { i.value = ""; });
-  ["c-drime-err", "c-r2-err", "c-email-err", "c-code-err", "c-vault-err"].forEach((id) => showErr(id, ""));
+  ["c-drime-err", "c-r2-err", "c-email-err", "c-code-err", "c-vault-err", "c-cf-err"].forEach((id) => showErr(id, ""));
+  cfShow("start");
   showPane(start || "choose");
   openSheet("sheet-connect");
 }
-const actions = { connect: () => openConnect(), "restore-set": (name) => openRestore(name) };
+const actions = { connect: () => openConnect(), "restore-set": (name) => openRestore(name), add: () => openAdd(), "restore-other": () => openRestore() };
 
 // Done: the folders list takes over, which is where a new person goes next.
 function connected(msg) {
   closeSheet("sheet-connect"); closeSheet("sheet");
   toast(msg || "Connected.");
+  call("cfDone").catch(() => {});
+  if (connectThen) { const f = connectThen; connectThen = null; f(); return; }
+  findRemoteBackups();
+}
+
+// A computer that has just connected may be here for backups another one
+// made. Said in the empty folder list, where a new person looks next.
+let remoteBackups = "";
+let connectThen = null;
+async function findRemoteBackups() {
+  try {
+    const sets = await call("restoreSets");
+    const others = sets.filter((x) => !x.here);
+    if (!others.length) { remoteBackups = ""; return; }
+    const machines = [...new Set(others.map((x) => x.machine))];
+    remoteBackups = "Restore files backed up on " + (machines.length === 1 ? machines[0] : machines.length + " other computers") + "…";
+    renderList();
+  } catch (e) { /* nothing to offer */ }
 }
 
 $("b-storage").onclick = () => openConnect();
-$("c-back").onclick = () => { if (BACK[pane]) showPane(BACK[pane]); else closeSheet("sheet-connect"); };
+$("c-back").onclick = () => { if (pane === "r2") cfAbort(); if (BACK[pane]) showPane(BACK[pane]); else closeSheet("sheet-connect"); };
 document.querySelectorAll("#sheet-connect [data-go]").forEach((b) => { b.onclick = () => showPane(b.dataset.go); });
 
 $("c-drime-open").onclick = () => send("open", "https://app.drime.cloud/account-settings");
@@ -702,7 +947,9 @@ $("c-code-go").onclick = () => working($("c-code-go"), "Checking…", async () =
   try {
     await call("signInVerify", { email: signInEmail, code: $("c-code").value.trim() });
     const a = await call("account");
-    if (a.vaultStored) showPane("signin-vault"); else connected("Signed in.");
+    // Signing in from Account on a computer that already backs up is about
+    // the account, not about replacing this computer's storage.
+    if (a.vaultStored && !(connectThen && S && S.configured)) showPane("signin-vault"); else connected("Signed in.");
   } catch (e) { showErr("c-code-err", e.message); }
 });
 $("c-vault-go").onclick = () => working($("c-vault-go"), "Unlocking…", async () => {
@@ -878,7 +1125,7 @@ async function startRestore() {
   showErr("r-where-err", "");
   const items = [...R.sel].map(([path, v]) => ({ path, dir: v.dir }));
   try {
-    await call("restoreStart", { set: R.set.name, machine: R.set.here ? "" : R.set.machine, to: R.mode === "other" ? R.to : "", overwrite: $("r-overwrite").getAttribute("aria-checked") === "true", items });
+    await call("restoreStart", { set: R.set.name, machine: R.set.here ? "" : R.set.machine, to: R.mode === "other" ? R.to : "", overwrite: $("r-overwrite").getAttribute("aria-checked") === "true", verify: $("r-verify").getAttribute("aria-checked") === "true", items });
     rShow("run"); drawRun({ phase: "starting", percent: 0 }); watchRestore();
   } catch (e) { showErr("r-where-err", e.message); }
 }
@@ -926,6 +1173,7 @@ $("r-go").onclick = () => { if (R.view === "browse") toWhere(); else if (R.view 
 $("r-opt-orig").onclick = () => { if (!$("r-opt-orig").disabled) setMode("orig"); };
 $("r-opt-other").onclick = () => pickDest();
 $("r-overwrite").onclick = () => { const b = $("r-overwrite"); b.setAttribute("aria-checked", b.getAttribute("aria-checked") !== "true"); };
+$("r-verify").onclick = () => { const b = $("r-verify"); b.setAttribute("aria-checked", b.getAttribute("aria-checked") !== "true"); };
 
 // --- deleted files ------------------------------------------------------------------
 
@@ -1027,7 +1275,7 @@ $("d-empty").onclick = () => twice($("d-empty"), "all", "Press again to empty it
 // --- folder settings ------------------------------------------------------------------
 
 const F = { name: "", info: null, dir: "", entries: [], view: "home", changed: false, purge: false };
-const FTITLES = { home: "", excl: "What is backed up", remove: "Stop backing up" };
+const FTITLES = { home: "", excl: "What is backed up", remove: "Stop backing up", rename: "Rename" };
 
 function fShow(v) {
   F.view = v;
@@ -1042,14 +1290,36 @@ async function openFolder(name) {
   F.purge = false;
   openSheet("sheet-folder");
   $("f-facts").textContent = "";
+  $("f-missing").hidden = true;
+  showErr("f-err", "");
   fShow("home");
   try {
     F.info = await call("folderInfo", { name });
-    $("f-facts").innerHTML = "<div>" + esc(F.info.root) + "</div>" + (F.info.rootExists ? "" : '<div style="color:var(--bad)">This folder is not on this computer any more.</div>');
+    const fo = (S && S.folders || []).find((x) => x.name === name);
+    $("f-facts").innerHTML = "<div>" + esc(F.info.root) + "</div>" + (fo && fo.lastRun ? "<div>" + esc(fo.lastRun) + "</div>" : "") +
+      (!F.info.rootExists && !F.info.missing ? '<div style="color:var(--bad)">This folder is not on this computer any more.</div>' : "") +
+      (F.info.note && !F.info.missing ? '<div style="color:var(--bad)">' + esc(F.info.note) + "</div>" : "");
+    $("f-missing").hidden = !(F.info.missing || !F.info.rootExists);
     $("f-excl-sub").textContent = F.info.excluded ? F.info.excluded + (F.info.excluded === 1 ? " item left out" : " items left out") : "Everything is backed up.";
     $("f-excl").disabled = !F.info.rootExists;
     $("f-open").disabled = !F.info.rootExists;
+    $("f-backup").disabled = !F.info.rootExists || !!(S && (S.running || S.busy));
+    $("f-rename-sub").textContent = F.info.storedAs ? "Other computers see it as " + F.info.storedAs + "." : "The name shown here.";
+    fillKeep($("f-keep"), F.info.retention, false);
   } catch (e) { $("f-facts").textContent = e.message; }
+}
+
+// Keep deleted files for: the lengths offered, plus whatever a folder
+// already has if that is something else.
+const KEEP = [[7, "7 days"], [14, "14 days"], [30, "30 days"], [60, "60 days"], [90, "90 days"], [180, "6 months"], [365, "A year"]];
+function fillKeep(sel, current, allowOff) {
+  let opts = KEEP.slice();
+  if (current > 0 && !opts.some(([d]) => d === current)) opts.push([current, current + " days"]);
+  opts.sort((a, b) => a[0] - b[0]);
+  if (allowOff) opts.push([0, "Don’t keep them"]);
+  if (current <= 0 && !allowOff) opts.unshift([current, "Not kept"]);
+  sel.innerHTML = opts.map(([d, l]) => '<option value="' + d + '"' + (d === current ? " selected" : "") + ">" + l + "</option>").join("");
+  sel.disabled = current <= 0 && !allowOff;
 }
 
 async function loadLocal(dir, refresh) {
@@ -1106,6 +1376,7 @@ function rmCheck() { $("f-rm-go").disabled = F.purge && $("f-rm-name").value.tri
 
 $("f-back").onclick = () => {
   if (F.view === "excl" && F.dir) loadLocal(F.dir.split("/").slice(0, -1).join("/"));
+  else if (F.view === "rename") fShow("home");
   else if (F.view !== "home") { fShow("home"); if (F.changed) openFolder(F.name); }
   else closeSheet("sheet-folder");
 };
@@ -1168,6 +1439,460 @@ function drawCost(c) {
   if (r) r.onclick = async () => { try { await call("resumeBudget"); toast("Carrying on this month."); openCost(); } catch (e) { toast(e.message); } };
 }
 $("k-back").onclick = () => closeSheet("sheet-cost");
+
+// --- a folder: back up, rename, moved, how long deleted files are kept ------------------
+
+$("f-backup").onclick = () => { send("backup", F.name); closeSheet("sheet-folder"); };
+$("f-rename").onclick = () => {
+  $("f-rn-name").value = F.name; showErr("f-rn-err", "");
+  fShow("rename"); $("f-rn-name").focus(); $("f-rn-name").select();
+};
+$("f-rn-go").onclick = () => working($("f-rn-go"), "Renaming…", async () => {
+  const to = $("f-rn-name").value.trim();
+  showErr("f-rn-err", "");
+  if (!to) { showErr("f-rn-err", "Give it a name."); return; }
+  try { await call("folderRename", { name: F.name, to }); toast("Renamed to " + to + "."); openFolder(to); }
+  catch (e) { showErr("f-rn-err", e.message); }
+});
+$("f-rn-name").addEventListener("keydown", (e) => { if (e.key === "Enter" && !$("f-rn-go").disabled) $("f-rn-go").click(); });
+async function relinkFolder() {
+  showErr("f-err", "");
+  try {
+    const p = await call("pickFolder", { title: "Where is " + F.name + " now?", button: "It is here" });
+    if (!p) return;
+    await call("folderRelink", { name: F.name, path: p });
+    toast(F.name + " now points at " + p + ". Nothing is uploaded again.");
+    openFolder(F.name);
+  } catch (e) { showErr("f-err", e.message); }
+}
+$("f-find").onclick = relinkFolder;
+$("f-move").onclick = relinkFolder;
+$("f-keep").onchange = async () => {
+  const days = +$("f-keep").value;
+  showErr("f-err", "");
+  try {
+    await call("folderRetention", { name: F.name, days });
+    F.info.retention = days;
+    toast("Deleted files from " + F.name + " are kept for " + $("f-keep").selectedOptions[0].textContent.toLowerCase() + ".");
+  } catch (e) { showErr("f-err", e.message); fillKeep($("f-keep"), F.info.retention, false); }
+};
+
+// --- back up a folder ------------------------------------------------------------------
+
+const A = { path: "", excludes: [], dir: "", entries: [], view: "form", check: null };
+
+async function openAdd() {
+  closeSheet("sheet");
+  let p;
+  try { p = await call("pickFolder", { title: "Choose a folder to back up", button: "Back up this folder" }); }
+  catch (e) { toast(e.message); return; }
+  if (!p) return;
+  try { A.check = await call("addCheck", { path: p }); } catch (e) { toast(e.message); return; }
+  A.path = A.check.path; A.excludes = []; A.dir = ""; A.entries = [];
+  $("a-path").textContent = A.path;
+  $("a-name").value = A.check.name;
+  showErr("a-name-err", ""); showErr("a-err", "");
+  $("a-overlap").hidden = !A.check.overlaps;
+  $("a-overlap").textContent = A.check.overlaps ? "This overlaps " + A.check.overlaps + ", which is already backed up. Files in both are stored twice, and cost twice." : "";
+  fillKeep($("a-keep"), 30, true);
+  $("a-sched-row").hidden = A.check.scheduled || !A.check.canSchedule;
+  $("a-sched").setAttribute("aria-checked", "true");
+  aExclSub();
+  aShow("form");
+  openSheet("sheet-add");
+}
+function aShow(v) {
+  A.view = v;
+  document.querySelectorAll("#sheet-add [data-apane]").forEach((p) => { p.hidden = p.dataset.apane !== v; });
+  $("a-title").textContent = v === "excl" ? "What is backed up" : "Back up a folder";
+  $("a-go").querySelector("span").textContent = v === "excl" ? "Done" : "Back up this folder";
+  $("a-main").scrollTop = 0;
+}
+function aExclSub() {
+  const n = A.excludes.length;
+  $("a-excl-sub").textContent = n ? n + (n === 1 ? " item left out." : " items left out.") : "Everything in it.";
+}
+async function aLoad(dir, refresh) {
+  A.dir = dir;
+  const pane = document.querySelector('[data-apane="excl"]');
+  if (!A.entries.length || refresh) pane.innerHTML = '<div class="note">Looking through the folder…</div>';
+  try {
+    const t = await call("folderList", { path: A.path, excludes: A.excludes, dir, refresh: !!refresh });
+    A.entries = t.entries; aDraw();
+  } catch (e) { pane.innerHTML = '<div class="empty"><b>Could not read this folder</b>' + esc(e.message) + "</div>"; }
+}
+function aDraw() {
+  const pane = document.querySelector('[data-apane="excl"]');
+  const rootName = A.path.split(/[\\/]/).filter(Boolean).pop() || A.path;
+  const crumbs = ['<button data-dir="">' + esc(rootName) + "</button>"];
+  const parts = A.dir ? A.dir.split("/") : [];
+  parts.forEach((p, i) => crumbs.push('<span aria-hidden="true">›</span><button data-dir="' + esc(parts.slice(0, i + 1).join("/")) + '">' + esc(p) + "</button>"));
+  let html = '<div class="crumbs">' + crumbs.join("") + '</div><div class="tip">Switch a file or folder off to leave it out of your backups.</div>';
+  if (!A.entries.length) html += '<div class="note">This folder is empty.</div>';
+  A.entries.forEach((e, i) => {
+    const st = e.state === "on" ? "true" : e.state === "off" ? "false" : "mixed";
+    html += '<div class="erow' + (e.state === "off" ? " off" : "") + '">' +
+      '<button class="go" data-open="' + i + '"' + (e.dir ? "" : " tabindex=-1") + ' title="' + esc(e.inherited ? "Left out with " + e.inherited : e.name) + '">' + (e.dir ? ICON_DIR : ICON_FILE) + "<b>" + esc(e.name) + "</b></button>" +
+      '<span class="sz">' + (e.dir ? e.files + (e.files === 1 ? " file · " : " files · ") : "") + fmtBytes(e.size) + "</span>" +
+      '<button class="sw" role="switch" aria-checked="' + st + '" aria-label="Back up ' + esc(e.name) + '"' + (e.inherited ? " disabled" : "") + ' data-sw="' + i + '"></button></div>';
+  });
+  pane.innerHTML = html;
+  pane.querySelectorAll("[data-dir]").forEach((b) => { b.onclick = () => aLoad(b.dataset.dir); });
+  pane.querySelectorAll("[data-open]").forEach((b) => { b.onclick = () => { const e = A.entries[+b.dataset.open]; if (e.dir) aLoad((A.dir ? A.dir + "/" : "") + e.name); }; });
+  pane.querySelectorAll("[data-sw]").forEach((b) => { b.onclick = () => aToggle(A.entries[+b.dataset.sw]); });
+}
+async function aToggle(e) {
+  const path = (A.dir ? A.dir + "/" : "") + e.name;
+  try {
+    A.excludes = await call("excludeToggle", { excludes: A.excludes, path, exclude: e.state === "on" });
+    aExclSub();
+    await aLoad(A.dir);
+  } catch (err) { toast(err.message); }
+}
+$("a-excl").onclick = () => { A.entries = []; aShow("excl"); aLoad("", true); };
+$("a-back").onclick = () => {
+  if (A.view === "excl" && A.dir) aLoad(A.dir.split("/").slice(0, -1).join("/"));
+  else if (A.view === "excl") aShow("form");
+  else closeSheet("sheet-add");
+};
+$("a-sched").onclick = () => { const b = $("a-sched"); b.setAttribute("aria-checked", b.getAttribute("aria-checked") !== "true"); };
+$("a-name").addEventListener("keydown", (e) => { if (e.key === "Enter" && !$("a-go").disabled) $("a-go").click(); });
+$("a-go").onclick = () => {
+  if (A.view === "excl") { aShow("form"); return; }
+  working($("a-go"), "Starting…", async () => {
+    showErr("a-err", ""); showErr("a-name-err", "");
+    const name = $("a-name").value.trim();
+    if (!name) { showErr("a-name-err", "Give it a name."); $("a-name").focus(); return; }
+    try {
+      const r = await call("addFolder", {
+        path: A.path, name, excludes: A.excludes, retention: +$("a-keep").value,
+        schedule: !$("a-sched-row").hidden && $("a-sched").getAttribute("aria-checked") === "true",
+      });
+      closeSheet("sheet-add"); setTab("folders");
+      toast(r.backingUp ? "Added " + name + ". Backing it up now." : "Added " + name + ". " + (r.why || "It is backed up at the next run."));
+    } catch (e) {
+      if (/name|already a folder/i.test(e.message)) { showErr("a-name-err", e.message); $("a-name").focus(); } else showErr("a-err", e.message);
+    }
+  });
+};
+
+// --- one run, in full ----------------------------------------------------------------------
+
+const RUN_TITLES = { ok: "Backed up", nochange: "Nothing had changed", failed: "Did not finish", cancelled: "Stopped before it finished" };
+function openRun(r) {
+  if (!r) return;
+  $("u-title").textContent = r.set;
+  const title = r.kind === "failed" && !r.error ? "Finished, with problems" : RUN_TITLES[r.kind] || "";
+  let html = '<div class="pane"><h2>' + esc(title) + '</h2><p class="facts">' + esc(r.day + " at " + r.time + (r.took ? " · took " + r.took : "")) + "</p>";
+  if (r.error) html += '<div class="pre">' + esc(r.error) + "</div>";
+  const rows = [];
+  const n = (k, one, many) => (k === 1 ? "1 " + one : k.toLocaleString() + " " + many);
+  if (r.uploaded) rows.push(["Uploaded", n(r.uploaded, "file", "files") + (r.bytes ? " · " + r.bytes : "")]);
+  if (r.moved) rows.push(["Moved or renamed", n(r.moved, "file", "files")]);
+  if (r.deleted) rows.push(["Moved to deleted files", n(r.deleted, "file", "files")]);
+  if (r.unchanged) rows.push(["Already backed up", n(r.unchanged, "file", "files")]);
+  if (r.failures) rows.push(["Could not be uploaded", n(r.failures, "file", "files")]);
+  if (r.problems) rows.push(["Could not be read", n(r.problems, "file", "files")]);
+  if (r.collisions) rows.push(["Names that clash", n(r.collisions, "file", "files")]);
+  if (rows.length) html += '<div class="group">' + rows.map(([k, v]) => '<div class="stat"><span>' + esc(k) + "</span><b>" + esc(v) + "</b></div>").join("") + "</div>";
+  if (r.examples && r.examples.length) {
+    html += '<div class="day" style="padding-left:2px">For example</div><ul class="examples">' + r.examples.map((x) => "<li>" + esc(x) + "</li>").join("") + "</ul>";
+  }
+  if (r.failures || r.problems) html += '<p class="tip" style="padding-left:2px">Files that could not be read are often open in another program. The next backup tries them again.</p>';
+  const folder = (S.folders || []).find((f) => f.name === r.set);
+  if (folder) {
+    const busy = !!(S.running || S.busy);
+    html += '<div class="stack">' + (folder.missing ? '<button class="primary" id="u-find"><span>Find the folder…</span></button>' : '<button class="primary" id="u-again"' + (busy ? " disabled" : "") + "><span>Back up " + esc(r.set) + " again</span></button>") +
+      '<button class="wide" id="u-folder"><span>Folder settings</span></button></div>';
+  }
+  html += "</div>";
+  $("u-main").innerHTML = html;
+  $("u-main").scrollTop = 0;
+  if ($("u-again")) $("u-again").onclick = () => { send("backup", r.set); closeSheet("sheet-run"); };
+  if ($("u-folder")) $("u-folder").onclick = () => openFolder(r.set);
+  if ($("u-find")) $("u-find").onclick = async () => { await openFolder(r.set); relinkFolder(); };
+  openSheet("sheet-run");
+}
+$("u-back").onclick = () => closeSheet("sheet-run");
+
+// --- account ----------------------------------------------------------------------------------
+
+const AC = { view: "home", info: null, armed: false };
+function acShow(v) {
+  AC.view = v;
+  document.querySelectorAll("#sheet-account [data-acpane]").forEach((p) => { p.hidden = p.dataset.acpane !== v; });
+  $("ac-title").textContent = v === "save" ? "Save storage keys" : "Account";
+  $("ac-main").scrollTop = 0;
+}
+async function openAccount() {
+  openSheet("sheet-account");
+  acShow("home");
+  const pane = document.querySelector('[data-acpane="home"]');
+  pane.innerHTML = '<div class="note">Checking your account…</div>';
+  try { AC.info = await call("account"); acDraw(); }
+  catch (e) { AC.info = { reachable: false, err: e.message }; acDraw(); }
+}
+function acDraw() {
+  const a = AC.info, pane = document.querySelector('[data-acpane="home"]');
+  AC.armed = false;
+  let html = "";
+  if (!a.signedIn && (!a.reachable || a.err)) {
+    html = '<div class="empty"><b>Could not reach your account</b>' + esc(a.err || "") + '<br><button class="mini" id="ac-retry">Try again</button></div>';
+  } else if (!a.signedIn) {
+    html = '<div class="pane"><h2>Not signed in</h2><p>An account lets your other computers pick up your storage keys, so you only type them once. It is optional: backing up and restoring work without one.</p>' +
+      '<button class="primary" id="ac-signin"><span>Sign in with your email</span></button></div>';
+  } else {
+    html = '<div class="facts" style="margin-bottom:12px">Signed in as <b style="color:var(--text);font-weight:500">' + esc(a.email) + "</b></div>";
+    if (a.err) html += '<div class="err-line">' + esc(a.err) + "</div>";
+    if (a.devices && a.devices.length) {
+      html += '<div class="day" style="padding-left:2px">Computers</div><div class="group">' + a.devices.map((d) =>
+        '<div class="dev"><div><b>' + esc(d.name) + "</b>" + (d.this ? '<span class="chip">This one</span>' : "") + "</div><span>" + esc(d.this ? "Now" : seen(d.lastSeen)) + "</span></div>").join("") + "</div>";
+    }
+    const can = S && S.configured;
+    html += '<div class="group"><button class="item link" id="ac-save"' + (can ? "" : " disabled") + '><div class="t"><b>' + (a.vaultStored ? "Replace saved keys…" : "Save storage keys for other computers…") + "</b><span>" +
+      (!can ? "Connect your storage first." : a.vaultStored ? "Your account already has keys saved. Replacing them changes what new computers pick up." : "Then a new computer only needs your email and a password.") + "</span></div></button></div>";
+    html += '<div class="group"><button class="item link danger" id="ac-out"><div class="t"><b id="ac-out-t">Sign out</b><span>Backups on this computer carry on as they are.</span></div></button></div>';
+  }
+  pane.innerHTML = html;
+  if ($("ac-retry")) $("ac-retry").onclick = openAccount;
+  if ($("ac-signin")) $("ac-signin").onclick = () => openConnect("signin-email", () => openAccount());
+  if ($("ac-save")) $("ac-save").onclick = () => {
+    $("ac-pass").value = ""; $("ac-pass2").value = ""; showErr("ac-save-err", "");
+    $("ac-save-go").querySelector("span").textContent = a.vaultStored ? "Replace saved keys" : "Save keys";
+    acShow("save"); $("ac-pass").focus();
+  };
+  if ($("ac-out")) $("ac-out").onclick = async () => {
+    if (!AC.armed) {
+      AC.armed = true; $("ac-out-t").textContent = "Press again to sign out";
+      setTimeout(() => { if (AC.armed && $("ac-out-t")) { AC.armed = false; $("ac-out-t").textContent = "Sign out"; } }, 4000);
+      return;
+    }
+    AC.armed = false;
+    try { await call("signOut"); toast("Signed out."); openAccount(); } catch (e) { toast(e.message); }
+  };
+}
+function seen(iso) {
+  const d = new Date(iso);
+  if (isNaN(d) || d.getFullYear() < 2000) return "";
+  const n = dayName(iso);
+  return n === "Today" || n === "Yesterday" ? n : "Seen " + n;
+}
+$("ac-back").onclick = () => { if (AC.view !== "home") acShow("home"); else closeSheet("sheet-account"); };
+$("ac-save-go").onclick = () => working($("ac-save-go"), "Saving…", async () => {
+  showErr("ac-save-err", "");
+  const p = $("ac-pass").value;
+  if (p.length < 8) { showErr("ac-save-err", "Use at least 8 characters."); return; }
+  if (p !== $("ac-pass2").value) { showErr("ac-save-err", "Those two are not the same."); return; }
+  try {
+    await call("storeVault", { password: p });
+    toast("Saved. On your next computer, sign in with " + AC.info.email + " and this password.");
+    openAccount();
+  } catch (e) { showErr("ac-save-err", e.message); }
+});
+["ac-pass", "ac-pass2"].forEach((id) => $(id).addEventListener("keydown", (e) => { if (e.key === "Enter" && !$("ac-save-go").disabled) $("ac-save-go").click(); }));
+$("b-account").onclick = openAccount;
+
+// --- second copy (mirror) ------------------------------------------------------------------
+
+const M = { view: "home", info: null, poll: 0, armed: "" };
+const MTITLES = { home: "Second copy", drime: "Drime", r2: "Cloudflare R2", run: "Copying" };
+function mShow(v) {
+  M.view = v;
+  document.querySelectorAll("#sheet-mirror [data-mpane]").forEach((p) => { p.hidden = p.dataset.mpane !== v; });
+  $("m-title").textContent = MTITLES[v];
+  $("m-main").scrollTop = 0;
+}
+async function openMirror() {
+  clearInterval(M.poll);
+  openSheet("sheet-mirror");
+  mShow("home");
+  const pane = document.querySelector('[data-mpane="home"]');
+  pane.innerHTML = '<div class="note">One moment…</div>';
+  try {
+    M.info = await call("mirrorInfo");
+    if (!M.info.job.idle) { mShow("run"); watchMirror(); return; }
+    mDraw();
+  } catch (e) { pane.innerHTML = '<div class="empty"><b>Could not read it</b>' + esc(e.message) + "</div>"; }
+}
+function mDraw() {
+  const m = M.info, pane = document.querySelector('[data-mpane="home"]');
+  M.armed = "";
+  let html = "";
+  if (!m.set) {
+    html = '<p class="facts" style="margin-bottom:12px">A second copy of your backups, with another company. If one of them ever loses your files, or your account, the other still has them. Your backups go to ' + esc(m.main) + ".</p>";
+    const opt = (p, name, sub) => '<button class="item link" data-mgo="' + p + '"><div class="t"><b>' + name + (m.suggest === p ? '<span class="chip">Another company</span>' : "") + "</b><span>" + sub + "</span></div></button>";
+    const drime = opt("drime", "Drime", "You paste one access token.");
+    const r2 = opt("r2", "Cloudflare R2", "A bucket of your own, with an account ID and keys.");
+    html += '<div class="group">' + (m.suggest === "drime" ? drime + r2 : r2 + drime) + "</div>";
+  } else {
+    html = '<p class="facts" style="margin-bottom:12px">Your backups go to ' + esc(m.main) + ". A second copy goes to " + esc(m.dest) + ".</p>";
+    html += '<div class="group"><div class="item"><div class="t"><b>Copy after every backup</b><span>' + esc(m.last ? "Last copied " + dayName(m.last).toLowerCase() + " at " + new Date(m.last).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) + "." : "Not copied yet.") + "</span></div>" +
+      '<button class="toggle" id="m-auto" role="switch" aria-checked="' + m.auto + '" aria-label="Copy after every backup"></button></div></div>';
+    html += '<div class="group"><button class="item link" id="m-now"' + (m.haveFolders ? "" : " disabled") + '><div class="t"><b>Copy now</b><span>Only what changed is copied.</span></div></button>' +
+      '<button class="item link" id="m-all"><div class="t"><b>Copy every computer’s backups</b><span>Including the ones your other computers made.</span></div></button></div>';
+    html += '<div class="group"><button class="item link" id="m-back-copy"><div class="t"><b id="m-back-t">Copy back from the second copy…</b><span>Brings back anything missing from your backups. Nothing is removed.</span></div></button>' +
+      '<button class="item link danger" id="m-forget"><div class="t"><b id="m-forget-t">Stop keeping a second copy…</b><span>What is already there stays where it is.</span></div></button></div>';
+  }
+  pane.innerHTML = html;
+  pane.querySelectorAll("[data-mgo]").forEach((b) => { b.onclick = () => { mShow(b.dataset.mgo); const f = document.querySelector('[data-mpane="' + b.dataset.mgo + '"] input'); if (f) f.focus(); }; });
+  if ($("m-auto")) $("m-auto").onclick = async () => {
+    const on = $("m-auto").getAttribute("aria-checked") !== "true";
+    try { await call("mirrorAuto", { on }); $("m-auto").setAttribute("aria-checked", on); M.info.auto = on; toast(on ? "Each backup is copied there once it finishes." : "Copying after each backup is off."); }
+    catch (e) { toast(e.message); }
+  };
+  if ($("m-now")) $("m-now").onclick = () => runMirror(false, false);
+  if ($("m-all")) $("m-all").onclick = () => runMirror(true, false);
+  if ($("m-back-copy")) $("m-back-copy").onclick = () => mTwice("back", "m-back-t", "Press again to copy back", () => runMirror(true, true));
+  if ($("m-forget")) $("m-forget").onclick = () => mTwice("forget", "m-forget-t", "Press again to stop keeping it", async () => {
+    try { await call("mirrorForget"); toast("No second copy is kept from now on."); openMirror(); } catch (e) { toast(e.message); }
+  });
+}
+function mTwice(key, labelId, ask, run) {
+  if (M.armed !== key) {
+    if (M.armed) mDraw();
+    M.armed = key; const was = $(labelId).textContent; $(labelId).textContent = ask;
+    setTimeout(() => { if (M.armed === key && $(labelId)) { M.armed = ""; $(labelId).textContent = was; } }, 4000);
+    return;
+  }
+  M.armed = ""; run();
+}
+async function runMirror(everything, reverse) {
+  try { await call("mirrorRun", { everything, reverse }); mShow("run"); mRunDraw({ percent: 0, reverse, to: "" }); watchMirror(); }
+  catch (e) { toast(e.message); }
+}
+function watchMirror() {
+  clearInterval(M.poll);
+  const tick = async () => {
+    try {
+      const st = await call("mirrorStatus");
+      if (st.idle) { clearInterval(M.poll); return; }
+      mRunDraw(st);
+      if (st.done) clearInterval(M.poll);
+    } catch (e) { /* again next time */ }
+  };
+  tick(); M.poll = setInterval(tick, 800);
+}
+function mRunDraw(st) {
+  const box = $("m-run");
+  if (st.done && !st.error) {
+    const num = (n) => (n || 0).toLocaleString();
+    let p = "Copied " + num(st.copied) + (st.copied === 1 ? " file" : " files") + (st.bytes ? " (" + esc(st.bytes) + ")" : "") +
+      (st.removed ? ", removed " + num(st.removed) : "") + ". " + num(st.unchanged) + " already there.";
+    if (st.held) p += "<br>" + st.held + " files were left on the second copy, because your backups looked empty. That is more often a wrong account than a real deletion.";
+    if (st.failed) p += "<br>" + st.failed + " could not be copied. The next copy tries them again.";
+    box.innerHTML = '<div class="bigicon ok">' + ICON_CHK + "</div><h2>" + (st.reverse ? "Copied back" : "Second copy is up to date") + "</h2><p>" + p + '</p><div class="btns"><button class="mini" id="m-done">Done</button></div>';
+    $("m-done").onclick = finishMirror;
+  } else if (st.done) {
+    box.innerHTML = '<div class="bigicon bad"><svg viewBox="0 0 24 24"><path d="M12 7.5v5m0 3.5h.01"/></svg></div><h2>Could not finish</h2><p>' + esc(st.error) + '</p><div class="btns"><button class="mini" id="m-done">Close</button></div>';
+    $("m-done").onclick = finishMirror;
+  } else {
+    box.innerHTML = "<h2>" + (st.reverse ? "Copying back from " : "Copying to ") + esc(st.to || "the second copy") + "</h2><p>" + (st.files ? esc(st.files) + " files" : "Comparing the two…") + '</p><div class="bar' + (st.percent > 0 ? "" : " indet") + '"><i style="width:' + Math.min(100, st.percent || 0) + '%"></i></div>' +
+      "<p>" + (st.bytesAll ? esc(st.bytesDone) + " of " + esc(st.bytesAll) : "&nbsp;") + '</p><div class="btns"><button class="mini" id="m-stop">Stop</button></div>';
+    $("m-stop").onclick = () => { call("mirrorCancel").catch(() => {}); };
+  }
+}
+async function finishMirror() { clearInterval(M.poll); try { await call("mirrorDismiss"); } catch (e) { /* nothing */ } openMirror(); }
+$("m-back").onclick = () => {
+  if (M.view === "drime" || M.view === "r2") mShow("home");
+  else { clearInterval(M.poll); closeSheet("sheet-mirror"); }
+};
+$("m-drime-open").onclick = () => send("open", "https://app.drime.cloud/account-settings");
+$("m-r2-token").onclick = async () => { try { send("open", await call("tokenPage", { accountId: $("m-acct").value.trim() })); } catch (e) { showErr("m-r2-err", e.message); } };
+async function setupMirror(btn, errId, args) {
+  await working(btn, "Checking…", async () => {
+    showErr(errId, "");
+    try {
+      await call("mirrorSetup", Object.assign({ auto: true }, args));
+      toast("Second copy set up. Each backup is copied there once it finishes.");
+      document.querySelectorAll("#sheet-mirror input").forEach((i) => { i.value = ""; });
+      openMirror();
+    } catch (e) { showErr(errId, e.message); }
+  });
+}
+$("m-drime-go").onclick = () => setupMirror($("m-drime-go"), "m-drime-err", { provider: "drime", token: $("m-token").value });
+$("m-r2-go").onclick = () => setupMirror($("m-r2-go"), "m-r2-err", { provider: "r2", accountId: $("m-acct").value, bucket: $("m-bucket").value, accessKeyId: $("m-key").value, secret: $("m-secret").value });
+document.querySelectorAll("#sheet-mirror input").forEach((i) => {
+  i.addEventListener("keydown", (e) => {
+    if (e.key !== "Enter") return;
+    const go = i.closest(".pane").querySelector(".primary");
+    if (go && !go.disabled) go.click();
+  });
+});
+$("b-mirror").onclick = openMirror;
+
+// --- Cloudflare sign-in, while connecting R2 -------------------------------------------------
+
+const CF = { accounts: [], aborted: false };
+function cfShow(v) { ["start", "wait", "pick"].forEach((k) => { $("c-cf-" + k).hidden = k !== v; }); }
+function cfAbort() { if (!$("c-cf-wait").hidden) { CF.aborted = true; call("cfCancel").catch(() => {}); cfShow("start"); } }
+$("c-cf-go").onclick = async () => {
+  showErr("c-cf-err", "");
+  CF.aborted = false;
+  cfShow("wait");
+  try {
+    const r = await call("cfSignIn");
+    CF.accounts = r.accounts;
+    $("c-cf-acct").innerHTML = CF.accounts.map((a) => '<option value="' + esc(a.id) + '">' + esc(a.name) + "</option>").join("");
+    $("c-cf-acct-f").hidden = CF.accounts.length < 2;
+    cfShow("pick");
+    await cfLoadBuckets();
+  } catch (e) { cfShow("start"); if (!CF.aborted) showErr("c-cf-err", e.message); }
+};
+$("c-cf-stop").onclick = cfAbort;
+async function cfLoadBuckets() {
+  const id = $("c-cf-acct").value, sel = $("c-cf-bucket");
+  $("c-acct").value = id;
+  sel.innerHTML = "<option>Looking…</option>";
+  try {
+    const names = await call("cfBuckets", { accountId: id });
+    sel.innerHTML = names.map((n) => '<option value="' + esc(n) + '">' + esc(n) + "</option>").join("") + '<option value="">Make a new bucket…</option>';
+    sel.value = names.length ? names[0] : "";
+    cfBucketChosen();
+  } catch (e) { showErr("c-cf-err", e.message); }
+}
+function cfBucketChosen() {
+  const v = $("c-cf-bucket").value;
+  $("c-cf-new").hidden = v !== "";
+  if (v) { $("c-bucket").value = v; $("c-key").focus(); } else { $("c-bucket").value = ""; $("c-cf-newname").focus(); }
+}
+$("c-cf-acct").onchange = cfLoadBuckets;
+$("c-cf-bucket").onchange = cfBucketChosen;
+$("c-cf-make").onclick = () => working($("c-cf-make"), "Making…", async () => {
+  showErr("c-cf-err", "");
+  try {
+    const name = await call("cfCreateBucket", { accountId: $("c-cf-acct").value, name: $("c-cf-newname").value });
+    const sel = $("c-cf-bucket");
+    const o = document.createElement("option"); o.value = name; o.textContent = name;
+    sel.insertBefore(o, sel.lastElementChild); sel.value = name;
+    cfBucketChosen();
+    toast("Made the bucket " + name + ".");
+  } catch (e) { showErr("c-cf-err", e.message); }
+});
+$("c-cf-newname").addEventListener("keydown", (e) => { if (e.key === "Enter") $("c-cf-make").click(); });
+
+// --- updates ------------------------------------------------------------------------------------
+
+let updBusy = false;
+$("b-update").onclick = async () => {
+  if (updBusy) return;
+  updBusy = true;
+  const t = $("update-t"), sub = $("update-sub");
+  try {
+    if (S && S.update) {
+      t.textContent = "Updating…"; sub.textContent = "Downloading and checking the new version.";
+      const r = await call("updateApply");
+      t.textContent = "Updated to " + r.version; sub.textContent = "r2backup restarts in a moment.";
+      return;
+    }
+    t.textContent = "Checking…";
+    const r = await call("updateCheck");
+    updChecked = true;
+    if (r.version) { if (S) S.update = r.version; t.textContent = "Update to " + r.version; sub.textContent = "A newer r2backup is ready. It restarts by itself."; $("upd-dot").hidden = false; }
+    else { t.textContent = "r2backup is up to date"; sub.textContent = "You have v" + r.current + "."; }
+  } catch (e) { t.textContent = S && S.update ? "Update to " + S.update : "Check for updates"; sub.textContent = e.message; }
+  finally { updBusy = false; }
+};
+$("b-set").insertAdjacentHTML("beforeend", '<span class="dot" id="upd-dot" hidden></span>');
 
 window.r2b = { render, toast, reply };
 send("ready");

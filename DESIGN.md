@@ -9,8 +9,8 @@ colors:
   surface-raised: "#232328"
   hairline: "#2c2c32"
   ink: "#ececf0"
-  ink-muted: "#8d8d97"
-  ink-faint: "#5c5c66"
+  ink-muted: "#a6a6b0"
+  ink-faint: "#84848e"
   healthy-green: "#34d399"
   pending-amber: "#fbbf24"
   alarm-red: "#f87171"
@@ -21,10 +21,11 @@ colors:
   light-surface-raised: "#f0f0f3"
   light-hairline: "#e3e3e8"
   light-ink: "#18181b"
-  light-ink-muted: "#6b6b75"
-  light-healthy-green: "#059669"
-  light-pending-amber: "#d97706"
-  light-alarm-red: "#dc2626"
+  light-ink-muted: "#4f4f58"
+  light-ink-faint: "#6b6b75"
+  light-healthy-green: "#047857"
+  light-pending-amber: "#b45309"
+  light-alarm-red: "#c42020"
 typography:
   title:
     fontFamily: "Segoe UI Variable Text, Segoe UI, system-ui, sans-serif"
@@ -123,12 +124,12 @@ A monochrome world: near-black (or near-white in light mode) neutrals, with ink 
 - **Surface** (#1b1b1f / #ffffff): the status block, settings groups, row hover.
 - **Raised Surface** (#232328 / #f0f0f3): small buttons, the toast, progress track.
 - **Hairline** (#2c2c32 / #e3e3e8): the window border, dividers, group borders.
-- **Ink** (#ececf0 / #18181b), **Muted Ink** (#8d8d97 / #6b6b75), **Faint Ink** (#5c5c66): primary text, secondary text, tertiary metadata.
+- **Ink** (#ececf0 / #18181b), **Muted Ink** (#a6a6b0 / #4f4f58), **Faint Ink** (#84848e / #6b6b75): primary text, secondary text, tertiary metadata. All three are at least 4.5:1 on Ground and Surface in both themes; Faint is the floor, never lighter.
 
 ### Status
-- **Healthy Green** (#34d399 / #059669): backed up, automatic backups on.
-- **Pending Amber** (#fbbf24 / #d97706): not yet run, waiting, setup unfinished, a stopped run.
-- **Alarm Red** (#f87171 / #dc2626): a folder needs a look, a failed run, Quit.
+- **Healthy Green** (#34d399 / #047857): backed up, automatic backups on.
+- **Pending Amber** (#fbbf24 / #b45309): not yet run, waiting, setup unfinished, a stopped run.
+- **Alarm Red** (#f87171 / #c42020): a folder needs a look, a failed run, Quit.
 
 ### Named Rules
 **The Earned Colour Rule.** Colour reports state; it is never ornament. The healthy panel shows almost no colour beyond one green mark; the primary button is plain ink.
@@ -149,7 +150,7 @@ A monochrome world: near-black (or near-white in light mode) neutrals, with ink 
 
 ## Layout
 
-A fixed 380 by 580 window, stacked top to bottom: header (the stack logo in text colour, name, computer name, three icon buttons), status block, tabs (Folders / Activity), a scrolling list (the empty and setup states lead with the wide logo), and a footer with the full-width primary action. Everything is done in the panel; nothing sends a person to a terminal. Settings, connecting storage, restoring files, deleted files, a folder's settings and usage and cost each slide in over the whole window as a sheet from the right, stacked in the order they were opened, and Escape or the back arrow closes the top one. Horizontal gutter 14px; list rows inset 8px. Rows are a three-column grid: status icon, name and detail, trailing metadata that swaps to row actions on hover or focus.
+A fixed 380 by 580 window, stacked top to bottom: header (the stack logo in text colour, name, computer name, three icon buttons), status block, tabs (Folders / Activity), a scrolling list (the empty and setup states lead with the wide logo), and a footer with the full-width primary action. Everything is done in the panel; nothing sends a person to a terminal, and no text names a command or a key (messages from the shared code go through `tray.Plain` first). Settings, connecting storage, the account, the second copy, adding a folder, restoring files, deleted files, a folder's settings, one backup run and usage and cost each slide in over the whole window as a sheet from the right. The sheet opened last is moved to the end of the document, so it is drawn on top and is the one Escape or the back arrow closes; opening a sheet puts focus on its back arrow, and a closed sheet is hidden from Tab. Horizontal gutter 14px; list rows inset 8px. Rows are a three-column grid: status icon, name and detail, trailing metadata that swaps to row actions on hover or focus.
 
 ## Elevation & Depth
 
@@ -169,6 +170,8 @@ Windows 11 roundness throughout: 10px window corners, 12px for the status block 
 
 ### Status block
 - Surface fill, 12px radius, hairline border, a 34px circular badge tinted with the state colour (14% fill), title and one-line detail, and a 4px progress bar while running (indeterminate slide until a percentage is known).
+- At most one Mini button on the right, when there is one thing worth doing about the status: Show me (the one folder that needs a look), Review (the spending limit paused backups), Carry on (an interrupted run), Stop (a backup this panel started).
+- An available update is a 7px ink dot on the Settings icon, and its label says so.
 
 ### Folder and activity rows
 - Transparent until hover, then Surface. Status icon in the state colour, name in Body 500, path or note in Label Muted (Alarm Red for a problem), trailing last-run in Faint; on hover or focus the trailing text swaps for Open and Back up.
@@ -182,8 +185,18 @@ Windows 11 roundness throughout: 10px window corners, 12px for the status block 
 - A button that waits on something says what it is doing ("Checking…") and puts itself back.
 - Destroying anything asks twice: a second press within a few seconds, or typing the folder's name for the permanent kind. Plain-ink switches mean "backed up" / "on"; a half-state shows as a half-slid switch.
 
+### Alerts and detail
+- **Alert** (a folder that is not where it was): Surface tinted 8% with Alarm Red, a red-tinted hairline, a bold title, one muted sentence that says nothing was lost, and the one Mini action that fixes it (Find it…).
+- **Banner** (a note, not a problem: an overlap when adding a folder, a near limit): Pending Amber at 14%, plain text.
+- **Run detail**: a title in words (Backed up, Did not finish), the day and time, the full error in a selectable Surface block, the counts as stat rows, up to three examples, and the actions that follow (Back up again, Find the folder, Folder settings).
+- **Lists of choices inside a form** (Cloudflare account and bucket): a Surface box above the fields it fills in, so the manual fields stay visible and editable.
+
 ### Toast
-- Raised Surface pill-ish bar above the footer, slides up 6px and fades in, gone after about three seconds.
+- Raised Surface pill-ish bar above the footer, slides up 6px and fades in, gone after about three seconds. It sits above open sheets, so a message is never hidden behind one.
+- A notice from the app (why a backup it started did not run) is shown once, however many refreshes still carry it.
+
+### Motion
+- Sheets slide 180ms; switches 150ms; the toast 200ms. With reduced motion on, nothing slides or spins: sheets appear, the indeterminate bar holds still.
 
 ## Do's and Don'ts
 
