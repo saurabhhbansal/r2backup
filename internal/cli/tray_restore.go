@@ -289,6 +289,7 @@ func (t *trayBackend) restoreCall(ctx context.Context, method string, raw []byte
 			Machine   string `json:"machine"`
 			To        string `json:"to"`
 			Overwrite bool   `json:"overwrite"`
+			Verify    bool   `json:"verify"`
 			Items     []struct {
 				Path string `json:"path"`
 				Dir  bool   `json:"dir"`
@@ -300,7 +301,7 @@ func (t *trayBackend) restoreCall(ctx context.Context, method string, raw []byte
 		if a.Set == "" {
 			return nil, true, errors.New("choose a folder to restore")
 		}
-		req := ui.RestoreRequest{Set: a.Set, Machine: a.Machine, To: a.To, Overwrite: a.Overwrite}
+		req := ui.RestoreRequest{Set: a.Set, Machine: a.Machine, To: a.To, Overwrite: a.Overwrite, Verify: a.Verify}
 		for _, it := range a.Items {
 			req.OnlyAny = append(req.OnlyAny, onlyPattern(it.Path, it.Dir))
 		}
