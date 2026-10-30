@@ -44,6 +44,14 @@ type Settings struct {
 	// Zero means never asked, which is what a fresh install looks like and
 	// which correctly triggers a check on the first command.
 	LastUpdateCheck int64 `json:"last_update_check,omitempty"`
+
+	// MirrorAuto copies each set to the mirror destination (see `r2b
+	// mirror`) after it is backed up. Off until someone turns it on.
+	MirrorAuto bool `json:"mirror_auto,omitempty"`
+	// MirrorLast is when each set was last mirrored in full, as Unix
+	// seconds, so an automatic mirror can skip a set that has not changed
+	// since -- and still run once a day to catch anything a failed run left.
+	MirrorLast map[string]int64 `json:"mirror_last,omitempty"`
 }
 
 // SettingsPath is where the settings file lives.

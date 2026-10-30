@@ -24,19 +24,51 @@ import (
 	"strings"
 )
 
+// Provider values. Empty is R2: every credentials file written before Drime
+// support existed has no provider field, and must keep meaning what it meant.
+const (
+	ProviderR2    = "r2"
+	ProviderDrime = "drime"
+)
+
 // Credentials are what is needed to reach a bucket.
 type Credentials struct {
+	// Provider says which kind of storage these are for: ProviderR2 (or
+	// empty) or ProviderDrime.
+	Provider string `json:"provider,omitempty"`
+
 	AccountID       string `json:"account_id"`
 	AccessKeyID     string `json:"access_key_id"`
 	SecretAccessKey string `json:"secret_access_key"`
 	Bucket          string `json:"bucket"`
-	// Endpoint overrides the derived R2 endpoint. Tests point it at a local
-	// server; users never set it.
+	// Endpoint overrides the derived R2 endpoint, or Drime's base URL. Tests
+	// point it at a local server; users never set it.
 	Endpoint string `json:"endpoint,omitempty"`
+
+	// DrimeToken is a Drime API token (Settings > Developer in Drime).
+	DrimeToken string `json:"drime_token,omitempty"`
+	// DrimeWorkspace picks a shared Drime workspace; empty is the personal
+	// drive.
+	DrimeWorkspace string `json:"drime_workspace,omitempty"`
+	// DrimeRoot is the folder in Drime that backups go under; empty is
+	// "r2backup".
+	DrimeRoot string `json:"drime_root,omitempty"`
 }
+
+// IsDrime reports whether these credentials are for Drime.
+func (c Credentials) IsDrime() bool { return c.Provider == ProviderDrime }
 
 // Valid reports whether these credentials are complete enough to try.
 func (c Credentials) Valid() error {
+	if c.IsDrime() {
+		if strings.TrimSpace(c.DrimeToken) == "" {
+			return errors.New("incomplete credentials: missing Drime API token")
+		}
+		return nil
+	}
+	if c.Provider != "" && c.Provider != ProviderR2 {
+		return fmt.Errorf("unknown storage provider %q", c.Provider)
+	}
 	var missing []string
 	if c.AccountID == "" && c.Endpoint == "" {
 		missing = append(missing, "account id")
@@ -60,6 +92,7 @@ func (c Credentials) Valid() error {
 // that must never reach a terminal, a log file or a bug report.
 func (c Credentials) Redacted() Credentials {
 	c.SecretAccessKey = mask(c.SecretAccessKey)
+	c.DrimeToken = mask(c.DrimeToken)
 	return c
 }
 

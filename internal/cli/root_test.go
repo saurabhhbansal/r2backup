@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/saurabhhbansal/r2backup/internal/config"
 	"github.com/saurabhhbansal/r2backup/internal/sets"
 )
 
@@ -47,6 +48,10 @@ func TestDecisionPrefersTheSafeAnswer(t *testing.T) {
 
 func TestUnimplementedCommandsFailLoudly(t *testing.T) {
 	// A backup tool that silently does nothing is worse than one that errors.
+	//
+	// The data directory is a fresh one: without it this ran a real backup
+	// of whatever sets the machine running the tests has configured.
+	t.Setenv(config.EnvDataDir, t.TempDir())
 	root := NewRoot(&Options{})
 	var out bytes.Buffer
 	root.SetOut(&out)

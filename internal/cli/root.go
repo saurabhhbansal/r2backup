@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/saurabhhbansal/r2backup/internal/config"
 	"github.com/saurabhhbansal/r2backup/internal/winconsole"
 )
 
@@ -100,6 +101,13 @@ func NewRoot(opts *Options) *cobra.Command {
 	root.PersistentFlags().Bool(winconsole.HiddenFlagName, false,
 		"hide this process's own console window (Windows scheduled runs)")
 	_ = root.PersistentFlags().MarkHidden(winconsole.HiddenFlagName)
+	// Also acted on in main (config.ApplyDataDirArg), for the same reason:
+	// it has to take effect before anything reads the data directory. The
+	// scheduled command line and the sign-in entry carry it when the data
+	// directory is not the default one.
+	root.PersistentFlags().String(config.DataDirFlagName, "",
+		"keep everything in this directory instead of the default (as "+config.EnvDataDir+" does)")
+	_ = root.PersistentFlags().MarkHidden(config.DataDirFlagName)
 
 	root.AddCommand(
 		newSetupCmd(opts),
@@ -115,6 +123,8 @@ func NewRoot(opts *Options) *cobra.Command {
 		newRemoveCmd(opts),
 		newTrashCmd(opts),
 		newBudgetCmd(opts),
+		newMirrorCmd(opts),
+		newTrayCmd(opts),
 		newUpdateCmd(opts),
 		newAccountCmd(opts),
 	)

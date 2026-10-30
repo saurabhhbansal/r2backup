@@ -28,6 +28,11 @@ func DataDir() (string, error) {
 	if override := os.Getenv(EnvDataDir); override != "" {
 		return override, nil
 	}
+	return defaultDataDir()
+}
+
+// defaultDataDir is DataDir with no override.
+func defaultDataDir() (string, error) {
 	switch runtime.GOOS {
 	case "windows":
 		if base := os.Getenv("LOCALAPPDATA"); base != "" {
@@ -66,7 +71,9 @@ func EnsureDataDir() (string, error) {
 	// 0700: the index records every path in every backed-up folder, which is
 	// not something other users on the machine need to read.
 	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return "", fmt.Errorf("create data directory %q: %w", dir, err)
+		// %s, not %q: %q prints every backslash of a Windows path twice,
+		// and the taskbar app shows this in a dialog.
+		return "", fmt.Errorf("create data directory %s: %w", dir, err)
 	}
 	return dir, nil
 }

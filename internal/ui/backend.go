@@ -47,6 +47,10 @@ type Overview struct {
 	Machine string
 	Bucket  string
 	Version string
+	// Provider is "drime" when backups go to Drime and "" or "r2" for
+	// Cloudflare R2. The interface uses it to leave out what only R2 has: a
+	// bucket name, an operations allowance, a bill.
+	Provider string
 
 	OpsUsed    int
 	OpsLimit   int
@@ -213,6 +217,8 @@ type RestoreRequest struct {
 	To string
 	// Only narrows a whole-set restore to matching paths.
 	Only string
+	// OnlyAny narrows it to any of several paths, each as for Only.
+	OnlyAny []string
 	// Deleted names one file to recover from trash instead of restoring
 	// the whole set.
 	Deleted string
@@ -237,6 +243,9 @@ type Keys struct {
 	AccessKeyID string
 	Secret      string
 	Bucket      string
+	// DrimeToken, when set, means back up to Drime instead, and the R2
+	// fields are ignored.
+	DrimeToken string
 }
 
 // Backend is everything the interface needs from the rest of the program.

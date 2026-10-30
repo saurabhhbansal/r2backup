@@ -492,6 +492,10 @@ func (m *Model) accountKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.askKeys()
 		return m, nil
 
+	case key.Matches(msg, keys.Drime):
+		m.askDrime()
+		return m, nil
+
 	case key.Matches(msg, keys.Unlock):
 		if !m.acct.SignedIn {
 			m.notice = "Sign in first, with i."

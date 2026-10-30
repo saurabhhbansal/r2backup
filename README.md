@@ -35,11 +35,15 @@ The command is `r2b`.
 
 ## Start
 
-You need a Cloudflare R2 bucket and an S3 API token for it — Cloudflare
-dashboard → R2 → Manage API tokens.
+You need somewhere to put the backups — either:
+
+- **[Drime](https://drime.cloud)** — one API token, from Drime → Settings →
+  Developer. Nothing else to set up.
+- **Cloudflare R2** — a bucket and an S3 API token for it, from the Cloudflare
+  dashboard → R2 → Manage API tokens.
 
 ```sh
-r2b setup              # sign in and store your keys
+r2b setup              # pick Drime or R2, sign in and store your keys
 r2b add ~/Documents    # choose what goes in, then it backs up and schedules itself
 r2b                    # open the dashboard
 ```
@@ -96,6 +100,7 @@ scheduler and your scripts use.
 | `r2b rename` · `r2b relink` | Rename a set · point one at a folder that moved |
 | `r2b remove <set>` | Stop backing a folder up. `--purge` deletes the copy too |
 | `r2b account` | The computers signed in. `devices`, `logout` |
+| `r2b mirror` | Copy backups to a second place, Drime ↔ R2. `setup`, `auto on`, `--reverse`, `--dry-run` |
 | `r2b update` | Update to the latest release |
 
 ## What it does
@@ -146,6 +151,90 @@ the prefix it was created with, for good, so any other computer still has to
 `restore` it under the name it had when `add` first ran. `rename` prints that
 original name on success whenever it differs from the new one, so you don't
 have to remember it.
+
+## In the Windows taskbar
+
+The installer adds **r2backup** to the Start menu and offers to start it.
+From a terminal,
+
+```powershell
+r2bw tray
+```
+
+does the same: it puts an icon in the notification area. Its colour says how the backups are
+doing — green when they are fine, blue while one runs, red when a folder
+needs a look — and a click opens a panel with:
+
+- how the last backups went, and a running one's progress and time left
+- each folder, with **Back up** and **Open**, and **Back up now** for all
+- the recent runs, what each uploaded, moved or put in trash
+- automatic backups on or off, and how often
+- **Start with Windows**, **Back up another folder…**, and **Open r2b** for
+  restore, trash and everything else
+
+It starts the same `r2b` commands the terminal does, so a backup started from
+the panel is exactly the one the scheduler runs. Windows only for now; it uses
+WebView2, which comes with Windows 11 (on Windows 10, install the
+[WebView2 Runtime](https://go.microsoft.com/fwlink/p/?LinkId=2124703) — if it
+is missing, the app says so instead of quietly not starting).
+
+## Drime
+
+Drime has no S3 interface, so r2backup speaks its own API. What you get is
+the same tool — scheduling, trash, resuming, restore anywhere — with the
+backups laid out as ordinary folders under **r2backup** in your Drime, which
+you can browse and download from the Drime web app without r2backup at all:
+
+```
+r2backup/machines/<computer>/<set>/current/…   the folder as it is now
+r2backup/machines/<computer>/<set>/trash/…     deleted files, kept 30 days
+```
+
+Drime keeps no modification dates or permissions on files, so each set has a
+small `.r2backup-manifest.json.gz` beside `current/` that holds them. Restores
+put dates back from it; a file downloaded straight from the web app gets
+Drime's upload date instead. Large files go up in 16 MB parts and pick up
+where they stopped, as on R2.
+
+Drime does not publish its API. r2backup uses the endpoints its web app uses,
+as documented by [rclone's Drime backend](https://rclone.org/drime/), so a
+change on Drime's side could break it until a release catches up.
+
+### Compared with rclone
+
+rclone can copy to Drime too. Timed side by side on the same data and
+connection ([details](docs/benchmark-rclone-drime.md)):
+
+| | r2backup | rclone |
+|---|---:|---:|
+| First upload, 1,000 small files | **116 s** | 759 s (397 s with `--transfers 16`) |
+| First upload, 2 × 128 MB | 45 s | 46 s (38 s with `--transfers 16`) |
+| Re-run, nothing changed | **1.1 s** | 20.5 s |
+| Re-run after a day's edits and a folder rename | **47 s** | 91 s |
+| Files edited without changing size, backed up | **5 of 5** | 0 of 5 |
+
+Large files are a tie — both are limited by Drime's bandwidth. The last row
+is the one to read twice: Drime keeps no file dates, so a default `rclone
+sync` decides by size alone and skips an edit that keeps the size the same.
+
+## Mirror: a backup of the backup
+
+`r2b mirror` copies what is stored in one place to a second — Drime to R2 or
+R2 to Drime — so your files are with two companies, not one.
+
+```sh
+r2b mirror setup       # choose the second place; offers to mirror after every backup
+r2b mirror             # copy now: only what changed since last time
+r2b mirror --dry-run   # say what would be copied, change nothing
+r2b mirror --reverse   # copy back from the mirror, e.g. after losing the main one
+```
+
+It copies store to store, not from your folder, so any computer set up for
+both can run it, and `--everything` covers every computer's backups. Files
+removed from the backup are removed from the mirror too — but if the source
+ever lists nothing at all, the mirror keeps its files: that is far more often
+a wrong account or an outage than a real deletion. With `r2b mirror auto on`,
+every backup (scheduled ones included) is mirrored once it finishes.
 
 ## Where things are kept
 

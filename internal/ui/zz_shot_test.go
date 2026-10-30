@@ -5,6 +5,9 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"github.com/charmbracelet/lipgloss"
+	"github.com/muesli/termenv"
 )
 
 // TestZZScreenshot writes the home screen, with colour, to a file so the
@@ -17,7 +20,60 @@ func TestZZScreenshot(t *testing.T) {
 	if os.Getenv("R2B_SHOT_VERSION") == "" {
 		t.Fatal("set R2B_SHOT_VERSION: the header shows it, and a picture with no version is what this was regenerated to fix")
 	}
-	b := &fakeBackend{
+	b := shotBackend()
+	m := sized(b, 150, 44)
+	if err := os.WriteFile(os.Getenv("R2B_SHOT"), []byte(m.View()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fmt.Println("wrote", os.Getenv("R2B_SHOT"))
+}
+
+// TestZZScreens writes one frame per mode, in colour, into the directory
+// R2B_SHOTS names: the way to look at the whole interface at once when its
+// design changes.
+func TestZZScreens(t *testing.T) {
+	dir := os.Getenv("R2B_SHOTS")
+	if dir == "" {
+		t.Skip("set R2B_SHOTS to a directory to write one frame per mode")
+	}
+	lipgloss.SetColorProfile(termenv.ANSI256)
+	lipgloss.SetHasDarkBackground(true)
+	for _, size := range [][2]int{{120, 36}, {80, 24}} {
+		for tb := tab(0); tb < numTabs; tb++ {
+			m := sized(shotBackend(), size[0], size[1])
+			m.tab = tb
+			m.layout()
+			name := fmt.Sprintf("%s/%dx%d-%d-%s.ans", dir, size[0], size[1], int(tb)+1, tb)
+			if err := os.WriteFile(name, []byte(m.View()), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	// The variants: a computer backing up to Drime, and one not set up.
+	extra := map[string]func(*fakeBackend){
+		"drime": func(b *fakeBackend) { b.ov.Provider, b.ov.Bucket = "drime", "Drime · r2backup" },
+		"fresh": func(b *fakeBackend) { b.ov.Configured, b.ov.Bucket, b.sets = false, "", nil },
+	}
+	for label, change := range extra {
+		for _, tb := range []tab{tabFolders, tabCost, tabAccount} {
+			b := shotBackend()
+			change(b)
+			m := sized(b, 120, 36)
+			m.tab = tb
+			m.layout()
+			name := fmt.Sprintf("%s/zz-%s-%d-%s.ans", dir, label, int(tb)+1, tb)
+			if err := os.WriteFile(name, []byte(m.View()), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}
+
+func shotBackend() *fakeBackend {
+	if os.Getenv("R2B_SHOT_VERSION") == "" {
+		os.Setenv("R2B_SHOT_VERSION", "dev")
+	}
+	return &fakeBackend{
 		sets: []SetView{
 			{Name: "Documents", Root: "/home/sam/Documents", Prefix: "machines/studio/Documents",
 				State: "ok", HasRun: true, LastRun: time.Now().Add(-22 * time.Minute),
@@ -45,9 +101,4 @@ func TestZZScreenshot(t *testing.T) {
 			Interval:           30 * time.Minute,
 			SchedulerAvailable: true},
 	}
-	m := sized(b, 150, 44)
-	if err := os.WriteFile(os.Getenv("R2B_SHOT"), []byte(m.View()), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	fmt.Println("wrote", os.Getenv("R2B_SHOT"))
 }

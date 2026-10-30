@@ -175,6 +175,7 @@ func newBackupCmd(opts *Options) *cobra.Command {
 				return err
 			}
 			var failed int
+			done := map[string]*backup.Report{}
 			for _, s := range list {
 				rep, err := runOne(cmd.Context(), a, s, opts.Out, interactive())
 				// A vanished folder is never a deletion. Before anything is
@@ -204,7 +205,12 @@ func newBackupCmd(opts *Options) *cobra.Command {
 					continue
 				}
 				summarise(opts.Out, rep)
+				done[s.Name] = rep
 			}
+			// Sets that backed up are mirrored, if mirroring is on, even
+			// when another set failed: one missing folder is no reason to
+			// leave every other set's second copy behind.
+			autoMirror(cmd.Context(), a, opts.Out, done)
 			if failed > 0 {
 				return fmt.Errorf("%d of %d set(s) did not finish", failed, len(list))
 			}
@@ -418,7 +424,7 @@ func printStatus(a *app, opts *Options) error {
 			progress.FormatCount(int64(index.FreeTierOpsPerMonth)),
 			resetAt.Format("2 Jan"))
 	}
-	if st, err := scheduleCurrent("r2backup"); err == nil && st.Registered {
+	if st, err := scheduleCurrent(scheduleName()); err == nil && st.Registered {
 		if st.Interval > 0 {
 			fmt.Fprintf(opts.Out, "Scheduled: every %s\n", progress.FormatInterval(st.Interval))
 		} else {
@@ -599,10 +605,10 @@ func installSchedule(opts *Options, every int) error {
 	}
 	binary, windowless := scheduledBinary(runtime.GOOS, self, fileExists)
 	if err := scheduleInstall(schedule.Entry{
-		Name:       "r2backup",
+		Name:       scheduleName(),
 		Interval:   time.Duration(every) * time.Minute,
 		BinaryPath: binary,
-		Args:       scheduledRunArgs(runtime.GOOS),
+		Args:       scheduledRunArgs(runtime.GOOS, config.DataDirArgs()),
 	}); err != nil {
 		return err
 	}
@@ -622,7 +628,7 @@ func installSchedule(opts *Options, every int) error {
 	// used instead, and the difference matters: one runs whether or not you
 	// are signed in, the other does not. Read it back rather than claiming
 	// whichever was asked for first.
-	if st, err := scheduleCurrent("r2backup"); err == nil && st.Registered && !st.RunsWhenSignedOut && runtime.GOOS == "windows" {
+	if st, err := scheduleCurrent(scheduleName()); err == nil && st.Registered && !st.RunsWhenSignedOut && runtime.GOOS == "windows" {
 		fmt.Fprintln(opts.Out,
 			"Note: it runs while you are signed in. Windows would not grant the\n"+
 				"      permission needed to run it when you are signed out, which\n"+
@@ -669,7 +675,7 @@ func askYesNo(out io.Writer, in io.Reader, question string, def bool) bool {
 // schedule that already exists -- a second `add` should not silently
 // re-time the first one.
 func offerSchedule(opts *Options, every int) {
-	if st, err := scheduleCurrent("r2backup"); err == nil && st.Registered {
+	if st, err := scheduleCurrent(scheduleName()); err == nil && st.Registered {
 		if st.Interval > 0 {
 			fmt.Fprintf(opts.Out, "\nBackups already run every %s. This folder is included from now on.\n",
 				progress.FormatInterval(st.Interval))
@@ -1013,7 +1019,7 @@ func newRemoveCmd(opts *Options) *cobra.Command {
 			// A scheduled task that has nothing left to back up fails every
 			// time it fires, on a machine where nobody is watching it.
 			if len(a.sets.List()) == 0 {
-				if st, err := schedule.Current("r2backup"); err == nil && st.Registered {
+				if st, err := schedule.Current(scheduleName()); err == nil && st.Registered {
 					fmt.Fprintln(opts.Out, "\nNothing is being backed up now, and a scheduled run is still registered.")
 					fmt.Fprintln(opts.Out, "To unregister it: r2b schedule --remove")
 				}
@@ -1080,12 +1086,17 @@ func fileExists(path string) bool {
 // goos is a parameter rather than read from runtime so the Windows command
 // line can be asserted from any platform -- the CI leg that would have caught
 // the console window is a person looking at a desktop, and there isn't one.
-func scheduledRunArgs(goos string) []string {
+//
+// dataDir is config.DataDirArgs(): --data-dir for a directory other than the
+// default. The scheduler starts the run with none of the environment of the
+// shell that registered it, so without this a schedule set up with
+// R2BACKUP_DATA_DIR backs up the default directory's folders instead.
+func scheduledRunArgs(goos string, dataDir []string) []string {
 	args := []string{"backup"}
 	if goos == "windows" {
 		args = append(args, winconsole.HiddenFlag)
 	}
-	return args
+	return append(args, dataDir...)
 }
 
 func newScheduleCmd(opts *Options) *cobra.Command {
@@ -1110,8 +1121,8 @@ func newScheduleCmd(opts *Options) *cobra.Command {
 				// something that was never there. Remove itself treats "no
 				// such task" as success, which is right for the operation
 				// and wrong for the sentence printed afterwards.
-				before, cerr := schedule.Current("r2backup")
-				if err := schedule.Remove("r2backup"); err != nil {
+				before, cerr := schedule.Current(scheduleName())
+				if err := schedule.Remove(scheduleName()); err != nil {
 					return err
 				}
 				switch {
@@ -1137,7 +1148,7 @@ func newScheduleCmd(opts *Options) *cobra.Command {
 				// A machine with no schedule is left with no schedule. An
 				// installer must not quietly start backing things up on a
 				// timer nobody asked for.
-				st, err := scheduleCurrent("r2backup")
+				st, err := scheduleCurrent(scheduleName())
 				if err != nil || !st.Registered {
 					fmt.Fprintln(opts.Out, "Nothing scheduled; nothing to repair.")
 					return nil

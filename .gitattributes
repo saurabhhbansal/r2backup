@@ -7,3 +7,6 @@
 # .gitattributes only governs this repository and says nothing about a file
 # that arrives some other way.
 internal/ui/banner*.txt text eol=lf
+
+# Windows resource objects (cmd/r2b/winres_gen.go): binary, never rewritten.
+*.syso binary

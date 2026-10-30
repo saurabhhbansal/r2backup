@@ -12,6 +12,9 @@ import (
 
 	"github.com/saurabhhbansal/r2backup/internal/account"
 	"github.com/saurabhhbansal/r2backup/internal/creds"
+	"github.com/saurabhhbansal/r2backup/internal/drime"
+	"github.com/saurabhhbansal/r2backup/internal/progress"
+	"github.com/saurabhhbansal/r2backup/internal/remote"
 )
 
 // passwordAttempts is how many times a wrong vault password is forgiven
@@ -42,6 +45,7 @@ const minPasswordLen = 8
 // nothing about it is needed to back up or restore a single byte.
 func newSetupCmd(opts *Options) *cobra.Command {
 	var keysOnly bool
+	var provider string
 	cmd := &cobra.Command{
 		Use:   "setup",
 		Short: "Get this computer ready to back up",
@@ -59,15 +63,22 @@ func newSetupCmd(opts *Options) *cobra.Command {
 				return err
 			}
 			defer a.close()
-			return runSetup(cmd.Context(), a, opts, keysOnly)
+			if provider != "" {
+				if _, ok := remote.ParseProvider(provider); !ok {
+					return fmt.Errorf("unknown provider %q: use drime or r2", provider)
+				}
+			}
+			return runSetup(cmd.Context(), a, opts, keysOnly, provider)
 		},
 	}
 	cmd.Flags().BoolVar(&keysOnly, "keys", false,
-		"enter R2 keys directly, even if a saved copy exists (use after rotating them)")
+		"enter storage keys directly, even if a saved copy exists (use after rotating them)")
+	cmd.Flags().StringVar(&provider, "provider", "",
+		"where backups go: drime or r2 (asked if not given)")
 	return cmd
 }
 
-func runSetup(ctx context.Context, a *app, opts *Options, keysOnly bool) error {
+func runSetup(ctx context.Context, a *app, opts *Options, keysOnly bool, provider string) error {
 	p := newPrompter(opts)
 	client := accountClient()
 
@@ -77,7 +88,12 @@ func runSetup(ctx context.Context, a *app, opts *Options, keysOnly bool) error {
 	}
 
 	// Second computer, the common case: everything needed is already stored.
-	if token != "" && !keysOnly {
+	//
+	// Not when a destination was named, though. The account holds one saved
+	// set of credentials, and someone saying --provider drime is choosing
+	// where this computer goes, not asking to unlock the R2 keys another
+	// computer saved -- for which they may not even remember the password.
+	if token != "" && !keysOnly && provider == "" {
 		done, err := pullCredentials(ctx, a, p, client, token)
 		if err != nil {
 			return friendlyAccountErr(err)
@@ -99,7 +115,7 @@ func runSetup(ctx context.Context, a *app, opts *Options, keysOnly bool) error {
 		}
 	}
 
-	c, err := askForKeys(ctx, p)
+	c, err := askForDestination(ctx, p, provider)
 	if err != nil {
 		return err
 	}
@@ -118,7 +134,7 @@ func runSetup(ctx context.Context, a *app, opts *Options, keysOnly bool) error {
 	}
 
 	if token != "" {
-		if err := pushCredentials(ctx, p, client, token, c); err != nil {
+		if err := offerToStore(ctx, p, client, token, c); err != nil {
 			return err
 		}
 		_ = client.RegisterDevice(ctx, token, machineName(), runtime.GOOS)
@@ -265,6 +281,32 @@ func printProtection(p *prompter, a *app) {
 	}
 }
 
+// offerToStore saves c to the account for other computers -- but asks first
+// when the account already holds credentials. There is room for one set, and
+// replacing what another computer saved (R2 keys, say, with this computer's
+// Drime token) would leave every computer set up after this one pointing
+// somewhere different from the ones before it.
+func offerToStore(ctx context.Context, p *prompter, client *account.Client, token string, c creds.Credentials) error {
+	_, err := client.GetVault(ctx, token)
+	switch {
+	case errors.Is(err, account.ErrNotFound):
+		return pushCredentials(ctx, p, client, token, c)
+	case err != nil:
+		return friendlyAccountErr(err)
+	}
+	fmt.Fprintln(p.out, "\nYour account already has credentials saved by another computer.")
+	fmt.Fprintf(p.out, "Replacing them with these (%s) changes what new computers pick up.\n", providerLabel(c))
+	replace, err := confirm(p, "Replace them? [y/N]", false)
+	if err != nil {
+		return err
+	}
+	if !replace {
+		fmt.Fprintln(p.out, "Kept what was saved. This computer uses the new ones.")
+		return nil
+	}
+	return pushCredentials(ctx, p, client, token, c)
+}
+
 // pushCredentials encrypts the credentials here and stores the result, so the
 // next computer needs only the email address.
 func pushCredentials(ctx context.Context, p *prompter, client *account.Client, token string, c creds.Credentials) error {
@@ -366,6 +408,45 @@ func askForKeys(ctx context.Context, p *prompter) (creds.Credentials, error) {
 	return c, nil
 }
 
+// askForDestination asks where backups should go, then for what that place
+// needs.
+func askForDestination(ctx context.Context, p *prompter, provider string) (creds.Credentials, error) {
+	if provider == "" {
+		fmt.Fprintln(p.out)
+		fmt.Fprintln(p.out, "Where should backups go?")
+		fmt.Fprintln(p.out, "  1. Drime          -- needs one API token")
+		fmt.Fprintln(p.out, "  2. Cloudflare R2  -- needs an account, a bucket and a key pair")
+		i, err := askIndex(p, "Choose 1 or 2", 2)
+		if err != nil {
+			return creds.Credentials{}, err
+		}
+		provider = []string{"drime", "r2"}[i]
+	}
+	if pv, _ := remote.ParseProvider(provider); pv == remote.ProviderDrime {
+		return askForDrime(p)
+	}
+	return askForKeys(ctx, p)
+}
+
+// askForDrime takes a Drime API token. That is the whole of Drime's setup:
+// no account id, no bucket, no key pair.
+func askForDrime(p *prompter) (creds.Credentials, error) {
+	fmt.Fprintln(p.out)
+	fmt.Fprintln(p.out, "Make a Drime API token: open Drime, then Settings > Developer > Create token.")
+	fmt.Fprintln(p.out, "  https://app.drime.cloud/account-settings")
+	fmt.Fprintln(p.out, "Backups go in a folder called \"r2backup\" in your Drime, which you can browse there.")
+	fmt.Fprintln(p.out)
+	token, err := p.secret("Drime API token")
+	if err != nil {
+		return creds.Credentials{}, err
+	}
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return creds.Credentials{}, errors.New("no token entered")
+	}
+	return creds.Credentials{Provider: creds.ProviderDrime, DrimeToken: token}, nil
+}
+
 // checkConnection proves the credentials work before anything is built on
 // them, so a typo is caught while it is still on screen.
 func checkConnection(ctx context.Context, a *app, p *prompter) error {
@@ -377,6 +458,11 @@ func checkConnection(ctx context.Context, a *app, p *prompter) error {
 		return fmt.Errorf("credentials saved, but the bucket could not be read: %w", err)
 	}
 	fmt.Fprintln(p.out, "Connection works.")
+	if d, ok := a.client.(*drime.Client); ok {
+		if u, err := d.SpaceUsage(ctx); err == nil && u.Available > 0 {
+			fmt.Fprintf(p.out, "Drime space: %s used of %s.\n", progress.FormatBytes(u.Used), progress.FormatBytes(u.Available))
+		}
+	}
 	return nil
 }
 

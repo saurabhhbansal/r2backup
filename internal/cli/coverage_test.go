@@ -43,8 +43,22 @@ var tuiSurface = map[string]surface{
 	"r2b --no":     {NA: "the same, taking the safe path."},
 	"r2b --hidden": {NA: "hides the console window of a Windows scheduled run. There is no window to hide when a person opened one."},
 
-	"r2b setup":        {Keys: []string{"i", "d", "k"}, Where: "Account: sign in, download saved keys, enter R2 keys"},
-	"r2b setup --keys": {Keys: []string{"k"}, Where: "Account: k enters R2 keys whether or not a saved copy exists"},
+	"r2b setup":            {Keys: []string{"i", "d", "k"}, Where: "Account: sign in, download saved keys, enter R2 keys"},
+	"r2b setup --keys":     {Keys: []string{"k"}, Where: "Account: k enters R2 keys whether or not a saved copy exists"},
+	"r2b setup --provider": {Keys: []string{"k", "D"}, Where: "Account: k enters R2 keys, D a Drime token instead"},
+
+	"r2b mirror": {NA: "copying between two stores is a terminal task for now; " +
+		"it runs on its own after each backup once `r2b mirror auto on` is set, scheduled runs included."},
+	"r2b mirror --dry-run":        {NA: "part of r2b mirror, which the interface does not yet offer."},
+	"r2b mirror --everything":     {NA: "part of r2b mirror, which the interface does not yet offer."},
+	"r2b mirror --keep":           {NA: "part of r2b mirror, which the interface does not yet offer."},
+	"r2b mirror --reverse":        {NA: "part of r2b mirror, which the interface does not yet offer."},
+	"r2b mirror setup":            {NA: "a one-time prompt-driven setup, like r2b setup's first run."},
+	"r2b mirror setup --provider": {NA: "part of r2b mirror setup."},
+	"r2b mirror auto":             {NA: "a one-word switch; set once and forgotten."},
+
+	"r2b tray": {NA: "the taskbar app is a second interface of its own, started from the Start menu " +
+		"or at sign-in; opening it from inside the terminal one would be a window opening a window."},
 
 	"r2b add":             {Keys: []string{"a"}, Where: "Folders: a browses to a folder, then the tree picker"},
 	"r2b add --all":       {Keys: []string{"enter"}, Where: "the picker opens with everything ticked; enter takes all of it"},

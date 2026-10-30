@@ -16,7 +16,7 @@ import (
 
 // chromeHeight is how many rows everything that is not the body takes.
 //
-// The +2 is the panel's own top and bottom border. Getting it wrong is not
+// The +2 is the panel's own top and bottom padding. Getting it wrong is not
 // cosmetic: the body is sized against this, the frame comes out a row taller
 // than the terminal, and the bottom line -- the keyboard help -- is clipped.
 func (m *Model) chromeHeight() int {
@@ -71,7 +71,7 @@ func styledTable(cols []table.Column, rows []table.Row, height, cursor int) tabl
 	st := table.DefaultStyles()
 	st.Header = st.Header.BorderStyle(lipgloss.NormalBorder()).
 		BorderForeground(subtle).BorderBottom(true).Bold(true)
-	st.Selected = st.Selected.Foreground(lipgloss.Color("0")).Background(accent)
+	st.Selected = st.Selected.Foreground(lipgloss.AdaptiveColor{Light: "255", Dark: "0"}).Background(accent)
 	t := table.New(
 		table.WithColumns(cols), table.WithRows(rows),
 		table.WithFocused(true), table.WithHeight(height), table.WithStyles(st),
@@ -114,48 +114,53 @@ func (m *Model) syncList() {
 	m.list.SetItems(items)
 }
 
-// header is the wordmark, the tab bar, and the one line saying where this is
-// pointed.
+// header is one line saying what this is and where it points, then the
+// modes.
+//
+// It used to open with the ASCII-art logo on every tab: up to nineteen rows,
+// on a 36-row terminal half the window, spent on the same picture before any
+// of the content. The art now greets a computer with nothing set up yet (see
+// welcome) and the working screens start with the work.
 func (m *Model) header() string {
-	var b strings.Builder
-	// Banner now has a rung for nearly any size, not just the nineteen-row
-	// original, so the cost that used to confine the art to the folder list
-	// is mostly gone -- every overlay-free screen picks whatever rung fits.
-	// An overlay is a different kind of screen: a form, a confirmation, a
-	// running backup. It is a focused, momentary interaction rather than a
-	// place to greet, so it keeps the plain word rather than competing with
-	// the art for attention.
-	art := bannerStyle.Render("r2backup")
-	if m.overlay == overlayNone {
-		art = Banner(m.width, m.height)
-	}
-	b.WriteString(m.fit(art))
-	b.WriteString("\n")
-	b.WriteString(m.fit(m.tabBar()))
-	b.WriteString("\n")
+	left := wordmarkStyle.Render("◆ r2backup")
+	right := dimStyle.Render(m.whereLine())
+	return m.fit(padBetween(" "+left, right+" ", m.width)) + "\n" +
+		m.fit(m.tabBar()) + "\n" + m.fit(m.tabRule())
+}
 
+// whereLine is "computer → destination · version", for the header's right
+// side.
+func (m *Model) whereLine() string {
 	where := m.ov.Machine
 	if m.ov.Bucket != "" {
-		where += dimStyle.Render(" → ") + m.ov.Bucket
+		where += " → " + m.ov.Bucket
 	}
 	if m.ov.Version != "" {
-		where += dimStyle.Render("   v" + m.ov.Version)
+		where += "  ·  v" + m.ov.Version
 	}
-	b.WriteString(m.fit(dimStyle.Render(where)))
-	return b.String()
+	return where
 }
+
+// isDrime reports whether backups go to Drime, where there is no bucket,
+// allowance or bill to show.
+func (m *Model) isDrime() bool { return m.ov.Provider == "drime" }
+
+// tabLabel is a mode's label as the bar prints it.
+func tabLabel(t tab) string { return fmt.Sprintf("%d %s", int(t)+1, t) }
 
 // tabBar draws the modes. They are numbered because a number is the fastest
 // way to reach one and the only discoverable way before you have found tab.
 func (m *Model) tabBar() string {
 	var parts []string
 	for t := tab(0); t < numTabs; t++ {
-		label := fmt.Sprintf("%d %s", int(t)+1, t)
+		name := tabStyle.UnsetPadding().Render(t.String())
 		style := tabStyle
 		if t == m.tab {
 			style = activeTabStyle
+			name = activeTabStyle.UnsetPadding().Render(t.String())
 		}
-		parts = append(parts, style.Render(label))
+		digit := tabDigitStyle.Render(fmt.Sprintf("%d", int(t)+1))
+		parts = append(parts, style.Render(digit+" "+name))
 		if t < numTabs-1 {
 			parts = append(parts, tabGapStyle.Render(" "))
 		}
@@ -163,6 +168,92 @@ func (m *Model) tabBar() string {
 	// JoinHorizontal, not concatenation: a styled cell can be more than one
 	// line and joining the strings would stack them.
 	return lipgloss.JoinHorizontal(lipgloss.Top, parts...)
+}
+
+// tabRule is the line under the tabs: thin across the window, heavy and in
+// the accent colour under the mode that is open. Measured from the same
+// labels the bar renders, so it stays under the right one.
+func (m *Model) tabRule() string {
+	start, width := 0, 0
+	for t := tab(0); t < numTabs; t++ {
+		w := lipgloss.Width(tabStyle.Render(tabLabel(t)))
+		if t == m.tab {
+			width = w
+			break
+		}
+		start += w + 1
+	}
+	rest := m.width - start - width
+	if rest < 0 {
+		rest = 0
+	}
+	return ruleStyle.Render(strings.Repeat("─", start)) +
+		activeRule.Render(strings.Repeat("━", width)) +
+		ruleStyle.Render(strings.Repeat("─", rest))
+}
+
+// statusLine is the bar at the bottom: one sentence on how the backups as a
+// whole are doing -- the question the window is usually opened to answer.
+// A desktop sync app keeps exactly this line in the same place for the
+// same reason.
+func (m *Model) statusLine() string {
+	switch {
+	case !m.ov.Configured:
+		return warnStyle.Render("○ Not set up") + dimStyle.Render(" · 5 Account to connect Drime or R2")
+	case m.running:
+		return m.spin.View() + " " + titleStyle.Render("Backing up "+m.runWhat) + dimStyle.Render(" · w to watch")
+	case m.ov.Running != "":
+		line := m.spin.View() + " " + titleStyle.Render("Backing up "+m.ov.Running)
+		if m.ov.RunPercent > 0 {
+			line += dimStyle.Render(fmt.Sprintf(" · %.0f%%", m.ov.RunPercent*100))
+		}
+		if m.ov.RunETA != "" {
+			line += dimStyle.Render(" · " + m.ov.RunETA)
+		}
+		return line
+	case m.ov.Interrupted != "":
+		return warnStyle.Render("⏸ "+m.ov.Interrupted+" was interrupted") + dimStyle.Render(" · resumes by itself")
+	case len(m.sets) == 0:
+		return dimStyle.Render("○ Nothing backed up yet")
+	}
+	var bad, never int
+	var last time.Time
+	for _, s := range m.sets {
+		switch s.State {
+		case "needs attention", "failed":
+			bad++
+		case "never run":
+			never++
+		}
+		if s.LastRun.After(last) {
+			last = s.LastRun
+		}
+	}
+	var line string
+	switch {
+	case bad == 1:
+		line = badStyle.Bold(true).Render("! 1 folder needs a look")
+	case bad > 1:
+		line = badStyle.Bold(true).Render(fmt.Sprintf("! %d folders need a look", bad))
+	case never == len(m.sets):
+		line = dimStyle.Render("○ Not backed up yet")
+	case never > 0:
+		line = warnStyle.Render(fmt.Sprintf("◌ %d of %d folders backed up", len(m.sets)-never, len(m.sets)))
+	default:
+		line = goodStyle.Render("✓ All folders backed up")
+	}
+	if !last.IsZero() {
+		line += dimStyle.Render(" · last " + humanAgo(time.Since(last)))
+	}
+	switch {
+	case m.ov.Scheduled && !m.ov.NextRun.IsZero():
+		line += dimStyle.Render(" · next " + m.ov.NextRun.Format("15:04"))
+	case m.ov.Scheduled:
+		line += dimStyle.Render(" · automatic")
+	case m.ov.SchedulerAvailable:
+		line += dimStyle.Render(" · manual")
+	}
+	return line
 }
 
 // footer is the keys, and whatever just happened. Nothing else.
@@ -180,13 +271,15 @@ func (m *Model) tabBar() string {
 // every line to the widest, so one line a column too long does not overflow
 // itself -- it widens the whole frame and staircases the border.
 func (m *Model) footer() string {
+	status := m.fit(ruleStyle.Render(strings.Repeat("─", max(m.width, 0)))) + "\n" +
+		m.fit(" "+m.statusLine())
 	switch {
 	case m.err != nil:
-		return m.fit(errorStyle.Render("! " + m.err.Error()))
+		return status + "\n" + m.fit(" "+errorStyle.Render("! "+m.err.Error()))
 	case m.notice != "":
-		return m.fit(statusStyle.Render(m.notice))
+		return status + "\n" + m.fit(" "+statusStyle.Render(m.notice))
 	default:
-		return m.fit(m.help.ShortHelpView(m.shortHelp()))
+		return status + "\n" + m.fit(" "+m.help.ShortHelpView(m.shortHelp()))
 	}
 }
 
@@ -246,7 +339,7 @@ func (m *Model) View() string {
 	body := m.bodyView()
 	frame := lipgloss.JoinVertical(lipgloss.Left,
 		m.header(),
-		panelStyle.Width(m.width-2).Render(body),
+		panelStyle.Width(m.width).Render(body),
 		m.footer(),
 	)
 	// A backstop, not a substitute for the per-line fits above.
@@ -293,36 +386,38 @@ func (m *Model) bodyView() string {
 
 func (m *Model) foldersView() string {
 	if !m.ov.Configured {
-		return "\n" + titleStyle.Render("  This computer is not set up yet.") + "\n\n" +
-			dimStyle.Render("  Go to ") + titleStyle.Render("4 Account") + dimStyle.Render(" and either sign in, or enter your R2 keys.") + "\n"
+		return m.welcome(titleStyle.Render("This computer is not set up yet.") + "\n\n" +
+			dimStyle.Render("Go to ") + titleStyle.Render("5 Account") +
+			dimStyle.Render(" and press ") + titleStyle.Render("D") + dimStyle.Render(" for a Drime token, ") +
+			titleStyle.Render("k") + dimStyle.Render(" for R2 keys, or ") + titleStyle.Render("i") +
+			dimStyle.Render(" to sign in."))
 	}
 	if len(m.sets) == 0 {
 		// c is offered here and not only in the footer. An empty list on a
 		// computer that has just signed in is exactly the moment someone
-		// needs to be told their data is in the bucket and reachable.
-		return "\n" + titleStyle.Render("  Nothing is being backed up yet.") + "\n\n" +
-			dimStyle.Render("  Press ") + titleStyle.Render("a") + dimStyle.Render(" to choose a folder, or ") +
-			titleStyle.Render("c") + dimStyle.Render(" to see what is already in your bucket.") + "\n"
+		// needs to be told their data is stored and reachable.
+		return m.welcome(titleStyle.Render("Nothing is being backed up yet.") + "\n\n" +
+			dimStyle.Render("Press ") + titleStyle.Render("a") + dimStyle.Render(" to choose a folder, or ") +
+			titleStyle.Render("c") + dimStyle.Render(" to see what is already stored."))
 	}
+	// A run in progress, here or started by the scheduler, is in the status
+	// bar at the bottom of every tab. An interrupted one also gets its detail
+	// here, because how far it got is what makes "interrupted" not alarming.
 	var head string
-	// A run started elsewhere -- by the scheduler, or another window -- is
-	// shown rather than hidden, because otherwise the numbers move on their
-	// own with no explanation.
-	switch {
-	case m.running:
-		// This window's own run, left with esc. Suppressing the banner here
-		// left a backup in flight with nothing on screen saying so and no way
-		// back to the progress screen.
-		head = m.spin.View() + " " + warnStyle.Render("backing up "+m.runWhat) + " " +
-			dimStyle.Render("· w to watch") + "\n"
-	case m.ov.Running != "":
-		head = m.spin.View() + " " + warnStyle.Render("running now: "+m.ov.Running) + " " +
-			dimStyle.Render(m.ov.RunETA) + "\n"
-	case m.ov.Interrupted != "":
+	if m.ov.Interrupted != "" && !m.running && m.ov.Running == "" {
 		head = warnStyle.Render("⏸ "+m.ov.Interrupted+" was interrupted") + " " +
 			dimStyle.Render(interruptedNote(m.ov)) + "\n"
 	}
 	return head + m.list.View()
+}
+
+// welcome centres the logo over a message, for the screens a person sees
+// before there is anything to show: the one place the art is worth its rows.
+func (m *Model) welcome(msg string) string {
+	body := m.height - m.chromeHeight()
+	art := Banner(m.width-4, body-lipgloss.Height(msg)-2)
+	block := lipgloss.JoinVertical(lipgloss.Center, art, "", msg)
+	return lipgloss.Place(m.width-4, max(body, lipgloss.Height(block)), lipgloss.Center, lipgloss.Center, block)
 }
 
 func (m *Model) showDetail(v SetView) {
@@ -624,10 +719,13 @@ func humanEvery(d time.Duration) string {
 func (m *Model) accountView() string {
 	var b strings.Builder
 	b.WriteString(titleStyle.Render("This computer") + "\n\n")
-	if m.ov.Configured {
-		b.WriteString("  " + goodStyle.Render("● Ready") + dimStyle.Render(" — bucket ") + m.ov.Bucket + "\n")
-	} else {
-		b.WriteString("  " + badStyle.Render("● No credentials yet") + dimStyle.Render(" — sign in, or press k to enter your R2 keys.") + "\n")
+	switch {
+	case m.ov.Configured && m.isDrime():
+		b.WriteString("  " + goodStyle.Render("● Ready") + dimStyle.Render(" — backing up to ") + m.ov.Bucket + "\n")
+	case m.ov.Configured:
+		b.WriteString("  " + goodStyle.Render("● Ready") + dimStyle.Render(" — Cloudflare R2, bucket ") + m.ov.Bucket + "\n")
+	default:
+		b.WriteString("  " + badStyle.Render("● No credentials yet") + dimStyle.Render(" — sign in, press k to enter R2 keys, or D for a Drime token.") + "\n")
 	}
 	if m.ov.Scheduled {
 		b.WriteString("  " + goodStyle.Render("● Automatic") + dimStyle.Render(" — every "+humanEvery(m.ov.Interval)))
@@ -641,7 +739,7 @@ func (m *Model) accountView() string {
 	// The allowance is worth showing even at nought used, because the number
 	// people want is not what they have spent -- it is how much room is left
 	// before spending anything at all.
-	if m.ov.OpsLimit > 0 {
+	if m.ov.OpsLimit > 0 && !m.isDrime() {
 		line := fmt.Sprintf("%s of %s operations this month",
 			progress.FormatCount(int64(m.ov.OpsUsed)), progress.FormatCount(int64(m.ov.OpsLimit)))
 		if !m.ov.OpsResetAt.IsZero() {
@@ -687,7 +785,7 @@ func (m *Model) accountView() string {
 		}
 	}
 
-	b.WriteString("\n" + dimStyle.Render("  i sign in · d download saved keys · p save keys for other computers\n  k enter R2 keys · o sign out · u check for an update"))
+	b.WriteString("\n" + dimStyle.Render("  i sign in · d download saved keys · p save keys for other computers\n  k enter R2 keys · D use Drime · o sign out · u check for an update"))
 	return b.String()
 }
 

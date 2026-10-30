@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/saurabhhbansal/r2backup/internal/config"
 	"github.com/saurabhhbansal/r2backup/internal/winconsole"
 )
 
@@ -17,7 +18,7 @@ import (
 // passed. Nothing in CI can see a desktop, so the command line is asserted
 // instead.
 func TestWindowsScheduledRunsAskToHideTheirConsole(t *testing.T) {
-	win := scheduledRunArgs("windows")
+	win := scheduledRunArgs("windows", nil)
 	if len(win) == 0 || win[0] != "backup" {
 		t.Fatalf("scheduledRunArgs(windows) = %q, want it to run backup", win)
 	}
@@ -36,7 +37,7 @@ func TestWindowsScheduledRunsAskToHideTheirConsole(t *testing.T) {
 // a user can read.
 func TestOtherPlatformsScheduleAPlainBackup(t *testing.T) {
 	for _, goos := range []string{"linux", "darwin"} {
-		got := scheduledRunArgs(goos)
+		got := scheduledRunArgs(goos, nil)
 		if !slices.Equal(got, []string{"backup"}) {
 			t.Errorf("scheduledRunArgs(%s) = %q, want [backup]", goos, got)
 		}
@@ -62,9 +63,42 @@ func TestTheHiddenFlagIsAcceptedNotJustWritten(t *testing.T) {
 	var out bytes.Buffer
 	root.SetOut(&out)
 	root.SetErr(&out)
-	root.SetArgs(scheduledRunArgs("windows"))
+	root.SetArgs(scheduledRunArgs("windows", nil))
 	err := root.Execute()
 	if err != nil && strings.Contains(err.Error(), "unknown flag") {
+		t.Fatalf("the scheduled command line is not parseable: %v", err)
+	}
+}
+
+// A schedule registered with R2BACKUP_DATA_DIR set ran against the default
+// data directory: the scheduler starts the run with none of the registering
+// shell's environment, and the command line did not say which directory.
+// It also took the default one's task name, replacing that schedule.
+func TestACustomDataDirIsScheduledUnderItsOwnNameAndCarried(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(config.EnvDataDir, dir)
+
+	for _, goos := range []string{"windows", "linux", "darwin"} {
+		got := scheduledRunArgs(goos, config.DataDirArgs())
+		i := slices.Index(got, "--"+config.DataDirFlagName)
+		if i < 0 || i+1 >= len(got) || got[i+1] != dir {
+			t.Errorf("scheduledRunArgs(%s) = %q: does not carry --data-dir %s", goos, got, dir)
+		}
+	}
+	if name := scheduleName(); name == "r2backup" || !strings.HasPrefix(name, "r2backup-") {
+		t.Errorf("scheduleName() = %q for a custom data directory; it would replace the default one's task", name)
+	}
+
+	// And the flag has to parse.
+	root := NewRoot(&Options{})
+	if f := root.PersistentFlags().Lookup(config.DataDirFlagName); f == nil || !f.Hidden {
+		t.Fatalf("--%s is not registered as a hidden root flag", config.DataDirFlagName)
+	}
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetArgs(scheduledRunArgs("windows", config.DataDirArgs()))
+	if err := root.Execute(); err != nil && strings.Contains(err.Error(), "unknown flag") {
 		t.Fatalf("the scheduled command line is not parseable: %v", err)
 	}
 }

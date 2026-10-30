@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -21,7 +22,7 @@ func TestLoadSettingsMissingFileIsTheDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadSettings on a fresh install: %v", err)
 	}
-	if s != (Settings{}) {
+	if !reflect.DeepEqual(s, Settings{}) {
 		t.Errorf("settings = %+v, want the zero value", s)
 	}
 	if s.BudgetUSD != 0 {

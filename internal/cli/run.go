@@ -104,7 +104,7 @@ func runOne(ctx context.Context, a *app, s sets.Set, out io.Writer, interactive 
 		Trash:       backup.NewTrash(a.client, s.RetentionDays),
 		Observer:    obs,
 		DetectMoves: true,
-		Budget:      configuredBudget(),
+		Budget:      a.budget(),
 	})
 	if interactive {
 		obs.clear()
@@ -234,6 +234,16 @@ func summarise(out io.Writer, r *backup.Report) {
 // always the first. config.LoadSettings already refuses to treat a corrupt
 // file as empty, so the case this swallows is narrow: a data directory that
 // cannot be resolved at all, where nothing else would work either.
+// budget is the limit a run on this machine should respect. The limit is a
+// guess at R2's bill, so a machine backing up to Drime -- a flat plan, with no
+// charge per request -- has none.
+func (a *app) budget() cost.Budget {
+	if a.isDrime() {
+		return cost.Budget{}
+	}
+	return configuredBudget()
+}
+
 func configuredBudget() cost.Budget {
 	s, err := config.LoadSettings()
 	if err != nil {
