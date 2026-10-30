@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
 
 	"github.com/saurabhhbansal/r2backup/internal/creds"
 	"github.com/saurabhhbansal/r2backup/internal/progress"
@@ -59,27 +58,6 @@ func (t *trayBackend) alsoFromSecond(ctx context.Context, where deleteWhere, del
 	return remote.FlushStore(ctx, s)
 }
 
-type storedBackupOut struct {
-	Machine string `json:"machine"`
-	Name    string `json:"name"`
-	Here    bool   `json:"here"` // a folder this computer backs up
-}
-
-// storedBackups lists every backup where backups go: this computer's and the
-// ones other computers made.
-func (t *trayBackend) storedBackups(ctx context.Context) ([]storedBackupOut, error) {
-	rows, err := t.d.RemoteSets(ctx)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]storedBackupOut, 0, len(rows))
-	for _, r := range rows {
-		out = append(out, storedBackupOut{Machine: r.Machine, Name: r.Name, Here: r.Here})
-	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].Here && !out[j].Here })
-	return out, nil
-}
-
 // deleteStoredBackup deletes one backup that no folder on this computer
 // uses: one another computer made, or one left behind when a folder was
 // removed and its backup kept.
@@ -122,13 +100,9 @@ func (t *trayBackend) deleteStoredBackup(ctx context.Context, machine, name stri
 	return "", errors.New("that backup is not there any more")
 }
 
-// deleteCall serves the panel's list of stored backups.
+// deleteCall serves deleting a backup from the panel's list of backups.
 func (t *trayBackend) deleteCall(ctx context.Context, method string, raw []byte) (out any, ok bool, err error) {
 	switch method {
-	case "storedBackups":
-		rows, err := t.storedBackups(ctx)
-		return rows, true, err
-
 	case "storedDelete":
 		var a struct {
 			Machine string `json:"machine"`

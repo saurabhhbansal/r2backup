@@ -286,6 +286,16 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .synced { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; padding: 0 2px 12px; }
 .synced .mini { margin-left: auto; flex: none; }
 .mini.danger-t { color: var(--bad); }
+.bk { display: flex; align-items: center; gap: 4px; padding-right: 6px; }
+.bk + .bk { border-top: 1px solid var(--line); }
+.bk-go { flex: 1; min-width: 0; display: flex; align-items: center; gap: 10px; padding: 10px 12px; text-align: left; border-radius: var(--radius); }
+.bk-go:hover { background: var(--card-2); }
+.bk-go svg { width: 18px; height: 18px; flex: none; stroke: var(--muted); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.bk-go .t { min-width: 0; }
+.bk-go .t b { display: block; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bk-go .t span { display: block; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bk-del:hover { color: var(--bad); }
+.icon-btn:disabled { opacity: .4; cursor: default; }
 .gate main { display: flex; flex-direction: column; justify-content: center; padding: 18px 20px; }
 .gate .logo { margin-bottom: 26px; }
 .gate-foot { display: flex; justify-content: center; padding: 8px 14px 12px; }
@@ -317,8 +327,8 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 <body>
 <header>
   <button class="who" id="b-who" title="Your account" aria-label="Your account"><span class="avatar" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.6"/><path d="M5 19.5c1.2-3.3 3.9-5 7-5s5.8 1.7 7 5"/></svg></span><span class="brand"><b id="who-email">r2backup</b><span id="dest">&nbsp;</span></span></button>
-  <button class="icon-btn" id="b-web" title="See your backups in the browser" aria-label="See your backups in the browser"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></button>
-  <button class="icon-btn" id="b-restore" title="Restore files" aria-label="Restore files"><svg viewBox="0 0 24 24"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1M3.5 4.5v4h4"/><path d="M12 7.5V12l3 2"/></svg></button>
+  <button class="icon-btn" id="b-restore" title="Backups and restore" aria-label="Backups and restore"><svg viewBox="0 0 24 24"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1M3.5 4.5v4h4"/><path d="M12 7.5V12l3 2"/></svg></button>
+  <button class="icon-btn" id="b-trash" title="Deleted files" aria-label="Deleted files"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M5.5 7l1 12a1.5 1.5 0 0 0 1.5 1.4h8a1.5 1.5 0 0 0 1.5-1.4l1-12M9 7V4.5h6V7"/></svg></button>
   <button class="icon-btn" id="b-set" title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
 </header>
 
@@ -374,11 +384,7 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
       </div>
     </div>
     <div class="group">
-      <button class="item link" id="b-trash2"><div class="t"><b>Deleted files…</b><span>Recover files that were removed from your folders.</span></div></button>
-      <button class="item link" id="b-restore2"><div class="t"><b>Restore files…</b><span>Bring back files from a backup.</span></div></button>
-      <button class="item link" id="b-stored"><div class="t"><b>Backups in your storage…</b><span>Every backup there, other computers’ too. Delete what you no longer need.</span></div></button>
       <button class="item link" id="b-add"><div class="t"><b>Back up another folder…</b><span>Choose a folder, and what in it to leave out.</span></div></button>
-      <button class="item link" id="b-cost"><div class="t"><b>Usage and cost</b><span>What your backups use, and a monthly limit.</span></div></button>
     </div>
     <div class="group">
       <button class="item link" id="b-update"><div class="t"><b id="update-t">Check for updates</b><span id="update-sub">&nbsp;</span></div></button>
@@ -634,14 +640,6 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   </main>
 </section>
 
-<section class="sheet" id="sheet-stored" aria-label="Backups in your storage">
-  <header>
-    <button class="icon-btn" id="st-back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button>
-    <b>Backups in your storage</b>
-  </header>
-  <main id="st-main"></main>
-</section>
-
 <section class="sheet gate" id="sheet-signin" aria-label="Sign in">
   <main>
     <div class="logo" aria-hidden="true"></div>
@@ -662,14 +660,6 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
     </div>
   </main>
   <div class="gate-foot"><button class="textbtn" id="g-quit">Quit r2backup</button></div>
-</section>
-
-<section class="sheet" id="sheet-cost" aria-label="Usage and cost">
-  <header>
-    <button class="icon-btn" id="k-back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button>
-    <b>Usage and cost</b>
-  </header>
-  <main id="k-main"></main>
 </section>
 
 <div class="modal" id="modal" hidden>
@@ -773,7 +763,7 @@ function render(state) {
   $("acct-row-t").textContent = state.signedIn ? state.email : "Account";
   $("acct-row-sub").textContent = state.configured ? "Backups go to " + state.destination + (state.second ? ". Second copy: " + state.second + "." : ".") : "Choose where your backups go.";
   if (!state.signedIn) showGate();
-  $("b-web").hidden = !state.configured;
+  $("b-restore").disabled = $("b-trash").disabled = !state.configured;
 
   const st = $("status");
   st.className = "status k-" + state.status.kind;
@@ -828,7 +818,7 @@ $("s-acts").addEventListener("click", (e) => {
   const a = S.status.action || "";
   switch (b.dataset.sact) {
     case "stop": b.disabled = true; call("backupStop").catch((err) => toast(err.message)); break;
-    case "cost": openCost(); break;
+    case "cost": openAccount("cost"); break;
     case "backup": send("backup", ""); break;
     case "folder": openFolder(a.slice(7)); break;
   }
@@ -840,10 +830,10 @@ function renderList() {
   const busy = !!S.running || !!S.busy;
   let html = "";
   if (!S.configured) {
-    html = '<div class="empty"><div class="logo" aria-hidden="true"></div><b>Connect your storage</b>Choose where your backups go, then pick the folders to protect.<br><button class="mini" data-act="connect">Connect storage</button></div>';
+    html = '<div class="empty"><b>Connect your storage</b>Choose where your backups go, then pick the folders to protect.<br><button class="mini" data-act="connect">Connect storage</button></div>';
   } else if (tab === "folders") {
     if (!S.folders || !S.folders.length) {
-      html = '<div class="empty"><div class="logo" aria-hidden="true"></div><b>No folders yet</b>Pick a folder and everything in it is backed up from then on.<br><button class="mini" data-act="add">Choose a folder…</button>' +
+      html = '<div class="empty"><b>No folders yet</b>Pick a folder and everything in it is backed up from then on.<br><button class="mini" data-act="add">Choose a folder…</button>' +
         (remoteBackups ? '<br><button class="textbtn" data-act="restore-other" style="margin-top:8px">' + esc(remoteBackups) + "</button>" : "") + "</div>";
     } else {
       for (const f of S.folders) {
@@ -884,8 +874,6 @@ function setTab(t) {
 
 $("t-folders").onclick = () => setTab("folders");
 $("t-recent").onclick = () => setTab("recent");
-$("b-web").onclick = () => send("browser");
-$("b-cost").onclick = () => openCost();
 $("b-set").onclick = () => openSheet("sheet");
 $("b-back").onclick = () => $("sheet").classList.remove("open");
 $("b-all").onclick = () => send("backup", "");
@@ -941,7 +929,7 @@ function openConnect(start, then) {
   showPane(start || "choose");
   openSheet("sheet-connect");
 }
-const actions = { connect: () => openAccount(), "restore-set": (name) => openRestore(name), add: () => openAdd(), "restore-other": () => openRestore() };
+const actions = { connect: () => openAccount(), cost: () => openAccount("cost"), "restore-set": (name) => openRestore(name), add: () => openAdd(), "restore-other": () => openRestore() };
 
 // Done: the folders list takes over, which is where a new person goes next.
 function connected(msg) {
@@ -1007,10 +995,11 @@ const fmtBytes = (n) => {
 };
 const ICON_DIR = '<svg viewBox="0 0 24 24"><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2.2h7a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/></svg>';
 const ICON_FILE = '<svg viewBox="0 0 24 24"><path d="M7 3.5h6.5L18 8v11.5a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1v-15a1 1 0 0 1 1-1zM13 3.5V8h5"/></svg>';
+const ICON_TRASH = '<svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M5.5 7l1 12a1.5 1.5 0 0 0 1.5 1.4h8a1.5 1.5 0 0 0 1.5-1.4l1-12M9 7V4.5h6V7"/></svg>';
 const ICON_CHK = '<svg viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>';
 
 const R = { set: null, dir: "", entries: [], sel: new Map(), to: "", mode: "", poll: 0, view: "pick" };
-const RTITLES = { pick: "Restore files", browse: "Choose what to restore", where: "Where to restore", run: "Restoring" };
+const RTITLES = { pick: "Backups", browse: "Choose what to restore", where: "Where to restore", run: "Restoring" };
 
 function rShow(name) {
   R.view = name;
@@ -1044,19 +1033,34 @@ async function loadSets(autoName) {
     if (!sets.length) { pane.innerHTML = '<div class="empty"><b>Nothing to restore yet</b>Back up a folder first. It will be listed here.</div>'; return; }
     if (autoName) { const m = sets.find((x) => x.here && x.name === autoName); if (m) { chooseSet(m); return; } }
     const groups = new Map();
-    for (const x of sets) { const g = x.here ? "This computer" : x.machine; if (!groups.has(g)) groups.set(g, []); groups.get(g).push(x); }
-    let html = '<p>Choose a backed-up folder.</p>';
+    for (const x of sets) { const g = x.here || (S && x.machine === S.machine) ? "This computer" : x.machine; if (!groups.has(g)) groups.set(g, []); groups.get(g).push(x); }
+    // Every backup in storage, this computer's first. Open one to restore
+    // from it; one no folder here uses any more can be deleted.
+    let html = "";
     let gi = 0;
     for (const [g, list] of groups) {
-      html += '<div class="day">' + esc(g) + "</div>";
-      for (const x of list) html += '<button class="pick" style="grid-template-columns:1fr" data-set="' + (gi++) + '"><span class="go">' + ICON_DIR + "<b>" + esc(x.name) + "</b></span></button>";
+      html += '<div class="sect">' + esc(g) + '</div><div class="group">';
+      for (const x of list) {
+        const i = gi++;
+        const sub = x.here ? x.root || "" : (S && x.machine === S.machine ? "No longer backed up" : "");
+        html += '<div class="bk"><button class="bk-go" data-set="' + i + '">' + ICON_DIR + '<span class="t"><b>' + esc(x.name) + "</b>" + (sub ? "<span>" + esc(sub) + "</span>" : "") + "</span></button>" +
+          (x.here ? "" : '<button class="icon-btn bk-del" data-del="' + i + '" title="Delete this backup" aria-label="Delete the backup ' + esc(x.name) + '">' + ICON_TRASH + "</button>") + "</div>";
+      }
+      html += "</div>";
     }
-    html += '<div class="links"><button class="textbtn" id="r-to-trash">Looking for a deleted file?</button></div>';
     pane.innerHTML = html;
-    $("r-to-trash").onclick = () => { closeSheet("sheet-restore"); openTrash(); };
     const flat = [...groups.values()].flat();
     pane.querySelectorAll("[data-set]").forEach((b) => { b.onclick = () => chooseSet(flat[+b.dataset.set]); });
+    pane.querySelectorAll("[data-del]").forEach((b) => { b.onclick = () => deleteBackup(flat[+b.dataset.del]); });
   } catch (e) { pane.innerHTML = '<div class="empty"><b>Could not read your backups</b>' + esc(e.message) + "</div>"; }
+}
+
+function deleteBackup(x) {
+  askDelete({
+    title: "Delete " + x.name + "?", go: "Delete backup",
+    text: "Every file in it and every earlier version. This cannot be undone.",
+    run: async (where) => { const r = await call("storedDelete", { machine: x.machine, name: x.name, where }); loadSets(); return r.message; },
+  });
 }
 
 function chooseSet(x) { R.set = x; R.sel = new Map(); R.dir = ""; rShow("browse"); loadDir(""); }
@@ -1194,7 +1198,6 @@ function drawRun(st) {
 async function finishRestore() { clearInterval(R.poll); try { await call("restoreDismiss"); } catch (e) { /* nothing to do */ } closeSheet("sheet-restore"); }
 
 $("b-restore").onclick = () => openRestore();
-$("b-restore2").onclick = () => openRestore();
 $("r-back").onclick = () => {
   if (R.view === "browse") { if (R.dir) loadDir(R.dir.split("/").slice(0, -1).join("/")); else rShow("pick"), loadSets(); }
   else if (R.view === "where") rShow("browse");
@@ -1276,7 +1279,7 @@ async function recover(to, btn, label) {
   });
 }
 
-$("b-trash2").onclick = () => openTrash();
+$("b-trash").onclick = () => openTrash();
 $("d-back").onclick = () => { if (D.view === "detail") drawTrash(); else closeSheet("sheet-trash"); };
 $("d-back-in").onclick = () => recover("", $("d-back-in"), "Putting it back…");
 $("d-save").onclick = async () => {
@@ -1442,14 +1445,16 @@ $("f-apply").onclick = () => { send("backup", F.name); F.changed = false; closeS
 // --- usage and cost --------------------------------------------------------------------
 
 const usd = (n) => (n > 0 && n < 0.01 ? "under $0.01" : "$" + (n || 0).toFixed(2));
-async function openCost() {
-  openSheet("sheet-cost");
-  const box = $("k-main");
-  box.innerHTML = '<div class="note">Adding it up…</div>';
-  try { drawCost(await call("cost")); } catch (e) { box.innerHTML = '<div class="empty"><b>Could not work it out</b>' + esc(e.message) + "</div>"; }
+// Usage and cost sit at the end of the account screen, filled in once it is drawn.
+async function loadCost(scroll) {
+  const box = $("ac-cost");
+  if (!box) return;
+  try { drawCost(await call("cost")); } catch (e) { box.innerHTML = '<div class="note">' + esc(e.message) + "</div>"; }
+  if (scroll && $("ac-cost")) $("ac-cost").scrollIntoView({ block: "start" });
 }
 function drawCost(c) {
-  const box = $("k-main");
+  const box = $("ac-cost");
+  if (!box) return;
   if (c.provider === "drime") {
     box.innerHTML = '<div class="group"><div class="stat"><span>Stored</span><b>' + esc(fmtBytes(c.storedBytes)) + '</b></div><div class="stat"><span>Files</span><b>' + (c.storedObjects || 0).toLocaleString() + '</b></div></div><p class="tip">Drime has no per-use charges here, so there is nothing to price or limit.</p>';
     return;
@@ -1471,12 +1476,11 @@ function drawCost(c) {
     const raw = $("k-limit").value.trim().replace(/^\$/, "");
     const n = raw === "" ? 0 : Number(raw);
     if (!isFinite(n) || n < 0) { toast("Enter an amount like 5 or 2.50."); return; }
-    try { await call("setBudget", { usd: n }); toast(n > 0 ? "Monthly limit set to " + usd(n) + "." : "No monthly limit."); openCost(); } catch (e) { toast(e.message); }
+    try { await call("setBudget", { usd: n }); toast(n > 0 ? "Monthly limit set to " + usd(n) + "." : "No monthly limit."); loadCost(); } catch (e) { toast(e.message); }
   };
   const r = $("k-resume");
-  if (r) r.onclick = async () => { try { await call("resumeBudget"); toast("Carrying on this month."); openCost(); } catch (e) { toast(e.message); } };
+  if (r) r.onclick = async () => { try { await call("resumeBudget"); toast("Carrying on this month."); loadCost(); } catch (e) { toast(e.message); } };
 }
-$("k-back").onclick = () => closeSheet("sheet-cost");
 
 // --- a folder: back up, rename, moved, how long deleted files are kept ------------------
 
@@ -1659,12 +1663,13 @@ const ICON_USER = '<svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.6"/><p
 const AC = { info: null, armed: false };
 const primaryName = () => (S && S.configured && S.destination) || "your storage";
 
-async function openAccount() {
+async function openAccount(focus) {
   if (!$("sheet-account").classList.contains("open")) openSheet("sheet-account");
   if (!AC.info) $("ac-main").innerHTML = '<div class="note">Checking your account…</div>';
   try { AC.info = await call("accountConfig"); }
   catch (e) { AC.info = Object.assign({}, AC.info || {}, { err: e.message }); }
   acDraw();
+  if (AC.info && AC.info.primary) loadCost(focus === "cost");
 }
 
 // One choice per place: which company, and whether its key is there.
@@ -1708,6 +1713,7 @@ function acDraw() {
     html += '<div class="sect">Computers</div><div class="group">' + a.devices.map((d) =>
       '<div class="dev"><div><b>' + esc(d.name) + "</b>" + (d.this ? '<span class="chip">This one</span>' : "") + "</div><span>" + esc(d.this ? "Now" : seen(d.lastSeen)) + "</span></div>").join("") + "</div>";
   }
+  if (p) html += '<div class="sect">Usage and cost</div><div id="ac-cost"><div class="note">Adding it up…</div></div>';
   m.innerHTML = html;
 
   m.querySelectorAll("[data-p]").forEach((b) => { b.onclick = () => pickPrimary(b.dataset.p); });
@@ -1880,42 +1886,6 @@ $("md-go").onclick = () => {
     finally { $("md-cancel").disabled = false; }
   });
 };
-
-// --- every backup in storage ------------------------------------------------------------------
-
-async function openStored() {
-  openSheet("sheet-stored");
-  const m = $("st-main");
-  m.innerHTML = '<div class="note">Looking in ' + esc(primaryName()) + "…</div>";
-  try { drawStored(await call("storedBackups")); }
-  catch (e) { m.innerHTML = '<div class="empty"><b>Could not look</b>' + esc(e.message) + "</div>"; }
-}
-function drawStored(rows) {
-  const m = $("st-main");
-  if (!rows.length) { m.innerHTML = '<div class="empty"><b>Nothing stored yet</b>A backup shows up here once a folder has been backed up.</div>'; return; }
-  let html = '<p class="facts" style="padding:0 2px 10px">Everything in ' + esc(primaryName()) + ". Delete a backup you no longer need, such as one from a computer you do not use any more. A folder this computer backs up is removed from its own settings.</p>";
-  const groups = new Map();
-  rows.forEach((r) => { if (!groups.has(r.machine)) groups.set(r.machine, []); groups.get(r.machine).push(r); });
-  for (const [machine, list] of groups) {
-    const me = S && machine === S.machine;
-    html += '<div class="sect">' + esc(machine) + (me ? " · this computer" : "") + '</div><div class="group">';
-    list.forEach((r) => {
-      html += '<div class="item"><div class="t"><b>' + esc(r.name) + "</b><span>" + (r.here ? "Backed up by this computer" : me ? "No longer backed up" : "From another computer") + "</span></div>" +
-        (r.here ? "" : '<button class="mini danger-t" data-m="' + esc(r.machine) + '" data-n="' + esc(r.name) + '">Delete…</button>') + "</div>";
-    });
-    html += "</div>";
-  }
-  m.innerHTML = html;
-  m.querySelectorAll("[data-n]").forEach((b) => {
-    b.onclick = () => askDelete({
-      title: "Delete the backup " + b.dataset.n + "?", go: "Delete backup",
-      text: "Made by " + b.dataset.m + ". Every file in it, and every earlier version, is deleted. Nothing can be recovered afterwards.",
-      run: async (where) => { const r = await call("storedDelete", { machine: b.dataset.m, name: b.dataset.n, where }); openStored(); return r.message; },
-    });
-  });
-}
-$("st-back").onclick = () => closeSheet("sheet-stored");
-$("b-stored").onclick = openStored;
 
 // --- second copy (mirror) ------------------------------------------------------------------
 
