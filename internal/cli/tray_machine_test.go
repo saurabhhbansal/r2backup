@@ -54,6 +54,32 @@ func TestRenamingThisComputerKeepsTheOldNameAsItsOwn(t *testing.T) {
 	}
 }
 
+// The OS can give a hostname longer than a typed name may be (CI's macOS
+// runners do). Renaming back to it must still work, while a typed name of
+// the same length is refused.
+func TestRenamingBackToALongHostnameIsAllowed(t *testing.T) {
+	long := strings.Repeat("h", maxMachineNameLen+10)
+	orig := osHostname
+	osHostname = func() (string, error) { return long, nil }
+	t.Cleanup(func() { osHostname = orig })
+
+	tb := trayForTest(t)
+	t.Setenv("R2BACKUP_MACHINE", "")
+
+	if _, err := call(t, tb, "renameMachine", map[string]string{"name": "Office PC"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := call(t, tb, "renameMachine", map[string]string{"name": long + "x"}); err == nil {
+		t.Fatal("a typed name over the limit was accepted")
+	}
+	if _, err := call(t, tb, "renameMachine", map[string]string{"name": long}); err != nil {
+		t.Fatalf("renaming back to the hostname was refused: %v", err)
+	}
+	if machineName() != long {
+		t.Fatalf("name is %q, want the hostname", machineName())
+	}
+}
+
 func TestRenameIsRefusedWhileTheNameIsSetByTheEnvironment(t *testing.T) {
 	tb := trayForTest(t) // sets R2BACKUP_MACHINE
 	if _, err := call(t, tb, "renameMachine", map[string]string{"name": "Other"}); err == nil {

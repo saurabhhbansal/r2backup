@@ -180,9 +180,12 @@ func machineName() string {
 	return hostName()
 }
 
+// osHostname is os.Hostname, swapped out by tests.
+var osHostname = os.Hostname
+
 // hostName is the name the operating system gives this computer.
 func hostName() string {
-	h, err := os.Hostname()
+	h, err := osHostname()
 	if err != nil || h == "" {
 		return "this-computer"
 	}

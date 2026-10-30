@@ -57,8 +57,13 @@ func isThisMachine(name string) bool {
 // would write over each other's backups.
 func (t *trayBackend) renameMachine(ctx context.Context, name string) error {
 	name = strings.TrimSpace(name)
-	if err := validMachineName(name); err != nil {
-		return err
+	// The hostname is already this computer's name by default, so going back
+	// to it is always allowed, even when the OS gives a name longer than a
+	// typed one may be (macOS hostnames can pass 63 characters).
+	if name != hostName() {
+		if err := validMachineName(name); err != nil {
+			return err
+		}
 	}
 	if os.Getenv("R2BACKUP_MACHINE") != "" {
 		return errors.New("this computer’s name is set by R2BACKUP_MACHINE")
