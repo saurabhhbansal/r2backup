@@ -4,6 +4,14 @@ compatibility_date = "2026-08-01"
 
 account_id = "cbfede9ea66a3477b3dab34db4b21ab8"
 
+# The app talks to the Worker on its own workers.dev address (see AccountAPI
+# in internal/cli/account.go), so it does not depend on any domain of ours.
+workers_dev = true
+# No per-version preview addresses: one public address for the account service.
+preview_urls = false
+
+# r2backup.flexpod.cc stays as well: copies of r2b from before the switch
+# still call it, and Cloudflare's OAuth consent screen links to it.
 # Custom Domains provision their own DNS record and certificate on the zone,
 # which is why the hostname is one level deep: Cloudflare's free wildcard
 # cert (*.flexpod.cc) does not cover a second level (r2backup.foo.flexpod.cc).
@@ -22,7 +30,10 @@ database_name = "r2backup-account"
 database_id = "d1499845-2268-4532-92ea-e6c71f832022"
 migrations_dir = "migrations"
 
-# JWT_SECRET and RESEND_API_KEY are deliberately absent from this file.
+# JWT_SECRET, RESEND_API_KEY and KEYS_SECRET are deliberately absent from
+# this file. KEYS_SECRET encrypts the storage keys an account keeps (see
+# migrations/0003_stored_keys.sql); changing it makes every stored set
+# unreadable, and people then enter their keys once more.
 # They are Worker Secrets, set with `wrangler secret put <NAME>` against the
 # deployed Worker, not [vars] -- [vars] land in wrangler.toml, which is
 # checked into git, and a JWT signing key or an email provider key committed

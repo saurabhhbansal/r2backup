@@ -5,4 +5,8 @@ export interface Env {
   DB: D1Database;
   JWT_SECRET: string;
   RESEND_API_KEY: string;
+  // Encrypts the storage keys an account keeps (see handlers/keys.ts).
+  // Changing it makes every stored set unreadable; people then enter their
+  // keys once more.
+  KEYS_SECRET: string;
 }

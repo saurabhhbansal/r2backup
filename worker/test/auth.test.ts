@@ -9,6 +9,7 @@ function makeContext(storage: MemoryStorage, mailer: FakeMailer, clock: { now: n
     storage,
     mailer,
     jwtSecret: "test-secret",
+    keysSecret: "",
     now: () => clock.now,
   };
 }

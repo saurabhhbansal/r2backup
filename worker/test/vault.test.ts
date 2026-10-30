@@ -7,7 +7,7 @@ import type { AppContext } from "../src/context";
 const SECRET = "vault-test-secret";
 
 function makeContext(storage: MemoryStorage, now: number): AppContext {
-  return { storage, mailer: new FakeMailer(), jwtSecret: SECRET, now: () => now };
+  return { storage, mailer: new FakeMailer(), jwtSecret: SECRET, keysSecret: "", now: () => now };
 }
 
 async function authedRequest(method: string, path: string, email: string, body?: unknown): Promise<Request> {

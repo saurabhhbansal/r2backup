@@ -23,7 +23,7 @@ describe("devices", () => {
     // used, so it could never have caught the Go side decoding this field
     // with time.UnixMilli (every device showing 1 Jan 1970) -- see H2.
     const nowSeconds = () => Math.floor(Date.now() / 1000);
-    const ctx: AppContext = { storage, mailer: new FakeMailer(), jwtSecret: SECRET, now: nowSeconds };
+    const ctx: AppContext = { storage, mailer: new FakeMailer(), jwtSecret: SECRET, keysSecret: "", now: nowSeconds };
 
     const postRes = await handlePostDevice(
       await authedRequest("POST", "carol@example.com", { device_name: "Carol's Laptop", os: "windows" }),
@@ -46,7 +46,7 @@ describe("devices", () => {
   it("re-registering the same device name updates it instead of duplicating", async () => {
     const storage = new MemoryStorage();
     let now = 1;
-    const ctx: AppContext = { storage, mailer: new FakeMailer(), jwtSecret: SECRET, now: () => now };
+    const ctx: AppContext = { storage, mailer: new FakeMailer(), jwtSecret: SECRET, keysSecret: "", now: () => now };
 
     await handlePostDevice(await authedRequest("POST", "dave@example.com", { device_name: "Desktop", os: "linux" }), ctx);
     now = 2;
@@ -59,7 +59,7 @@ describe("devices", () => {
 
   it("requires authentication", async () => {
     const storage = new MemoryStorage();
-    const ctx: AppContext = { storage, mailer: new FakeMailer(), jwtSecret: SECRET, now: () => 1 };
+    const ctx: AppContext = { storage, mailer: new FakeMailer(), jwtSecret: SECRET, keysSecret: "", now: () => 1 };
     const res = await handleGetDevices(new Request("https://r2backup.flexpod.cc/devices"), ctx);
     expect(res.status).toBe(401);
   });

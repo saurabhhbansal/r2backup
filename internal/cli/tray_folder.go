@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/saurabhhbansal/r2backup/internal/remote"
 	"github.com/saurabhhbansal/r2backup/internal/scan"
 	"github.com/saurabhhbansal/r2backup/internal/sets"
 	"github.com/saurabhhbansal/r2backup/internal/tray"
@@ -280,6 +281,7 @@ func (t *trayBackend) folderCall(ctx context.Context, method string, raw []byte)
 		var a struct {
 			Name  string `json:"name"`
 			Purge bool   `json:"purge"`
+			Where string `json:"where"` // with purge: "both" deletes the second copy's too
 		}
 		if err := decodeArgs(raw, &a); err != nil {
 			return nil, true, err
@@ -288,8 +290,19 @@ func (t *trayBackend) folderCall(ctx context.Context, method string, raw []byte)
 			return nil, true, fmt.Errorf("%s is running. Try again when it has finished", why)
 		}
 		_ = t.d.app.sets.Reload()
-		err := t.d.Remove(ctx, a.Name, a.Purge)
+		s, err := t.d.app.sets.Get(a.Name)
+		if err != nil {
+			return nil, true, err
+		}
+		scope := s.KeyScope()
+		err = t.d.Remove(ctx, a.Name, a.Purge)
 		t.invalidate()
+		if err == nil && a.Purge {
+			err = t.alsoFromSecond(ctx, deleteWhere(a.Where), func(st remote.Store) error {
+				_, err := st.DeletePrefix(ctx, scope)
+				return err
+			})
+		}
 		return nil, true, err
 
 	case "cost":

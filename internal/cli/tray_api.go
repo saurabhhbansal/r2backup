@@ -16,6 +16,21 @@ import (
 // one calls the same dashboard method the terminal's key does, so the two
 // cannot disagree about what, say, signing in means.
 func (t *trayBackend) Call(ctx context.Context, method string, raw json.RawMessage) (any, error) {
+	out, err := t.call(ctx, method, raw)
+	if err == nil && keysChange[method] {
+		// The account keeps the keys for this person's other computers. A
+		// failure here is not this request's failure: the change is made on
+		// this computer, and the account screen says it is not saved yet.
+		_ = t.pushKeys(ctx)
+	}
+	return out, err
+}
+
+// keysChange are the requests after which the keys the account keeps are
+// out of date.
+var keysChange = map[string]bool{"connect": true, "mirrorSetup": true, "mirrorForget": true}
+
+func (t *trayBackend) call(ctx context.Context, method string, raw json.RawMessage) (any, error) {
 	switch method {
 	case "connect":
 		var a struct {
@@ -97,6 +112,12 @@ func (t *trayBackend) Call(ctx context.Context, method string, raw json.RawMessa
 		err := t.d.SignOut(ctx)
 		t.invalidate()
 		return nil, err
+	}
+	if out, ok, err := t.accountCall(ctx, method, raw); ok {
+		return out, err
+	}
+	if out, ok, err := t.deleteCall(ctx, method, raw); ok {
+		return out, err
 	}
 	if out, ok, err := t.restoreCall(ctx, method, raw); ok {
 		return out, err

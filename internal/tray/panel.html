@@ -254,6 +254,53 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .dev span { color: var(--muted); font-size: 12px; white-space: nowrap; }
 .field select { width: 100%; padding: 7px 8px; }
 
+/* account */
+.who { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; padding: 3px 8px 3px 3px; margin-left: -3px; border-radius: 10px; text-align: left; }
+.who:hover { background: var(--card); }
+.avatar { width: 32px; height: 32px; border-radius: 50%; flex: none; display: grid; place-items: center; background: var(--card-2); color: var(--muted); border: 1px solid var(--line); }
+.avatar svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.avatar.lg { width: 42px; height: 42px; }
+.avatar.lg svg { width: 22px; height: 22px; }
+.item .avatar { width: 30px; height: 30px; }
+.who .brand b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.me { display: flex; align-items: center; gap: 12px; padding: 12px; }
+.me .t { flex: 1; min-width: 0; }
+.me .t b { display: block; font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.me .t span { display: block; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sect { color: var(--muted); font-size: 12px; font-weight: 600; padding: 2px 2px 6px; }
+.pickbox { padding: 10px; }
+.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; padding: 3px; background: var(--bg); border: 1px solid var(--line); border-radius: 9px; }
+.seg button { height: 28px; border-radius: 7px; color: var(--muted); font-size: 12px; font-weight: 500; }
+.seg button:hover { color: var(--text); }
+.seg button[aria-checked="true"] { background: var(--card-2); color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.18); }
+.keyline { display: flex; align-items: center; gap: 10px; padding: 10px 2px 2px; }
+.keyline.none { color: var(--muted); font-size: 12px; }
+.keyline .t { flex: 1; min-width: 0; }
+.keyline .t b { display: block; font-weight: 500; }
+.keyline .t span { display: block; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ok-ic { width: 20px; height: 20px; border-radius: 50%; flex: none; display: grid; place-items: center; color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
+.ok-ic svg { width: 12px; height: 12px; stroke: currentColor; fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
+.pickrow { display: flex; align-items: center; gap: 10px; padding: 10px 2px 0; margin-top: 10px; border-top: 1px solid var(--line); }
+.pickrow .t { flex: 1; }
+.pickbox .textbtn { margin-top: 4px; }
+.synced { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; padding: 0 2px 12px; }
+.synced .mini { margin-left: auto; flex: none; }
+.mini.danger-t { color: var(--bad); }
+.gate main { display: flex; flex-direction: column; justify-content: center; padding: 18px 20px; }
+.gate .logo { margin-bottom: 26px; }
+.gate-foot { display: flex; justify-content: center; padding: 8px 14px 12px; }
+
+/* asking before a delete */
+.modal { position: absolute; inset: 0; z-index: 20; display: grid; place-items: center; padding: 16px; background: rgba(0,0,0,.45); border-radius: 10px; }
+.dialog { width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 14px; padding: 16px; box-shadow: 0 12px 40px rgba(0,0,0,.35); }
+.dialog h2 { font-size: 15px; font-weight: 600; margin-bottom: 4px; overflow-wrap: anywhere; }
+.dialog > p { color: var(--muted); font-size: 12px; margin-bottom: 12px; overflow-wrap: anywhere; }
+.dialog .group { margin-bottom: 12px; }
+.md-btns { display: flex; gap: 8px; }
+.md-btns .wide { flex: 1; }
+.md-btns .wide.go { background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.md-btns .wide.go.danger { background: var(--bad); color: var(--accent-ink); }
+
 .toast { position: absolute; left: 14px; right: 14px; bottom: 66px; background: var(--card-2); border: 1px solid var(--line); border-radius: 10px; padding: 9px 12px; font-size: 12px; opacity: 0; transform: translateY(6px); transition: all .2s; pointer-events: none; }
 .toast.show { opacity: 1; transform: none; }
 .toast { z-index: 10; }
@@ -269,8 +316,7 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 </head>
 <body>
 <header>
-  <div class="mark" aria-hidden="true"></div>
-  <div class="brand"><b>r2backup</b><span id="dest">&nbsp;</span></div>
+  <button class="who" id="b-who" title="Your account" aria-label="Your account"><span class="avatar" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.6"/><path d="M5 19.5c1.2-3.3 3.9-5 7-5s5.8 1.7 7 5"/></svg></span><span class="brand"><b id="who-email">r2backup</b><span id="dest">&nbsp;</span></span></button>
   <button class="icon-btn" id="b-web" title="See your backups in the browser" aria-label="See your backups in the browser"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg></button>
   <button class="icon-btn" id="b-restore" title="Restore files" aria-label="Restore files"><svg viewBox="0 0 24 24"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1M3.5 4.5v4h4"/><path d="M12 7.5V12l3 2"/></svg></button>
   <button class="icon-btn" id="b-set" title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
@@ -303,6 +349,9 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   </header>
   <main>
     <div class="group">
+      <button class="item link" id="b-account"><span class="avatar" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.6"/><path d="M5 19.5c1.2-3.3 3.9-5 7-5s5.8 1.7 7 5"/></svg></span><div class="t"><b id="acct-row-t">Account</b><span id="acct-row-sub">Where your backups go, and the second copy.</span></div></button>
+    </div>
+    <div class="group">
       <div class="item">
         <div class="t"><b>Back up automatically</b><span id="sched-help">Runs in the background, even with this closed.</span></div>
         <button class="toggle" id="sw-sched" role="switch" aria-checked="false" aria-label="Back up automatically"></button>
@@ -325,13 +374,9 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
       </div>
     </div>
     <div class="group">
-      <button class="item link" id="b-storage"><div class="t"><b id="storage-name">Storage</b><span>Change where your backups go.</span></div></button>
-      <button class="item link" id="b-account"><div class="t"><b>Account</b><span>Sign in, and set up your other computers.</span></div></button>
-      <button class="item link" id="b-mirror"><div class="t"><b>Second copy</b><span id="mirror-sub">Keep a copy with a second company.</span></div></button>
-    </div>
-    <div class="group">
       <button class="item link" id="b-trash2"><div class="t"><b>Deleted files…</b><span>Recover files that were removed from your folders.</span></div></button>
       <button class="item link" id="b-restore2"><div class="t"><b>Restore files…</b><span>Bring back files from a backup.</span></div></button>
+      <button class="item link" id="b-stored"><div class="t"><b>Backups in your storage…</b><span>Every backup there, other computers’ too. Delete what you no longer need.</span></div></button>
       <button class="item link" id="b-add"><div class="t"><b>Back up another folder…</b><span>Choose a folder, and what in it to leave out.</span></div></button>
       <button class="item link" id="b-cost"><div class="t"><b>Usage and cost</b><span>What your backups use, and a monthly limit.</span></div></button>
     </div>
@@ -357,7 +402,6 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
         <button class="item link" data-go="drime"><div class="t"><b>Drime</b><span>The simple way. You paste one access token.</span></div></button>
         <button class="item link" data-go="r2"><div class="t"><b>Cloudflare R2</b><span>Your own bucket. Needs an account ID and keys.</span></div></button>
       </div>
-      <div class="links"><button class="textbtn" data-go="signin-email">I already use r2backup on another computer</button></div>
     </div>
 
     <div class="pane" data-pane="drime" hidden>
@@ -392,30 +436,6 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
       <button class="primary" id="c-r2-go"><span>Connect</span></button>
     </div>
 
-    <div class="pane" data-pane="signin-email" hidden>
-      <h2>Sign in</h2>
-      <p>Use the email you signed in with on your other computer. We will send a code.</p>
-      <label class="field"><span>Email</span><input id="c-email" type="email" autocomplete="off" spellcheck="false"></label>
-      <div class="err-line" id="c-email-err" hidden></div>
-      <button class="primary" id="c-email-go"><span>Send me a code</span></button>
-    </div>
-
-    <div class="pane" data-pane="signin-code" hidden>
-      <h2>Check your email</h2>
-      <p id="c-code-help">Enter the code we sent.</p>
-      <label class="field"><span>Code</span><input id="c-code" inputmode="numeric" autocomplete="off" spellcheck="false"></label>
-      <div class="err-line" id="c-code-err" hidden></div>
-      <button class="primary" id="c-code-go"><span>Sign in</span></button>
-    </div>
-
-    <div class="pane" data-pane="signin-vault" hidden>
-      <h2>Bring your storage here</h2>
-      <p>Enter the password you chose when you saved your storage keys on your other computer.</p>
-      <label class="field"><span>Password</span><input id="c-vault" type="password" autocomplete="off" spellcheck="false"></label>
-      <div class="err-line" id="c-vault-err" hidden></div>
-      <button class="primary" id="c-vault-go"><span>Unlock</span></button>
-      <div class="links"><button class="textbtn" data-go="choose">Forgot it? Enter your keys instead</button></div>
-    </div>
   </main>
 </section>
 
@@ -581,15 +601,6 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
     <b id="ac-title">Account</b>
   </header>
   <main id="ac-main">
-    <div class="pane" data-acpane="home"></div>
-    <div class="pane" data-acpane="save" hidden>
-      <h2>Save your storage keys</h2>
-      <p id="ac-save-help">Your other computers can then pick them up when you sign in there. They are locked with a password you choose here, so the account service cannot read them.</p>
-      <label class="field"><span>Password (at least 8 characters)</span><input id="ac-pass" type="password" autocomplete="new-password" spellcheck="false"></label>
-      <label class="field"><span>The same again</span><input id="ac-pass2" type="password" autocomplete="new-password" spellcheck="false"></label>
-      <div class="err-line" id="ac-save-err" hidden></div>
-      <button class="primary" id="ac-save-go"><span>Save keys</span></button>
-    </div>
   </main>
 </section>
 
@@ -623,6 +634,36 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   </main>
 </section>
 
+<section class="sheet" id="sheet-stored" aria-label="Backups in your storage">
+  <header>
+    <button class="icon-btn" id="st-back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button>
+    <b>Backups in your storage</b>
+  </header>
+  <main id="st-main"></main>
+</section>
+
+<section class="sheet gate" id="sheet-signin" aria-label="Sign in">
+  <main>
+    <div class="logo" aria-hidden="true"></div>
+    <div class="pane" data-gpane="email">
+      <h2>Sign in</h2>
+      <p>Enter your email and we send you a code. There is no password. Your storage keys are kept with your account, so another computer gets them when you sign in there.</p>
+      <label class="field"><span>Email</span><input id="g-email" type="email" autocomplete="email" spellcheck="false"></label>
+      <div class="err-line" id="g-email-err" hidden></div>
+      <button class="primary" id="g-email-go"><span>Send me a code</span></button>
+    </div>
+    <div class="pane" data-gpane="code" hidden>
+      <h2>Check your email</h2>
+      <p id="g-code-help">Enter the code we sent.</p>
+      <label class="field"><span>Code</span><input id="g-code" inputmode="numeric" autocomplete="one-time-code" spellcheck="false" maxlength="6"></label>
+      <div class="err-line" id="g-code-err" hidden></div>
+      <button class="primary" id="g-code-go"><span>Sign in</span></button>
+      <div class="links"><button class="textbtn" id="g-resend">Send a new code</button><button class="textbtn" id="g-change">Use a different email</button></div>
+    </div>
+  </main>
+  <div class="gate-foot"><button class="textbtn" id="g-quit">Quit r2backup</button></div>
+</section>
+
 <section class="sheet" id="sheet-cost" aria-label="Usage and cost">
   <header>
     <button class="icon-btn" id="k-back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button>
@@ -630,6 +671,16 @@ input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   </header>
   <main id="k-main"></main>
 </section>
+
+<div class="modal" id="modal" hidden>
+  <div class="dialog" role="alertdialog" aria-modal="true" aria-labelledby="md-title" aria-describedby="md-text">
+    <h2 id="md-title"></h2>
+    <p id="md-text"></p>
+    <div class="group" id="md-opts" role="radiogroup" aria-label="Delete it from" hidden></div>
+    <div class="err-line" id="md-err" hidden></div>
+    <div class="md-btns"><button class="wide" id="md-cancel"><span>Cancel</span></button><button class="wide go danger" id="md-go"><span>Delete</span></button></div>
+  </div>
+</div>
 
 <script>
 "use strict";
@@ -718,6 +769,10 @@ function toast(msg) {
 function render(state) {
   S = state;
   $("dest").textContent = state.machine;
+  $("who-email").textContent = state.signedIn ? state.email : "Not signed in";
+  $("acct-row-t").textContent = state.signedIn ? state.email : "Account";
+  $("acct-row-sub").textContent = state.configured ? "Backups go to " + state.destination + (state.second ? ". Second copy: " + state.second + "." : ".") : "Choose where your backups go.";
+  if (!state.signedIn) showGate();
   $("b-web").hidden = !state.configured;
 
   const st = $("status");
@@ -744,9 +799,7 @@ function render(state) {
   $("sel-every").disabled = !sc.available || !state.configured;
   $("sw-login").setAttribute("aria-checked", state.startAtLogin);
   $("b-add").disabled = !state.configured;
-  $("storage-name").textContent = state.configured ? "Storage: " + state.destination : "Connect your storage";
   $("ver").textContent = "r2backup " + (state.version ? "v" + state.version : "");
-  $("b-mirror").disabled = !state.configured;
   // A notice is said once, however many refreshes still carry it.
   if (state.notice && state.noticeAt !== lastNotice) { lastNotice = state.noticeAt; toast(state.notice); }
   $("upd-dot").hidden = !state.update;
@@ -859,15 +912,18 @@ $("list").addEventListener("click", (e) => {
   if (a && !a.disabled) actions[a.dataset.act](a.dataset.arg);
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") { const t = topSheet(); if (t) closeSheet(t.id); else send("hide"); }
+  if (e.key !== "Escape") return;
+  if (!$("modal").hidden) { if (!$("md-go").disabled) closeModal(); return; }
+  const t = topSheet();
+  // Signing in is required: Escape hides the panel rather than skipping it.
+  if (t && t.id !== "sheet-signin") closeSheet(t.id); else send("hide");
 });
 document.addEventListener("contextmenu", (e) => e.preventDefault());
 // --- connect storage and sign in -----------------------------------------------------
 
-const TITLES = { choose: "Connect your storage", drime: "Drime", r2: "Cloudflare R2", "signin-email": "Sign in", "signin-code": "Sign in", "signin-vault": "Sign in" };
-const BACK = { drime: "choose", r2: "choose", "signin-email": "choose", "signin-code": "signin-email", "signin-vault": "choose" };
+const TITLES = { choose: "Connect your storage", drime: "Drime", r2: "Cloudflare R2" };
+const BACK = { drime: "choose", r2: "choose" };
 let pane = "choose";
-let signInEmail = "";
 
 function showPane(name) {
   pane = name;
@@ -880,12 +936,12 @@ function showPane(name) {
 function openConnect(start, then) {
   connectThen = then || null;
   document.querySelectorAll("#sheet-connect input").forEach((i) => { i.value = ""; });
-  ["c-drime-err", "c-r2-err", "c-email-err", "c-code-err", "c-vault-err", "c-cf-err"].forEach((id) => showErr(id, ""));
+  ["c-drime-err", "c-r2-err", "c-cf-err"].forEach((id) => showErr(id, ""));
   cfShow("start");
   showPane(start || "choose");
   openSheet("sheet-connect");
 }
-const actions = { connect: () => openConnect(), "restore-set": (name) => openRestore(name), add: () => openAdd(), "restore-other": () => openRestore() };
+const actions = { connect: () => openAccount(), "restore-set": (name) => openRestore(name), add: () => openAdd(), "restore-other": () => openRestore() };
 
 // Done: the folders list takes over, which is where a new person goes next.
 function connected(msg) {
@@ -911,8 +967,8 @@ async function findRemoteBackups() {
   } catch (e) { /* nothing to offer */ }
 }
 
-$("b-storage").onclick = () => openConnect();
-$("c-back").onclick = () => { if (pane === "r2") cfAbort(); if (BACK[pane]) showPane(BACK[pane]); else closeSheet("sheet-connect"); };
+// Opened from the account's picker straight on one kind, Back goes back there.
+$("c-back").onclick = () => { if (pane === "r2") cfAbort(); if (BACK[pane] && !connectThen) showPane(BACK[pane]); else { connectThen = null; closeSheet("sheet-connect"); } };
 document.querySelectorAll("#sheet-connect [data-go]").forEach((b) => { b.onclick = () => showPane(b.dataset.go); });
 
 $("c-drime-open").onclick = () => send("open", "https://app.drime.cloud/account-settings");
@@ -933,30 +989,6 @@ $("c-r2-go").onclick = () => working($("c-r2-go"), "Checking…", async () => {
   } catch (e) { showErr("c-r2-err", e.message); }
 });
 
-$("c-email-go").onclick = () => working($("c-email-go"), "Sending…", async () => {
-  showErr("c-email-err", "");
-  signInEmail = $("c-email").value.trim();
-  try {
-    await call("signInStart", { email: signInEmail });
-    $("c-code-help").textContent = "Enter the code we sent to " + signInEmail + ".";
-    showPane("signin-code");
-  } catch (e) { showErr("c-email-err", e.message); }
-});
-$("c-code-go").onclick = () => working($("c-code-go"), "Checking…", async () => {
-  showErr("c-code-err", "");
-  try {
-    await call("signInVerify", { email: signInEmail, code: $("c-code").value.trim() });
-    const a = await call("account");
-    // Signing in from Account on a computer that already backs up is about
-    // the account, not about replacing this computer's storage.
-    if (a.vaultStored && !(connectThen && S && S.configured)) showPane("signin-vault"); else connected("Signed in.");
-  } catch (e) { showErr("c-code-err", e.message); }
-});
-$("c-vault-go").onclick = () => working($("c-vault-go"), "Unlocking…", async () => {
-  showErr("c-vault-err", "");
-  try { await call("unlock", { password: $("c-vault").value }); connected("Your storage is connected."); }
-  catch (e) { showErr("c-vault-err", e.message); }
-});
 document.querySelectorAll("#sheet-connect input").forEach((i) => {
   i.addEventListener("keydown", (e) => {
     if (e.key !== "Enter") return;
@@ -1253,23 +1285,17 @@ $("d-save").onclick = async () => {
     if (p) await recover(p, $("d-save"), "Saving…");
   } catch (e) { showErr("d-err", e.message); }
 };
-// Deleting for good asks twice: the second press, within a few seconds, does it.
-function twice(btn, key, ask, run) {
-  if (D.armed !== key) {
-    disarm(); D.armed = key; btn.querySelector("span").textContent = ask;
-    setTimeout(() => { if (D.armed === key) disarm(); }, 4000);
-    return;
-  }
-  disarm(); run();
-}
-$("d-del").onclick = () => twice($("d-del"), "one", "Press again to delete forever", async () => {
-  showErr("d-err", "");
-  try { await call("trashDelete", { set: D.cur.set, key: D.cur.key }); toast("Deleted " + dBase(D.cur.key) + " for good."); await openTrash(); }
-  catch (e) { showErr("d-err", e.message); }
+// Deleting for good asks first. A trashed file goes from the second copy as
+// well: the second copy follows where backups go file by file, so keeping it
+// there would only last until the next copy.
+const trashWhere = () => "It is deleted from " + primaryName() + (S && S.second ? " and from the second copy" : "") + ".";
+$("d-del").onclick = () => askDelete({
+  title: "Delete " + dBase(D.cur.key) + " for good?", text: trashWhere() + " It cannot be brought back afterwards.", go: "Delete forever", choose: false,
+  run: async () => { const r = D.cur; await call("trashDelete", { set: r.set, key: r.key, where: "both" }); await openTrash(); return "Deleted " + dBase(r.key) + " for good."; },
 });
-$("d-empty").onclick = () => twice($("d-empty"), "all", "Press again to empty it for good", async () => {
-  try { const r = await call("trashEmpty", { set: "" }); toast("Emptied the trash (" + r.deleted + " files)."); await openTrash(); }
-  catch (e) { toast(e.message); }
+$("d-empty").onclick = () => askDelete({
+  title: "Empty the trash?", text: "Every file in it is deleted for good. " + trashWhere().replace("It is", "They are"), go: "Empty trash", choose: false,
+  run: async () => { const r = await call("trashEmpty", { set: "", where: "both" }); await openTrash(); return "Emptied the trash (" + r.deleted + (r.deleted === 1 ? " file)." : " files)."); },
 });
 
 // --- folder settings ------------------------------------------------------------------
@@ -1391,14 +1417,26 @@ $("f-stop").onclick = () => {
 $("f-rm-keep").onclick = () => rmMode(false);
 $("f-rm-purge").onclick = () => rmMode(true);
 $("f-rm-name").oninput = rmCheck;
-$("f-rm-go").onclick = () => working($("f-rm-go"), "Stopping…", async () => {
+$("f-rm-go").onclick = () => {
   showErr("f-rm-err", "");
-  try {
-    await call("folderRemove", { name: F.name, purge: F.purge });
-    closeSheet("sheet-folder");
-    toast(F.purge ? F.name + " and its backup were deleted." : "No longer backing up " + F.name + ".");
-  } catch (e) { showErr("f-rm-err", e.message); }
-});
+  if (F.purge) {
+    const name = F.name;
+    askDelete({
+      title: "Delete the backup of " + name + "?", go: "Delete backup",
+      text: "Every backed-up file in it, and every earlier version, is deleted. Nothing can be recovered afterwards. The files on this computer are not touched.",
+      run: async (where) => {
+        await call("folderRemove", { name, purge: true, where });
+        closeSheet("sheet-folder");
+        return name + " and its backup were deleted" + (where === "both" && S && S.second ? " from both places." : ".");
+      },
+    });
+    return;
+  }
+  working($("f-rm-go"), "Stopping…", async () => {
+    try { await call("folderRemove", { name: F.name, purge: false }); closeSheet("sheet-folder"); toast("No longer backing up " + F.name + "."); }
+    catch (e) { showErr("f-rm-err", e.message); }
+  });
+};
 $("f-apply").onclick = () => { send("backup", F.name); F.changed = false; closeSheet("sheet-folder"); };
 
 // --- usage and cost --------------------------------------------------------------------
@@ -1617,84 +1655,271 @@ $("u-back").onclick = () => closeSheet("sheet-run");
 
 // --- account ----------------------------------------------------------------------------------
 
-const AC = { view: "home", info: null, armed: false };
-function acShow(v) {
-  AC.view = v;
-  document.querySelectorAll("#sheet-account [data-acpane]").forEach((p) => { p.hidden = p.dataset.acpane !== v; });
-  $("ac-title").textContent = v === "save" ? "Save storage keys" : "Account";
-  $("ac-main").scrollTop = 0;
-}
+const ICON_USER = '<svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.6"/><path d="M5 19.5c1.2-3.3 3.9-5 7-5s5.8 1.7 7 5"/></svg>';
+const AC = { info: null, armed: false };
+const primaryName = () => (S && S.configured && S.destination) || "your storage";
+
 async function openAccount() {
-  openSheet("sheet-account");
-  acShow("home");
-  const pane = document.querySelector('[data-acpane="home"]');
-  pane.innerHTML = '<div class="note">Checking your account…</div>';
-  try { AC.info = await call("account"); acDraw(); }
-  catch (e) { AC.info = { reachable: false, err: e.message }; acDraw(); }
+  if (!$("sheet-account").classList.contains("open")) openSheet("sheet-account");
+  if (!AC.info) $("ac-main").innerHTML = '<div class="note">Checking your account…</div>';
+  try { AC.info = await call("accountConfig"); }
+  catch (e) { AC.info = Object.assign({}, AC.info || {}, { err: e.message }); }
+  acDraw();
 }
+
+// One choice per place: which company, and whether its key is there.
+function seg(kind, cur, choices, label) {
+  return '<div class="seg" role="radiogroup" aria-label="' + label + '">' + choices.map(([v, t]) =>
+    '<button role="radio" data-' + kind + '="' + v + '" aria-checked="' + (v === cur) + '">' + t + "</button>").join("") + "</div>";
+}
+function keyLine(st, which) {
+  return '<div class="keyline"><span class="ok-ic" aria-hidden="true">' + ICON_CHK + '</span><div class="t"><b>Key saved</b><span title="' + esc(st.label) + '">' +
+    esc(st.hint) + '</span></div><button class="mini" data-replace="' + which + '">Replace…</button></div>';
+}
+
 function acDraw() {
-  const a = AC.info, pane = document.querySelector('[data-acpane="home"]');
+  const a = AC.info || {}, m = $("ac-main");
   AC.armed = false;
-  let html = "";
-  if (!a.signedIn && (!a.reachable || a.err)) {
-    html = '<div class="empty"><b>Could not reach your account</b>' + esc(a.err || "") + '<br><button class="mini" id="ac-retry">Try again</button></div>';
-  } else if (!a.signedIn) {
-    html = '<div class="pane"><h2>Not signed in</h2><p>An account lets your other computers pick up your storage keys, so you only type them once. It is optional: backing up and restoring work without one.</p>' +
-      '<button class="primary" id="ac-signin"><span>Sign in with your email</span></button></div>';
-  } else {
-    html = '<div class="facts" style="margin-bottom:12px">Signed in as <b style="color:var(--text);font-weight:500">' + esc(a.email) + "</b></div>";
-    if (a.err) html += '<div class="err-line">' + esc(a.err) + "</div>";
-    if (a.devices && a.devices.length) {
-      html += '<div class="day" style="padding-left:2px">Computers</div><div class="group">' + a.devices.map((d) =>
-        '<div class="dev"><div><b>' + esc(d.name) + "</b>" + (d.this ? '<span class="chip">This one</span>' : "") + "</div><span>" + esc(d.this ? "Now" : seen(d.lastSeen)) + "</span></div>").join("") + "</div>";
-    }
-    const can = S && S.configured;
-    html += '<div class="group"><button class="item link" id="ac-save"' + (can ? "" : " disabled") + '><div class="t"><b>' + (a.vaultStored ? "Replace saved keys…" : "Save storage keys for other computers…") + "</b><span>" +
-      (!can ? "Connect your storage first." : a.vaultStored ? "Your account already has keys saved. Replacing them changes what new computers pick up." : "Then a new computer only needs your email and a password.") + "</span></div></button></div>";
-    html += '<div class="group"><button class="item link danger" id="ac-out"><div class="t"><b id="ac-out-t">Sign out</b><span>Backups on this computer carry on as they are.</span></div></button></div>';
+  const email = a.email || (S && S.email) || "";
+  const p = a.primary, s = a.second;
+  let html = '<div class="group"><div class="me"><span class="avatar lg" aria-hidden="true">' + ICON_USER + '</span><div class="t"><b>' + esc(email || "Not signed in") +
+    "</b><span>This computer: " + esc(a.machine || (S && S.machine) || "") + '</span></div><button class="mini" id="ac-out">Sign out</button></div></div>';
+  if (a.err) html += '<div class="err-line">' + esc(a.err) + "</div>";
+
+  html += '<div class="sect">Where backups go</div><div class="group pickbox">' +
+    seg("p", p ? p.provider : "", [["drime", "Drime"], ["r2", "Cloudflare R2"]], "Where backups go") +
+    (p ? keyLine(p, "p") : '<div class="keyline none">Choose one to connect it.</div>') + "</div>";
+
+  html += '<div class="sect">Second copy</div><div class="group pickbox">' +
+    seg("s", s ? s.provider : "none", [["none", "None"], ["drime", "Drime"], ["r2", "Cloudflare R2"]], "Second copy") +
+    (s ? keyLine(s, "s") : '<div class="keyline none">' + (p ? "None. Pick one to keep a copy with a second company too." : "Connect where backups go first.") + "</div>");
+  if (s) {
+    html += '<div class="pickrow"><div class="t">Copy after every backup</div><button class="toggle sm" id="ac-auto" role="switch" aria-checked="' + !!a.auto + '" aria-label="Copy after every backup"></button></div>' +
+      '<button class="textbtn" id="ac-copy">Copy now, or copy back…</button>';
   }
-  pane.innerHTML = html;
-  if ($("ac-retry")) $("ac-retry").onclick = openAccount;
-  if ($("ac-signin")) $("ac-signin").onclick = () => openConnect("signin-email", () => openAccount());
-  if ($("ac-save")) $("ac-save").onclick = () => {
-    $("ac-pass").value = ""; $("ac-pass2").value = ""; showErr("ac-save-err", "");
-    $("ac-save-go").querySelector("span").textContent = a.vaultStored ? "Replace saved keys" : "Save keys";
-    acShow("save"); $("ac-pass").focus();
+  html += "</div>";
+
+  if (p && email) {
+    html += a.saved
+      ? '<div class="synced"><span class="ok-ic" aria-hidden="true">' + ICON_CHK + "</span><span>Saved to your account. Sign in on another computer and it gets these keys.</span></div>"
+      : '<div class="synced"><span>Not saved to your account yet.</span><button class="mini" id="ac-push">Save now</button></div>';
+  }
+  if (a.devices && a.devices.length) {
+    html += '<div class="sect">Computers</div><div class="group">' + a.devices.map((d) =>
+      '<div class="dev"><div><b>' + esc(d.name) + "</b>" + (d.this ? '<span class="chip">This one</span>' : "") + "</div><span>" + esc(d.this ? "Now" : seen(d.lastSeen)) + "</span></div>").join("") + "</div>";
+  }
+  m.innerHTML = html;
+
+  m.querySelectorAll("[data-p]").forEach((b) => { b.onclick = () => pickPrimary(b.dataset.p); });
+  m.querySelectorAll("[data-s]").forEach((b) => { b.onclick = () => pickSecond(b.dataset.s); });
+  m.querySelectorAll("[data-replace]").forEach((b) => {
+    b.onclick = () => (b.dataset.replace === "p" ? openConnect(p.provider, openAccount) : secondForm(s.provider));
+  });
+  if ($("ac-auto")) $("ac-auto").onclick = async () => {
+    const on = $("ac-auto").getAttribute("aria-checked") !== "true";
+    try { await call("mirrorAuto", { on }); $("ac-auto").setAttribute("aria-checked", on); AC.info.auto = on; toast(on ? "Each backup is copied there once it finishes." : "Copying after each backup is off."); }
+    catch (e) { toast(e.message); }
   };
-  if ($("ac-out")) $("ac-out").onclick = async () => {
+  if ($("ac-copy")) $("ac-copy").onclick = () => openMirror();
+  if ($("ac-push")) $("ac-push").onclick = () => working($("ac-push"), "Saving…", async () => {
+    try { await call("keysPush"); toast("Saved to your account."); await openAccount(); } catch (e) { toast(e.message); }
+  });
+  $("ac-out").onclick = async () => {
     if (!AC.armed) {
-      AC.armed = true; $("ac-out-t").textContent = "Press again to sign out";
-      setTimeout(() => { if (AC.armed && $("ac-out-t")) { AC.armed = false; $("ac-out-t").textContent = "Sign out"; } }, 4000);
+      AC.armed = true; $("ac-out").textContent = "Sure?";
+      setTimeout(() => { if (AC.armed && $("ac-out")) { AC.armed = false; $("ac-out").textContent = "Sign out"; } }, 4000);
       return;
     }
-    AC.armed = false;
-    try { await call("signOut"); toast("Signed out."); openAccount(); } catch (e) { toast(e.message); }
+    try { await call("signOut"); AC.info = null; if (S) S.signedIn = false; showGate(); } catch (e) { toast(e.message); }
   };
 }
+
 function seen(iso) {
   const d = new Date(iso);
   if (isNaN(d) || d.getFullYear() < 2000) return "";
   const n = dayName(iso);
   return n === "Today" || n === "Yesterday" ? n : "Seen " + n;
 }
-$("ac-back").onclick = () => { if (AC.view !== "home") acShow("home"); else closeSheet("sheet-account"); };
-$("ac-save-go").onclick = () => working($("ac-save-go"), "Saving…", async () => {
-  showErr("ac-save-err", "");
-  const p = $("ac-pass").value;
-  if (p.length < 8) { showErr("ac-save-err", "Use at least 8 characters."); return; }
-  if (p !== $("ac-pass2").value) { showErr("ac-save-err", "Those two are not the same."); return; }
-  try {
-    await call("storeVault", { password: p });
-    toast("Saved. On your next computer, sign in with " + AC.info.email + " and this password.");
-    openAccount();
-  } catch (e) { showErr("ac-save-err", e.message); }
-});
-["ac-pass", "ac-pass2"].forEach((id) => $(id).addEventListener("keydown", (e) => { if (e.key === "Enter" && !$("ac-save-go").disabled) $("ac-save-go").click(); }));
+
+function pickPrimary(v) {
+  const p = AC.info && AC.info.primary;
+  if (p && p.provider === v) return;
+  if (!p) { openConnect(v, openAccount); return; }
+  ask({
+    title: "Back up to " + (v === "drime" ? "Drime" : "Cloudflare R2") + " instead?", go: "Continue", danger: false,
+    text: "Your folders back up there from now on. What is already in " + p.label + " stays where it is.",
+    run: async () => { openConnect(v, openAccount); },
+  });
+}
+function pickSecond(v) {
+  const p = AC.info && AC.info.primary, s = AC.info && AC.info.second;
+  if ((s ? s.provider : "none") === v) return;
+  if (!p) { toast("Connect where backups go first."); return; }
+  if (v === "none") {
+    ask({
+      title: "Stop keeping a second copy?", go: "Stop", danger: false,
+      text: "What is already in " + s.label + " stays there. Nothing more is copied to it.",
+      run: async () => { await call("mirrorForget"); await openAccount(); return "No second copy is kept from now on."; },
+    });
+    return;
+  }
+  secondForm(v);
+}
+// The second copy's key is entered on the second copy's own screen, which
+// comes back here once it is saved.
+function secondForm(v) {
+  M.then = openAccount;
+  document.querySelectorAll("#sheet-mirror input").forEach((i) => { i.value = ""; });
+  ["m-drime-err", "m-r2-err"].forEach((id) => showErr(id, ""));
+  openSheet("sheet-mirror");
+  mShow(v);
+  const f = document.querySelector('[data-mpane="' + v + '"] input');
+  if (f) f.focus();
+}
+$("ac-back").onclick = () => closeSheet("sheet-account");
 $("b-account").onclick = openAccount;
+$("b-who").onclick = openAccount;
+
+// --- sign in: required, with an emailed code ---------------------------------------------------
+
+const G = { email: "" };
+function gShow(v) {
+  document.querySelectorAll("#sheet-signin [data-gpane]").forEach((p) => { p.hidden = p.dataset.gpane !== v; });
+  const f = document.querySelector('#sheet-signin [data-gpane="' + v + '"] input');
+  if (f) setTimeout(() => f.focus(), 0);
+}
+function showGate() {
+  if ($("sheet-signin").classList.contains("open")) return;
+  // Nothing stays open behind it.
+  document.querySelectorAll(".sheet.open").forEach((x) => closeSheet(x.id));
+  closeModal();
+  $("g-email").value = G.email; $("g-code").value = "";
+  showErr("g-email-err", ""); showErr("g-code-err", "");
+  gShow("email");
+  openSheet("sheet-signin");
+}
+async function sendCode() {
+  showErr("g-email-err", ""); showErr("g-code-err", "");
+  G.email = $("g-email").value.trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(G.email)) { showErr("g-email-err", "Enter your email address."); return false; }
+  await call("signInStart", { email: G.email });
+  $("g-code-help").textContent = "We sent a 6-digit code to " + G.email + ". It works for 10 minutes.";
+  return true;
+}
+$("g-email-go").onclick = () => working($("g-email-go"), "Sending…", async () => {
+  try { if (await sendCode()) { $("g-code").value = ""; gShow("code"); } } catch (e) { showErr("g-email-err", e.message); }
+});
+$("g-resend").onclick = async () => {
+  try { if (await sendCode()) { $("g-code").value = ""; toast("A new code is on its way."); } } catch (e) { showErr("g-code-err", e.message); }
+};
+$("g-change").onclick = () => gShow("email");
+$("g-quit").onclick = () => send("quit");
+$("g-code").oninput = () => { if (/^\d{6}$/.test($("g-code").value.trim()) && !$("g-code-go").disabled) $("g-code-go").click(); };
+$("g-code-go").onclick = () => working($("g-code-go"), "Checking…", async () => {
+  showErr("g-code-err", "");
+  const code = $("g-code").value.replace(/\s/g, "");
+  if (!code) { showErr("g-code-err", "Enter the code from the email."); return; }
+  try { await call("signInVerify", { email: G.email, code }); }
+  catch (e) { showErr("g-code-err", e.message); return; }
+  $("g-code-go").querySelector("span").textContent = "Getting your keys…";
+  let r = null;
+  try { r = await call("keysSync"); } catch (e) { /* the account screen says what is wrong */ }
+  if (S) { S.signedIn = true; S.email = G.email; }
+  $("who-email").textContent = G.email;
+  closeSheet("sheet-signin");
+  AC.info = null;
+  if (r && r.primary) toast(r.pulled ? "Signed in. Your backups go to " + r.primary + "." : "Signed in as " + G.email + ".");
+  else { openAccount(); toast(r && r.err ? r.err : "Signed in. Now choose where your backups go."); }
+});
+["g-email", "g-code"].forEach((id) => $(id).addEventListener("keydown", (e) => {
+  if (e.key !== "Enter") return;
+  const go = $(id).closest(".pane").querySelector(".primary");
+  if (go && !go.disabled) go.click();
+}));
+
+// --- asking before a delete ---------------------------------------------------------------------
+// Every delete for good asks here first. With a second copy it also asks
+// where: from both places, or only from where backups go.
+
+const MD = { where: "primary", run: null };
+function ask(o) {
+  $("md-title").textContent = o.title;
+  $("md-text").textContent = o.text || "";
+  const choose = !!o.choose && !!(S && S.second);
+  MD.where = choose ? "both" : "primary";
+  const opts = $("md-opts");
+  opts.hidden = !choose;
+  opts.innerHTML = "";
+  if (choose) {
+    const opt = (w, b, sub) => '<button class="opt" data-w="' + w + '" role="radio" aria-checked="' + (w === MD.where) + '"><div class="dot-r"></div><div><b>' + esc(b) + "</b><span>" + esc(sub) + "</span></div></button>";
+    opts.innerHTML = opt("both", "From both", primaryName() + ", and the second copy in " + S.second + ".") +
+      opt("primary", "Only from " + primaryName(), "The second copy keeps it.");
+    opts.querySelectorAll("[data-w]").forEach((b) => {
+      b.onclick = () => { MD.where = b.dataset.w; opts.querySelectorAll("[data-w]").forEach((x) => x.setAttribute("aria-checked", x === b)); };
+    });
+  }
+  $("md-go").querySelector("span").textContent = o.go || "Delete";
+  $("md-go").classList.toggle("danger", o.danger !== false);
+  showErr("md-err", "");
+  MD.run = o.run;
+  $("modal").hidden = false;
+  setTimeout(() => $("md-cancel").focus(), 0);
+}
+const askDelete = (o) => ask(Object.assign({ choose: true }, o));
+function closeModal() { $("modal").hidden = true; MD.run = null; }
+$("md-cancel").onclick = closeModal;
+$("modal").addEventListener("click", (e) => { if (e.target === $("modal") && !$("md-go").disabled) closeModal(); });
+$("md-go").onclick = () => {
+  const run = MD.run;
+  if (!run) return;
+  $("md-cancel").disabled = true;
+  working($("md-go"), $("md-go").classList.contains("danger") ? "Deleting…" : "One moment…", async () => {
+    showErr("md-err", "");
+    try { const msg = await run(MD.where); closeModal(); if (msg) toast(msg); }
+    catch (e) { showErr("md-err", e.message); }
+    finally { $("md-cancel").disabled = false; }
+  });
+};
+
+// --- every backup in storage ------------------------------------------------------------------
+
+async function openStored() {
+  openSheet("sheet-stored");
+  const m = $("st-main");
+  m.innerHTML = '<div class="note">Looking in ' + esc(primaryName()) + "…</div>";
+  try { drawStored(await call("storedBackups")); }
+  catch (e) { m.innerHTML = '<div class="empty"><b>Could not look</b>' + esc(e.message) + "</div>"; }
+}
+function drawStored(rows) {
+  const m = $("st-main");
+  if (!rows.length) { m.innerHTML = '<div class="empty"><b>Nothing stored yet</b>A backup shows up here once a folder has been backed up.</div>'; return; }
+  let html = '<p class="facts" style="padding:0 2px 10px">Everything in ' + esc(primaryName()) + ". Delete a backup you no longer need, such as one from a computer you do not use any more. A folder this computer backs up is removed from its own settings.</p>";
+  const groups = new Map();
+  rows.forEach((r) => { if (!groups.has(r.machine)) groups.set(r.machine, []); groups.get(r.machine).push(r); });
+  for (const [machine, list] of groups) {
+    const me = S && machine === S.machine;
+    html += '<div class="sect">' + esc(machine) + (me ? " · this computer" : "") + '</div><div class="group">';
+    list.forEach((r) => {
+      html += '<div class="item"><div class="t"><b>' + esc(r.name) + "</b><span>" + (r.here ? "Backed up by this computer" : me ? "No longer backed up" : "From another computer") + "</span></div>" +
+        (r.here ? "" : '<button class="mini danger-t" data-m="' + esc(r.machine) + '" data-n="' + esc(r.name) + '">Delete…</button>') + "</div>";
+    });
+    html += "</div>";
+  }
+  m.innerHTML = html;
+  m.querySelectorAll("[data-n]").forEach((b) => {
+    b.onclick = () => askDelete({
+      title: "Delete the backup " + b.dataset.n + "?", go: "Delete backup",
+      text: "Made by " + b.dataset.m + ". Every file in it, and every earlier version, is deleted. Nothing can be recovered afterwards.",
+      run: async (where) => { const r = await call("storedDelete", { machine: b.dataset.m, name: b.dataset.n, where }); openStored(); return r.message; },
+    });
+  });
+}
+$("st-back").onclick = () => closeSheet("sheet-stored");
+$("b-stored").onclick = openStored;
 
 // --- second copy (mirror) ------------------------------------------------------------------
 
-const M = { view: "home", info: null, poll: 0, armed: "" };
+const M = { view: "home", info: null, poll: 0, armed: "", then: null };
 const MTITLES = { home: "Second copy", drime: "Drime", r2: "Cloudflare R2", run: "Copying" };
 function mShow(v) {
   M.view = v;
@@ -1731,7 +1956,7 @@ function mDraw() {
     html += '<div class="group"><button class="item link" id="m-now"' + (m.haveFolders ? "" : " disabled") + '><div class="t"><b>Copy now</b><span>Only what changed is copied.</span></div></button>' +
       '<button class="item link" id="m-all"><div class="t"><b>Copy every computer’s backups</b><span>Including the ones your other computers made.</span></div></button></div>';
     html += '<div class="group"><button class="item link" id="m-back-copy"><div class="t"><b id="m-back-t">Copy back from the second copy…</b><span>Brings back anything missing from your backups. Nothing is removed.</span></div></button>' +
-      '<button class="item link danger" id="m-forget"><div class="t"><b id="m-forget-t">Stop keeping a second copy…</b><span>What is already there stays where it is.</span></div></button></div>';
+      "</div>";
   }
   pane.innerHTML = html;
   pane.querySelectorAll("[data-mgo]").forEach((b) => { b.onclick = () => { mShow(b.dataset.mgo); const f = document.querySelector('[data-mpane="' + b.dataset.mgo + '"] input'); if (f) f.focus(); }; });
@@ -1793,7 +2018,8 @@ function mRunDraw(st) {
 }
 async function finishMirror() { clearInterval(M.poll); try { await call("mirrorDismiss"); } catch (e) { /* nothing */ } openMirror(); }
 $("m-back").onclick = () => {
-  if (M.view === "drime" || M.view === "r2") mShow("home");
+  if ((M.view === "drime" || M.view === "r2") && M.then) { M.then = null; closeSheet("sheet-mirror"); }
+  else if (M.view === "drime" || M.view === "r2") mShow("home");
   else { clearInterval(M.poll); closeSheet("sheet-mirror"); }
 };
 $("m-drime-open").onclick = () => send("open", "https://app.drime.cloud/account-settings");
@@ -1805,7 +2031,7 @@ async function setupMirror(btn, errId, args) {
       await call("mirrorSetup", Object.assign({ auto: true }, args));
       toast("Second copy set up. Each backup is copied there once it finishes.");
       document.querySelectorAll("#sheet-mirror input").forEach((i) => { i.value = ""; });
-      openMirror();
+      if (M.then) { const f = M.then; M.then = null; closeSheet("sheet-mirror"); f(); } else openMirror();
     } catch (e) { showErr(errId, e.message); }
   });
 }
@@ -1818,7 +2044,6 @@ document.querySelectorAll("#sheet-mirror input").forEach((i) => {
     if (go && !go.disabled) go.click();
   });
 });
-$("b-mirror").onclick = openMirror;
 
 // --- Cloudflare sign-in, while connecting R2 -------------------------------------------------
 

@@ -4,6 +4,7 @@ import { D1Storage } from "./storage";
 import { ResendMailer } from "./email";
 import { handleRequestCode, handleVerify } from "./handlers/auth";
 import { handleGetVault, handlePutVault } from "./handlers/vault";
+import { handleGetKeys, handlePutKeys, handleDeleteKeys } from "./handlers/keys";
 import { handlePostDevice, handleGetDevices } from "./handlers/devices";
 import { handleHealth } from "./handlers/health";
 import { handleLanding, handleLogo } from "./handlers/site";
@@ -14,6 +15,7 @@ function buildContext(env: Env): AppContext {
     storage: new D1Storage(env.DB),
     mailer: new ResendMailer(env.RESEND_API_KEY),
     jwtSecret: env.JWT_SECRET,
+    keysSecret: env.KEYS_SECRET,
     now: () => Math.floor(Date.now() / 1000),
   };
 }
@@ -52,6 +54,15 @@ export default {
       }
       if (url.pathname === "/vault" && request.method === "PUT") {
         return await handlePutVault(request, ctx);
+      }
+      if (url.pathname === "/keys" && request.method === "GET") {
+        return await handleGetKeys(request, ctx);
+      }
+      if (url.pathname === "/keys" && request.method === "PUT") {
+        return await handlePutKeys(request, ctx);
+      }
+      if (url.pathname === "/keys" && request.method === "DELETE") {
+        return await handleDeleteKeys(request, ctx);
       }
       if (url.pathname === "/devices" && request.method === "POST") {
         return await handlePostDevice(request, ctx);
