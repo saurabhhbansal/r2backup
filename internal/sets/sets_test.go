@@ -178,6 +178,41 @@ func TestChangesSurviveReopening(t *testing.T) {
 	}
 }
 
+// The taskbar app holds one Store for as long as it runs and adds folders by
+// starting `r2b add`, a separate process. Without Reload the folder it had
+// just added never appeared in its list.
+func TestReloadSeesSetsAnotherProcessSaved(t *testing.T) {
+	longLived, path := store(t)
+	add(t, longLived, "Old", "/data/old")
+
+	other, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	add(t, other, "New", "/data/new")
+
+	if _, err := longLived.Get("New"); !errors.Is(err, ErrNotFound) {
+		t.Fatal("test premise: the first store should not see the second's set before Reload")
+	}
+	if err := longLived.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := longLived.Get("New"); err != nil {
+		t.Errorf("after Reload: %v", err)
+	}
+
+	// A file that cannot be parsed keeps what was there.
+	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := longLived.Reload(); err == nil {
+		t.Error("Reload of a broken file should report it")
+	}
+	if n := len(longLived.List()); n != 2 {
+		t.Errorf("a failed Reload dropped the sets already held: %d left", n)
+	}
+}
+
 func TestSaveIsAtomic(t *testing.T) {
 	// After a save there must be exactly one file: no .tmp left behind for a
 	// later reader to trip over.

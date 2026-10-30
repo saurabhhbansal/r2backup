@@ -38,6 +38,7 @@ var (
 	ole32    = windows.NewLazySystemDLL("ole32.dll")
 	shell32  = windows.NewLazySystemDLL("shell32.dll")
 	kernel32 = windows.NewLazySystemDLL("kernel32.dll")
+	shcore   = windows.NewLazySystemDLL("shcore.dll")
 
 	pRegisterClassExW              = user32.NewProc("RegisterClassExW")
 	pCreateWindowExW               = user32.NewProc("CreateWindowExW")
@@ -45,12 +46,23 @@ var (
 	pShowWindow                    = user32.NewProc("ShowWindow")
 	pSetWindowPos                  = user32.NewProc("SetWindowPos")
 	pSetForegroundWindow           = user32.NewProc("SetForegroundWindow")
+	pAllowSetForegroundWindow      = user32.NewProc("AllowSetForegroundWindow")
 	pGetMessageW                   = user32.NewProc("GetMessageW")
 	pTranslateMessage              = user32.NewProc("TranslateMessage")
 	pDispatchMessageW              = user32.NewProc("DispatchMessageW")
 	pPostThreadMessageW            = user32.NewProc("PostThreadMessageW")
 	pPostQuitMessage               = user32.NewProc("PostQuitMessage")
-	pSystemParametersInfoW         = user32.NewProc("SystemParametersInfoW")
+	pMonitorFromRect               = user32.NewProc("MonitorFromRect")
+	pMonitorFromPoint              = user32.NewProc("MonitorFromPoint")
+	pGetMonitorInfoW               = user32.NewProc("GetMonitorInfoW")
+	pGetCursorPos                  = user32.NewProc("GetCursorPos")
+	pEnumWindows                   = user32.NewProc("EnumWindows")
+	pGetWindowThreadProcessID      = user32.NewProc("GetWindowThreadProcessId")
+	pGetClassNameW                 = user32.NewProc("GetClassNameW")
+	pMessageBoxW                   = user32.NewProc("MessageBoxW")
+	pGetDpiForMonitor              = shcore.NewProc("GetDpiForMonitor")
+	pSHAppBarMessage               = shell32.NewProc("SHAppBarMessage")
+	pShellNotifyIconGetRect        = shell32.NewProc("Shell_NotifyIconGetRect")
 	pGetDpiForSystem               = user32.NewProc("GetDpiForSystem")
 	pSetProcessDpiAwarenessContext = user32.NewProc("SetProcessDpiAwarenessContext")
 	pLoadCursorW                   = user32.NewProc("LoadCursorW")
@@ -75,7 +87,7 @@ const (
 	swShowNormal = 1
 	swpShow      = 0x0040
 	hwndTopmost  = ^uintptr(0) // (HWND)-1
-	spiWorkArea  = 0x0030
+	wmDpiChanged = 0x02E0
 )
 
 type wndClassEx struct {
@@ -101,8 +113,6 @@ type msgT struct {
 	Time    uint32
 	Pt      struct{ X, Y int32 }
 }
-
-type rect struct{ Left, Top, Right, Bottom int32 }
 
 // panel is the tray app: the icon, the popup window and the WebView2 inside.
 type panel struct {
@@ -162,6 +172,28 @@ func Run(ctx context.Context, be Backend) error {
 	return nil
 }
 
+// Fail tells someone why the taskbar app did not start. Started from the
+// Start menu or at sign-in it has no console, so an error printed there goes
+// nowhere and the icon just never appears; this puts it on screen and in
+// tray-errors.log in the data directory.
+func Fail(err error) {
+	if err == nil {
+		return
+	}
+	if dir, derr := config.DataDir(); derr == nil {
+		if f, oerr := os.OpenFile(filepath.Join(dir, "tray-errors.log"),
+			os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); oerr == nil {
+			_, _ = fmt.Fprintf(f, "%s r2b tray: %v\n", time.Now().Format(time.RFC3339), err)
+			_ = f.Close()
+		}
+	}
+	text, _ := windows.UTF16PtrFromString("The r2backup taskbar app could not start.\n\n" + err.Error())
+	title, _ := windows.UTF16PtrFromString("r2backup")
+	const mbIconError, mbTopmost, mbSetForeground = 0x10, 0x40000, 0x10000
+	_, _, _ = pMessageBoxW.Call(0, uintptr(unsafe.Pointer(text)), uintptr(unsafe.Pointer(title)),
+		mbIconError|mbTopmost|mbSetForeground)
+}
+
 // --- the window ------------------------------------------------------------
 
 func (p *panel) uiLoop(started chan<- error) {
@@ -180,9 +212,13 @@ func (p *panel) uiLoop(started chan<- error) {
 	_ = windows.GetModuleHandleEx(0, nil, &inst)
 	cls, _ := windows.UTF16PtrFromString("r2backupPanel")
 	cursor, _, _ := pLoadCursorW.Call(0, 32512) // IDC_ARROW
-	// A dark background, so the window never shows through to the desktop
-	// for the moment before the page draws.
-	brush, _, _ := pCreateSolidBrush.Call(0x00141212) // 0x00BBGGRR: #121214
+	// The page's own background colour, so the window never flashes a
+	// different one for the moment before the page draws.
+	bg := uintptr(0x00141212) // 0x00BBGGRR: #121214
+	if lightTheme() {
+		bg = 0x00F8F6F6 // #f6f6f8
+	}
+	brush, _, _ := pCreateSolidBrush.Call(bg)
 	wc := wndClassEx{
 		Style: csDropShadow, WndProc: windows.NewCallback(wndProc), Background: windows.Handle(brush),
 		Instance: inst, Cursor: windows.Handle(cursor), ClassName: cls,
@@ -190,7 +226,7 @@ func (p *panel) uiLoop(started chan<- error) {
 	wc.Size = uint32(unsafe.Sizeof(wc))
 	_, _, _ = pRegisterClassExW.Call(uintptr(unsafe.Pointer(&wc)))
 
-	w, h := p.size()
+	w, h := size(systemDPI())
 	title, _ := windows.UTF16PtrFromString("r2backup")
 	p.hwnd, _, _ = pCreateWindowExW.Call(wsExToolWin|wsExTopmost, uintptr(unsafe.Pointer(cls)),
 		uintptr(unsafe.Pointer(title)), wsPopup, 0, 0, uintptr(w), uintptr(h), 0, 0, uintptr(inst), 0)
@@ -263,6 +299,11 @@ func wndProc(hwnd, msg, wp, lp uintptr) uintptr {
 		case wmClose:
 			p.hide()
 			return 0
+		case wmDpiChanged:
+			// show() has already sized the panel for the monitor it is
+			// moving to; the size Windows suggests here is the old one
+			// rescaled, so it is ignored.
+			return 0
 		}
 	}
 	r, _, _ := pDefWindowProcW.Call(hwnd, msg, wp, lp)
@@ -278,22 +319,26 @@ func (p *panel) post(f func()) {
 	_, _, _ = pPostThreadMessageW.Call(p.uiThread, wmApp, 0, 0)
 }
 
-func (p *panel) size() (int, int) {
-	dpi, _, _ := pGetDpiForSystem.Call()
+// size is the panel's size in pixels at a monitor's DPI.
+func size(dpi uint32) (int32, int32) {
 	if dpi == 0 {
 		dpi = 96
 	}
-	return panelW * int(dpi) / 96, panelH * int(dpi) / 96
+	return panelW * int32(dpi) / 96, panelH * int32(dpi) / 96
+}
+
+func systemDPI() uint32 {
+	dpi, _, _ := pGetDpiForSystem.Call()
+	return uint32(dpi)
 }
 
 func (p *panel) show() {
 	p.post(func() {
-		w, h := p.size()
-		var wa rect
-		_, _, _ = pSystemParametersInfoW.Call(spiWorkArea, 0, uintptr(unsafe.Pointer(&wa)), 0)
-		gap := int32(12 * w / panelW)
-		x := wa.Right - int32(w) - gap
-		y := wa.Bottom - int32(h) - gap
+		icon := trayIconRect()
+		work, edge, dpi := whereToOpen(icon)
+		w, h := size(dpi)
+		gap := 12 * int32(dpi) / 96
+		x, y := place(work, edge, icon, w, h, gap)
 		_, _, _ = pSetWindowPos.Call(p.hwnd, hwndTopmost, uintptr(x), uintptr(y), uintptr(w), uintptr(h), swpShow)
 		// The browser starts invisible because its window was hidden when it
 		// was created; it is told to draw each time the panel opens.
@@ -306,6 +351,121 @@ func (p *panel) show() {
 		// panel hidden, skipped drawing, and waited the hidden interval.
 		p.refreshNow()
 	})
+}
+
+// --- where the panel goes ----------------------------------------------------------
+
+type monitorInfo struct {
+	Size    uint32
+	Monitor rect
+	Work    rect
+	Flags   uint32
+}
+
+type appBarData struct {
+	Size            uint32
+	Wnd             uintptr
+	CallbackMessage uint32
+	Edge            uint32
+	Rc              rect
+	LParam          uintptr
+}
+
+type notifyIconIdentifier struct {
+	Size uint32
+	Wnd  uintptr
+	ID   uint32
+	GUID windows.GUID
+}
+
+const monitorDefaultToNearest = 2
+
+// whereToOpen picks the monitor the panel opens on -- the one showing the
+// icon, else the one with the taskbar, else the one under the pointer --
+// and returns its work area, the edge its taskbar is on and its DPI.
+func whereToOpen(icon rect) (work rect, edge int, dpi uint32) {
+	abd := appBarData{}
+	abd.Size = uint32(unsafe.Sizeof(abd))
+	haveBar, _, _ := pSHAppBarMessage.Call(5, uintptr(unsafe.Pointer(&abd))) // ABM_GETTASKBARPOS
+	var mon uintptr
+	switch {
+	case !icon.empty():
+		mon, _, _ = pMonitorFromRect.Call(uintptr(unsafe.Pointer(&icon)), monitorDefaultToNearest)
+	case haveBar != 0:
+		mon, _, _ = pMonitorFromRect.Call(uintptr(unsafe.Pointer(&abd.Rc)), monitorDefaultToNearest)
+	default:
+		var pt struct{ X, Y int32 }
+		_, _, _ = pGetCursorPos.Call(uintptr(unsafe.Pointer(&pt)))
+		// MonitorFromPoint takes the POINT by value, packed into one word.
+		mon, _, _ = pMonitorFromPoint.Call(uintptr(uint32(pt.X))|uintptr(uint32(pt.Y))<<32, monitorDefaultToNearest)
+	}
+	mi := monitorInfo{}
+	mi.Size = uint32(unsafe.Sizeof(mi))
+	if mon == 0 {
+		return rect{}, edgeBottom, systemDPI()
+	}
+	if ok, _, _ := pGetMonitorInfoW.Call(mon, uintptr(unsafe.Pointer(&mi))); ok == 0 {
+		return rect{}, edgeBottom, systemDPI()
+	}
+	edge = edgeOf(mi.Monitor, mi.Work)
+	// Windows' own word on the edge, when the taskbar it describes is on
+	// this monitor: an auto-hidden taskbar leaves the work area whole, so
+	// the work area alone cannot say.
+	if haveBar != 0 && abd.Edge <= edgeBottom {
+		if barMon, _, _ := pMonitorFromRect.Call(uintptr(unsafe.Pointer(&abd.Rc)), monitorDefaultToNearest); barMon == mon {
+			edge = int(abd.Edge)
+		}
+	}
+	var dx, dy uint32
+	if hr, _, _ := pGetDpiForMonitor.Call(mon, 0, uintptr(unsafe.Pointer(&dx)), uintptr(unsafe.Pointer(&dy))); hr != 0 || dx == 0 { // MDT_EFFECTIVE_DPI
+		dx = systemDPI()
+	}
+	return mi.Work, edge, dx
+}
+
+// trayIconRect is where the icon is on screen, or an empty rect when Windows
+// will not say -- when the icon is tucked into the overflow area, say.
+func trayIconRect() rect {
+	hwnd := systrayWindow()
+	if hwnd == 0 {
+		return rect{}
+	}
+	// 100 is the id fyne.io/systray gives its one icon.
+	id := notifyIconIdentifier{Wnd: hwnd, ID: 100}
+	id.Size = uint32(unsafe.Sizeof(id))
+	var r rect
+	if hr, _, _ := pShellNotifyIconGetRect.Call(uintptr(unsafe.Pointer(&id)), uintptr(unsafe.Pointer(&r))); hr != 0 {
+		return rect{}
+	}
+	return r
+}
+
+var (
+	systrayHwnd   uintptr
+	findSystrayCB = windows.NewCallback(func(hwnd, _ uintptr) uintptr {
+		var owner uint32
+		_, _, _ = pGetWindowThreadProcessID.Call(hwnd, uintptr(unsafe.Pointer(&owner)))
+		if owner != uint32(os.Getpid()) {
+			return 1
+		}
+		var buf [64]uint16
+		n, _, _ := pGetClassNameW.Call(hwnd, uintptr(unsafe.Pointer(&buf[0])), uintptr(len(buf)))
+		if windows.UTF16ToString(buf[:n]) == "SystrayClass" {
+			systrayHwnd = hwnd
+			return 0
+		}
+		return 1
+	})
+)
+
+// systrayWindow finds the hidden window fyne.io/systray owns the icon
+// through, which the library does not expose: this process's top-level
+// window of its class. Only the panel's thread calls it.
+func systrayWindow() uintptr {
+	if systrayHwnd == 0 {
+		_, _, _ = pEnumWindows.Call(findSystrayCB, 0)
+	}
+	return systrayHwnd
 }
 
 func (p *panel) hide() {
@@ -540,6 +700,12 @@ func signalOpen() {
 	if err != nil {
 		return
 	}
+	// This copy was just started from the Start menu, so Windows lets it
+	// take the foreground; the running copy, idle in the background, may
+	// not. Passing the right on lets the panel come to the front with
+	// focus, instead of opening behind whatever was in front -- where
+	// Escape and clicking away would not close it.
+	_, _, _ = pAllowSetForegroundWindow.Call(^uintptr(0)) // ASFW_ANY
 	_ = windows.SetEvent(h)
 	_ = windows.CloseHandle(h)
 }
@@ -588,6 +754,18 @@ func launchCommand() (string, error) {
 }
 
 func fileExists(p string) bool { _, err := os.Stat(p); return err == nil }
+
+// lightTheme reports whether Windows is set to light mode for apps, which is
+// what the page's prefers-color-scheme follows.
+func lightTheme() bool {
+	k, err := registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`, registry.QUERY_VALUE)
+	if err != nil {
+		return false
+	}
+	defer k.Close()
+	v, _, err := k.GetIntegerValue("AppsUseLightTheme")
+	return err == nil && v == 1
+}
 
 func startAtLogin() bool {
 	k, err := registry.OpenKey(registry.CURRENT_USER, runKey, registry.QUERY_VALUE)

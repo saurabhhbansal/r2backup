@@ -154,11 +154,14 @@ have to remember it.
 
 ## In the Windows taskbar
 
+The installer adds **r2backup** to the Start menu and offers to start it.
+From a terminal,
+
 ```powershell
 r2bw tray
 ```
 
-puts an icon in the notification area. Its colour says how the backups are
+does the same: it puts an icon in the notification area. Its colour says how the backups are
 doing — green when they are fine, blue while one runs, red when a folder
 needs a look — and a click opens a panel with:
 
@@ -171,7 +174,9 @@ needs a look — and a click opens a panel with:
 
 It starts the same `r2b` commands the terminal does, so a backup started from
 the panel is exactly the one the scheduler runs. Windows only for now; it uses
-WebView2, which comes with Windows 11.
+WebView2, which comes with Windows 11 (on Windows 10, install the
+[WebView2 Runtime](https://go.microsoft.com/fwlink/p/?LinkId=2124703) — if it
+is missing, the app says so instead of quietly not starting).
 
 ## Drime
 

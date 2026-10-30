@@ -29,14 +29,22 @@ func newTrayCmd(opts *Options) *cobra.Command {
 			"(r2bw tray) for no console window. Windows only.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			d, err := openDashboard(opts)
-			if err != nil {
-				return err
-			}
-			defer d.close()
-			return tray.Run(cmd.Context(), &trayBackend{d: d})
+			err := runTray(cmd.Context(), opts)
+			// Started from the Start menu or at sign-in there is no console
+			// to print this to, so it is shown on screen as well.
+			tray.Fail(err)
+			return err
 		},
 	}
+}
+
+func runTray(ctx context.Context, opts *Options) error {
+	d, err := openDashboard(opts)
+	if err != nil {
+		return err
+	}
+	defer d.close()
+	return tray.Run(ctx, &trayBackend{d: d})
 }
 
 // trayBackend is the panel's view of the program. Reading goes through the
@@ -79,6 +87,10 @@ func (t *trayBackend) State(ctx context.Context) (tray.State, error) {
 		}
 		return t.summarize(views, ov, now), nil
 	}
+	// Folders are added and removed by other r2b processes -- the panel's
+	// own "Back up another folder" runs `r2b add` -- so the list is read
+	// again rather than kept from start-up. A failed read keeps the last one.
+	_ = t.d.app.sets.Reload()
 	fresh, freshOV, err := t.d.Load(ctx)
 	if err != nil {
 		if errors.Is(err, index.ErrLocked) && cached {

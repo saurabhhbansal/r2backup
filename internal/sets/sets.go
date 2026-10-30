@@ -158,6 +158,22 @@ func Open(path string) (*Store, error) {
 	return s, nil
 }
 
+// Reload re-reads the file, for a process that outlives the changes other
+// r2b processes make: the taskbar app adds a folder by running `r2b add`,
+// and would otherwise go on listing the sets it read when it started. If the
+// file cannot be read or parsed -- mid-replace, say -- the sets already held
+// are kept and the error returned.
+func (s *Store) Reload() error {
+	fresh, err := Open(s.path)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.sets = fresh.sets
+	s.mu.Unlock()
+	return nil
+}
+
 // List returns every set, ordered by name.
 func (s *Store) List() []Set {
 	s.mu.RLock()

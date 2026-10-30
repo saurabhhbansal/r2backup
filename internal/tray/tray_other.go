@@ -13,3 +13,7 @@ import (
 func Run(ctx context.Context, be Backend) error {
 	return errors.New("the taskbar app is Windows-only for now; run r2b for the interface")
 }
+
+// Fail does nothing here: the command prints Run's error, and there is no
+// taskbar app to have failed.
+func Fail(error) {}

@@ -58,3 +58,33 @@ func TestTheWindowsInstallerPlacesTheLauncher(t *testing.T) {
 		t.Error("install.ps1 never mentions r2bw.exe, so an installed r2b would show a console window on every scheduled run")
 	}
 }
+
+// The taskbar app is only found by people who read the docs unless the
+// installer puts it in the Start menu -- run through r2bw, or opening it
+// from there would also open a console window.
+func TestTheWindowsInstallerAddsTheTaskbarAppToTheStartMenu(t *testing.T) {
+	data, err := os.ReadFile("../../scripts/install.ps1")
+	if err != nil {
+		t.Fatalf("read install.ps1: %v", err)
+	}
+	s := string(data)
+	for _, want := range []string{"GetFolderPath('Programs')", "r2backup.lnk", "CreateShortcut", "Arguments        = 'tray'", "$trayCmd = Join-Path $installDir 'r2bw.exe'"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("install.ps1 no longer contains %q: the Start menu shortcut to `r2bw tray` is gone or changed", want)
+		}
+	}
+}
+
+// The programs carry their icon as a Windows resource, linked in from the
+// .syso files cmd/r2b/winres_gen.go writes. go build ignores a missing one
+// silently, so the icon would just quietly vanish.
+func TestTheProgramsCarryTheirIcon(t *testing.T) {
+	for _, f := range []string{
+		"rsrc_windows_amd64.syso", "rsrc_windows_arm64.syso",
+		"../r2b/rsrc_windows_amd64.syso", "../r2b/rsrc_windows_arm64.syso",
+	} {
+		if _, err := os.Stat(f); err != nil {
+			t.Errorf("%s is missing; run go generate ./cmd/r2b", f)
+		}
+	}
+}

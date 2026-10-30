@@ -1,6 +1,9 @@
 // Command r2b backs up folders to Cloudflare R2 and restores them anywhere.
 package main
 
+// The Windows icon for r2b.exe and r2bw.exe; see winres_gen.go.
+//go:generate go run winres_gen.go
+
 import (
 	"fmt"
 	"os"

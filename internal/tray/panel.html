@@ -21,6 +21,8 @@
   }
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
+/* The hidden attribute loses to any display rule, such as .icon-btn's. */
+[hidden] { display: none !important; }
 html, body { height: 100%; }
 body {
   background: var(--bg); color: var(--text);
@@ -321,7 +323,9 @@ $("b-term").onclick = $("b-term2").onclick = () => send("dashboard");
 $("b-set").onclick = $("b-sched").onclick = () => $("sheet").classList.add("open");
 $("b-back").onclick = () => $("sheet").classList.remove("open");
 $("b-all").onclick = () => send("backup", "");
-$("b-add").onclick = () => send("add");
+// Back to the folder list, where the new folder and its progress will show
+// when the panel reopens after the picker.
+$("b-add").onclick = () => { $("sheet").classList.remove("open"); send("add"); };
 $("b-quit").onclick = () => send("quit");
 $("sw-sched").onclick = () => { const on = $("sw-sched").getAttribute("aria-checked") !== "true"; send("schedule", (on ? "on:" : "off:") + $("sel-every").value); };
 $("sel-every").onchange = () => send("schedule", "on:" + $("sel-every").value);

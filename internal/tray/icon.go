@@ -39,6 +39,21 @@ func Icon(kind string) []byte {
 	return packICO(sizes, pngs)
 }
 
+// AppIcon is the programs' own icon -- the one Explorer, the Start menu and
+// Task Manager show for r2b.exe and r2bw.exe: the mark alone, with no status
+// dot, up to the 256 pixels Explorer's largest view asks for. cmd/r2b's
+// winres_gen.go builds it into the binaries.
+func AppIcon() []byte {
+	sizes := []int{16, 20, 24, 32, 40, 48, 64, 256}
+	var pngs [][]byte
+	for _, s := range sizes {
+		var buf bytes.Buffer
+		_ = png.Encode(&buf, drawIcon(s, ""))
+		pngs = append(pngs, buf.Bytes())
+	}
+	return packICO(sizes, pngs)
+}
+
 // drawIcon renders one size, with simple coverage-based anti-aliasing so the
 // diagonal edges are not jagged at 16 pixels.
 func drawIcon(size int, kind string) *image.NRGBA {

@@ -41,11 +41,33 @@ try {
   New-Item -ItemType Directory -Path $installDir -Force | Out-Null
   Expand-Archive -Path (Join-Path $tmp $asset) -DestinationPath $tmp -Force
 
+  # A taskbar app started from the previous install is running r2b.exe, and
+  # its r2bw.exe is waiting on it. Note it now, to start the new one in its
+  # place once the files are in.
+  $trayWasRunning = @(Get-CimInstance Win32_Process -Filter "Name='r2b.exe'" -ErrorAction SilentlyContinue |
+    Where-Object { $_.ExecutablePath -eq (Join-Path $installDir 'r2b.exe') -and $_.CommandLine -match '\stray(\s|$)' })
+
+  # Windows will not overwrite a running .exe -- the taskbar app, or a
+  # backup in progress -- but it will rename one: the running copy keeps
+  # going under the new name. So a file that cannot be replaced is moved
+  # aside first. r2b deletes r2b.exe.old itself the next time it starts, as
+  # it does after `r2b update`; the next install clears r2bw.exe.old.
+  function Install-Exe($from, $to) {
+    $old = "$to.old"
+    if (Test-Path $old) { Remove-Item $old -Force -ErrorAction SilentlyContinue }
+    if (Test-Path $to) {
+      try { Copy-Item $from $to -Force; return } catch { }
+      if (Test-Path $old) { $old = "$to.$([guid]::NewGuid().ToString('N').Substring(0, 8)).old" }
+      Move-Item $to $old
+    }
+    Copy-Item $from $to -Force
+  }
+
   # The binary was called r2backup.exe up to v0.1.6. Accept either name in the
   # archive so this script keeps working on an older release.
   $main = @('r2b.exe','r2backup.exe') | ForEach-Object { Join-Path $tmp $_ } | Where-Object { Test-Path $_ } | Select-Object -First 1
   if (-not $main) { throw 'the archive contains no r2b.exe' }
-  Copy-Item $main (Join-Path $installDir 'r2b.exe') -Force
+  Install-Exe $main (Join-Path $installDir 'r2b.exe')
 
   # r2bw.exe is what a scheduled run is pointed at: it starts r2b with no
   # console window, which r2b cannot do for itself because Windows creates its
@@ -57,7 +79,27 @@ try {
   # Tolerated when absent so this script still installs an older release.
   $launcher = @('r2bw.exe','r2backupw.exe') | ForEach-Object { Join-Path $tmp $_ } | Where-Object { Test-Path $_ } | Select-Object -First 1
   if ($launcher) {
-    Copy-Item $launcher (Join-Path $installDir 'r2bw.exe') -Force
+    Install-Exe $launcher (Join-Path $installDir 'r2bw.exe')
+  }
+
+  # The taskbar app, in the Start menu: without this it exists only for
+  # someone who reads the docs. The shortcut runs it through r2bw.exe, so no
+  # console window opens. An older release has no taskbar app -- and no r2bw
+  # -- so it gets no shortcut.
+  $trayCmd = $null
+  $hasTray = $launcher -and ((& (Join-Path $installDir 'r2b.exe') help 2>$null) -match '^\s+tray\s')
+  $shortcut = Join-Path ([Environment]::GetFolderPath('Programs')) 'r2backup.lnk'
+  if ($hasTray) {
+    $trayCmd = Join-Path $installDir 'r2bw.exe'
+    $lnk = (New-Object -ComObject WScript.Shell).CreateShortcut($shortcut)
+    $lnk.TargetPath       = $trayCmd
+    $lnk.Arguments        = 'tray'
+    $lnk.WorkingDirectory = $installDir
+    $lnk.IconLocation     = "$trayCmd,0"
+    $lnk.Description      = 'See how your backups are doing, and back up now'
+    $lnk.Save()
+  } elseif (Test-Path $shortcut) {
+    Remove-Item $shortcut -Force -ErrorAction SilentlyContinue
   }
 
   # Clear out the old names. Leaving them behind is worse than removing them:
@@ -82,8 +124,28 @@ try {
 
   Write-Host ""
   Write-Host "Installed r2backup $tag to $installDir. The command is: r2b"
+  if ($trayCmd) {
+    Write-Host "The taskbar app is in the Start menu as r2backup."
+  }
   Write-Host ""
   Write-Host "Next: r2b setup"
+
+  if ($trayCmd) {
+    if ($trayWasRunning.Count -gt 0) {
+      # It was running the old version: swap it for the new one.
+      $trayWasRunning | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+      Start-Sleep -Milliseconds 500
+      Start-Process $trayCmd -ArgumentList 'tray' -WorkingDirectory $installDir
+      Write-Host "Restarted the taskbar app."
+    } elseif ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) {
+      $answer = $null
+      try { $answer = Read-Host 'Start the taskbar app now? [Y/n]' } catch { }
+      if ($null -ne $answer -and $answer -notmatch '^\s*n') {
+        Start-Process $trayCmd -ArgumentList 'tray' -WorkingDirectory $installDir
+        Write-Host "Started. Look for the diamond in the notification area by the clock."
+      }
+    }
+  }
 } finally {
   Remove-Item -Recurse -Force $tmp -ErrorAction SilentlyContinue
 }
