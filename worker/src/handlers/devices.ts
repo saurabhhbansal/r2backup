@@ -6,8 +6,16 @@ export async function handlePostDevice(request: Request, ctx: AppContext): Promi
   const auth = await authenticate(request, ctx);
   if (auth instanceof Response) return auth;
 
-  const body = await readJsonBody<{ device_name?: unknown; os?: unknown }>(request, MAX_DEVICE_BODY_BYTES);
-  if (body === null || typeof body.device_name !== "string" || typeof body.os !== "string") {
+  const body = await readJsonBody<{ device_name?: unknown; os?: unknown; previous_name?: unknown }>(
+    request,
+    MAX_DEVICE_BODY_BYTES,
+  );
+  if (
+    body === null ||
+    typeof body.device_name !== "string" ||
+    typeof body.os !== "string" ||
+    (body.previous_name !== undefined && typeof body.previous_name !== "string")
+  ) {
     return jsonResponse({ error: "invalid request" }, 400);
   }
 
@@ -16,6 +24,11 @@ export async function handlePostDevice(request: Request, ctx: AppContext): Promi
     os: body.os,
     last_seen: ctx.now(),
   });
+  // A computer that was renamed: its entry under the old name goes, so the
+  // account lists it once.
+  if (typeof body.previous_name === "string" && body.previous_name !== body.device_name) {
+    await ctx.storage.deleteDevice(auth, body.previous_name);
+  }
 
   return jsonResponse({ ok: true }, 200);
 }

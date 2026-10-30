@@ -1,0 +1,44 @@
+name: Bug report
+description: Something r2backup did that it should not have, or did not do.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Shown at the bottom of Settings in the taskbar app, or by `r2b --version`.
+      placeholder: v1.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options: [Windows 11, Windows 10, macOS, Linux]
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where it happened
+      options: [Taskbar app, Terminal dashboard (r2b), A command (r2b <command>), Install or update]
+    validations:
+      required: true
+  - type: dropdown
+    id: storage
+    attributes:
+      label: Storage
+      options: [Cloudflare R2, Drime, Both (second copy)]
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output or error
+      description: Paste any error text. Remove keys, tokens and email addresses first.
+      render: text

@@ -252,18 +252,17 @@ func (d *dashboard) RemoteSets(ctx context.Context) ([]ui.RemoteSet, error) {
 	if err != nil {
 		return nil, err
 	}
-	me := machineName()
 	local := a.sets.List()
 	out := make([]ui.RemoteSet, 0, len(found))
 	for _, f := range found {
-		row := ui.RemoteSet{Name: f.Name, Machine: f.Machine}
-		if f.Machine == me {
-			for _, s := range local {
-				if s.Prefix == f.Prefix {
-					row.Here = true
-					row.Name = s.Name
-					break
-				}
+		row := ui.RemoteSet{Name: f.Name, Machine: f.Machine, Mine: isThisMachine(f.Machine)}
+		// Matched by location alone: a folder backed up before this
+		// computer was renamed is still filed under its old name.
+		for _, s := range local {
+			if s.Prefix == f.Prefix {
+				row.Here, row.Mine = true, true
+				row.Name = s.Name
+				break
 			}
 		}
 		out = append(out, row)
@@ -307,6 +306,9 @@ func (d *dashboard) Account(ctx context.Context) (ui.AccountView, error) {
 	v.Email = account.EmailFromToken(token)
 	me := machineName()
 	for _, dev := range devices {
+		if dev.DeviceName != me && isThisMachine(dev.DeviceName) {
+			continue // this computer, under a name it has since changed
+		}
 		v.Devices = append(v.Devices, ui.DeviceView{
 			Name: dev.DeviceName, OS: dev.OS,
 			LastSeen: time.Unix(dev.LastSeen, 0), This: dev.DeviceName == me,

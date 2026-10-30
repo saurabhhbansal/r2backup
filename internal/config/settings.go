@@ -52,6 +52,14 @@ type Settings struct {
 	// seconds, so an automatic mirror can skip a set that has not changed
 	// since -- and still run once a day to catch anything a failed run left.
 	MirrorLast map[string]int64 `json:"mirror_last,omitempty"`
+
+	// MachineName is what this computer is called, chosen in the panel.
+	// Empty means the computer's own hostname. New folders are filed under
+	// it; folders already backed up keep the name they were filed under.
+	MachineName string `json:"machine_name,omitempty"`
+	// MachineNamesBefore are the names this computer went by before, so
+	// backups filed under an earlier name still read as this computer's.
+	MachineNamesBefore []string `json:"machine_names_before,omitempty"`
 }
 
 // SettingsPath is where the settings file lives.

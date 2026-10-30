@@ -68,6 +68,10 @@ export class MemoryStorage implements Storage {
     this.devices.set(email, existing);
   }
 
+  async deleteDevice(email: string, deviceName: string): Promise<void> {
+    this.devices.set(email, (this.devices.get(email) ?? []).filter((d) => d.device_name !== deviceName));
+  }
+
   async getRateLimit(key: string): Promise<RateLimitState | null> {
     return this.rateLimits.get(key) ?? null;
   }

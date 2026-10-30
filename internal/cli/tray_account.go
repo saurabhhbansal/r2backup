@@ -266,6 +266,18 @@ func (t *trayBackend) accountCall(ctx context.Context, method string, raw []byte
 
 	case "keysPush":
 		return nil, true, t.pushKeys(ctx)
+
+	case "renameMachine":
+		var a struct {
+			Name string `json:"name"`
+		}
+		if err := decodeArgs(raw, &a); err != nil {
+			return nil, true, err
+		}
+		if err := t.renameMachine(ctx, a.Name); err != nil {
+			return nil, true, err
+		}
+		return map[string]string{"machine": machineName()}, true, nil
 	}
 	return nil, false, nil
 }

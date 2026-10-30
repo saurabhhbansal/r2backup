@@ -150,7 +150,7 @@ A monochrome world: near-black (or near-white in light mode) neutrals, with ink 
 
 ## Layout
 
-A fixed 380 by 580 window, stacked top to bottom: header (the stack logo in text colour, name, computer name, three icon buttons), status block, tabs (Folders / Activity), a scrolling list (the empty and setup states lead with the wide logo), and a footer with the full-width primary action. Everything is done in the panel; nothing sends a person to a terminal, and no text names a command or a key (messages from the shared code go through `tray.Plain` first). Settings, connecting storage, the account, the second copy, adding a folder, restoring files, deleted files, a folder's settings, one backup run and usage and cost each slide in over the whole window as a sheet from the right. The sheet opened last is moved to the end of the document, so it is drawn on top and is the one Escape or the back arrow closes; opening a sheet puts focus on its back arrow, and a closed sheet is hidden from Tab. Horizontal gutter 14px; list rows inset 8px. Rows are a three-column grid: status icon, name and detail, trailing metadata that swaps to row actions on hover or focus.
+A fixed 380 by 580 window, stacked top to bottom: header (the wide logo in text colour, and three icon buttons: Backups, Deleted files, Settings; no account and no computer name, which live in Settings), status block, tabs (Folders / Activity), a scrolling list (the empty and setup states lead with the wide logo), and a footer with the full-width primary action. Everything is done in the panel; nothing sends a person to a terminal, and no text names a command or a key (messages from the shared code go through `tray.Plain` first). Settings, connecting storage, the account, the second copy, adding a folder, restoring files, deleted files, a folder's settings, one backup run and usage and cost each slide in over the whole window as a sheet from the right. The sheet opened last is moved to the end of the document, so it is drawn on top and is the one Escape or the back arrow closes; opening a sheet puts focus on its back arrow, and a closed sheet is hidden from Tab. Horizontal gutter 14px; list rows inset 8px. Rows are a three-column grid: status icon, name and detail, trailing metadata that swaps to row actions on hover or focus.
 
 ## Elevation & Depth
 
@@ -180,6 +180,11 @@ Windows 11 roundness throughout: 10px window corners, 12px for the status block 
 
 ### Settings sheet
 - Grouped rows inside Surface groups with hairline dividers; switches 38 by 22 pills, Signal when on; the Quit row in Alarm Red.
+- The first row is the account: an avatar, the email, and this computer's name under it. It opens the Account sheet, the only way in.
+
+### Computers (Account sheet)
+- One row per computer: the name, a "This one" chip on this computer, and when it was last seen on the right.
+- This computer's row ends in a small pencil icon button. It swaps the row for a field with Save and Cancel (Mini at 34); Enter saves, Escape cancels, and an error sits under the field. Only this computer can be renamed: the name is where its new folders are filed.
 
 ### Sheets and forms
 - A sheet is a back arrow and a title over a scrolling body, with an optional footer holding one action. Steps inside a sheet (choose storage, then enter a token) swap in place and the back arrow walks them back.
