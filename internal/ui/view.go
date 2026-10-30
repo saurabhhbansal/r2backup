@@ -71,7 +71,7 @@ func styledTable(cols []table.Column, rows []table.Row, height, cursor int) tabl
 	st := table.DefaultStyles()
 	st.Header = st.Header.BorderStyle(lipgloss.NormalBorder()).
 		BorderForeground(subtle).BorderBottom(true).Bold(true)
-	st.Selected = st.Selected.Foreground(lipgloss.Color("0")).Background(accent)
+	st.Selected = st.Selected.Foreground(lipgloss.AdaptiveColor{Light: "255", Dark: "0"}).Background(accent)
 	t := table.New(
 		table.WithColumns(cols), table.WithRows(rows),
 		table.WithFocused(true), table.WithHeight(height), table.WithStyles(st),

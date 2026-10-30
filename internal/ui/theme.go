@@ -6,7 +6,7 @@ import "github.com/charmbracelet/lipgloss"
 // knowable in advance and a fixed palette is unreadable on half of them --
 // the same reason the picker in internal/tui has never used a bare colour.
 var (
-	accent  = lipgloss.AdaptiveColor{Light: "27", Dark: "39"}
+	accent  = lipgloss.AdaptiveColor{Light: "234", Dark: "255"} // ink: the app is monochrome
 	subtle  = lipgloss.AdaptiveColor{Light: "245", Dark: "241"}
 	muted   = lipgloss.AdaptiveColor{Light: "240", Dark: "245"}
 	good    = lipgloss.AdaptiveColor{Light: "28", Dark: "42"}
