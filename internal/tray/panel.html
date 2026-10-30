@@ -271,6 +271,8 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
 .inline { display: flex; gap: 8px; align-items: center; }
 .inline input { flex: 1; }
 .inline .mini { height: 34px; padding: 0 12px; }
+.inline.limit { flex: none; }
+.inline.limit input { width: 76px; flex: none; text-align: right; }
 .tip { color: var(--faint); font-size: 12px; padding: 0 2px 12px; }
 
 /* status actions, run detail, alerts */
@@ -383,7 +385,7 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
 <body>
 <header>
   <button class="who" id="b-who" title="Your account" aria-label="Your account"><span class="avatar" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.6"/><path d="M5 19.5c1.2-3.3 3.9-5 7-5s5.8 1.7 7 5"/></svg></span><span class="brand"><b id="who-email">r2backup</b><span id="dest">&nbsp;</span></span></button>
-  <button class="icon-btn" id="b-restore" title="Backups and restore" aria-label="Backups and restore"><svg viewBox="0 0 24 24"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1M3.5 4.5v4h4"/><path d="M12 7.5V12l3 2"/></svg></button>
+  <button class="icon-btn" id="b-restore" title="Backups" aria-label="Backups"><svg viewBox="0 0 24 24"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1M3.5 4.5v4h4"/><path d="M12 7.5V12l3 2"/></svg></button>
   <button class="icon-btn" id="b-trash" title="Deleted files" aria-label="Deleted files"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M5.5 7l1 12a1.5 1.5 0 0 0 1.5 1.4h8a1.5 1.5 0 0 0 1.5-1.4l1-12M9 7V4.5h6V7"/></svg></button>
   <button class="icon-btn" id="b-set" title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
 </header>
@@ -415,11 +417,11 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
   </header>
   <main>
     <div class="group">
-      <button class="item link" id="b-account"><span class="avatar" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.6"/><path d="M5 19.5c1.2-3.3 3.9-5 7-5s5.8 1.7 7 5"/></svg></span><div class="t"><b id="acct-row-t">Account</b><span id="acct-row-sub">Where your backups go, and the second copy.</span></div></button>
+      <button class="item link" id="b-account"><span class="avatar" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.6"/><path d="M5 19.5c1.2-3.3 3.9-5 7-5s5.8 1.7 7 5"/></svg></span><div class="t"><b id="acct-row-t">Account</b><span id="acct-row-sub"></span></div></button>
     </div>
     <div class="group">
       <div class="item">
-        <div class="t"><b>Back up automatically</b><span id="sched-help">Runs in the background, even with this closed.</span></div>
+        <div class="t"><b>Back up automatically</b><span id="sched-help"></span></div>
         <button class="toggle" id="sw-sched" role="switch" aria-checked="false" aria-label="Back up automatically"></button>
       </div>
       <div class="item">
@@ -435,18 +437,18 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
     </div>
     <div class="group">
       <div class="item">
-        <div class="t"><b>Start with Windows</b><span>Keep this icon in the taskbar after a restart.</span></div>
+        <div class="t"><b>Start with Windows</b></div>
         <button class="toggle" id="sw-login" role="switch" aria-checked="false" aria-label="Start with Windows"></button>
       </div>
     </div>
     <div class="group">
-      <button class="item link" id="b-add"><div class="t"><b>Back up another folder…</b><span>Choose a folder, and what in it to leave out.</span></div></button>
+      <button class="item link" id="b-add"><div class="t"><b>Add a folder…</b></div></button>
     </div>
     <div class="group">
-      <button class="item link" id="b-update"><div class="t"><b id="update-t">Check for updates</b><span id="update-sub">&nbsp;</span></div></button>
+      <button class="item link" id="b-update"><div class="t"><b id="update-t">Check for updates</b><span id="update-sub"></span></div></button>
     </div>
     <div class="group">
-      <button class="item link danger" id="b-quit"><div class="t"><b>Quit r2backup</b><span>Scheduled backups still run.</span></div></button>
+      <button class="item link danger" id="b-quit"><div class="t"><b>Quit r2backup</b></div></button>
     </div>
     <p class="foot" id="ver"></p>
   </main>
@@ -504,7 +506,6 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
     <div class="pane" data-rpane="pick"></div>
     <div class="pane" data-rpane="browse" hidden></div>
     <div class="pane" data-rpane="where" hidden>
-      <h2>Where should they go?</h2>
       <p id="r-where-help"></p>
       <div class="group" role="radiogroup" aria-label="Where to restore">
         <button class="opt" id="r-opt-orig" role="radio" aria-checked="false"><div class="dot-r"></div><div><b>Back where they were</b><span id="r-orig-path"></span></div></button>
@@ -512,11 +513,11 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
       </div>
       <div class="group">
         <div class="item">
-          <div class="t"><b>Replace files already there</b><span>Off: anything already in place is left alone.</span></div>
+          <div class="t"><b>Replace existing files</b></div>
           <button class="toggle" id="r-overwrite" role="switch" aria-checked="false" aria-label="Replace files already there"></button>
         </div>
         <div class="item">
-          <div class="t"><b>Check every file afterwards</b><span>Reads each one back and compares it. Slower.</span></div>
+          <div class="t"><b>Verify afterwards</b><span>Slower</span></div>
           <button class="toggle" id="r-verify" role="switch" aria-checked="false" aria-label="Check every file afterwards"></button>
         </div>
       </div>
@@ -803,7 +804,7 @@ function render(state) {
   $("dest").textContent = state.machine;
   $("who-email").textContent = state.signedIn ? state.email : "Not signed in";
   $("acct-row-t").textContent = state.signedIn ? state.email : "Account";
-  $("acct-row-sub").textContent = state.configured ? "Backups go to " + state.destination + (state.second ? ". Second copy: " + state.second + "." : ".") : "Choose where your backups go.";
+  $("acct-row-sub").textContent = state.configured ? state.destination + (state.second ? ", copy on " + state.second : "") : "No storage connected";
   if (!state.signedIn) showGate();
   $("b-restore").disabled = $("b-trash").disabled = !state.configured;
 
@@ -836,8 +837,8 @@ function render(state) {
   if (state.notice && state.noticeAt !== lastNotice) { lastNotice = state.noticeAt; toast(state.notice); }
   $("upd-dot").hidden = !state.update;
   $("b-set").setAttribute("aria-label", state.update ? "Settings, an update is ready" : "Settings");
-  if (state.update) { $("update-t").textContent = "Update to " + state.update; $("update-sub").textContent = "A newer r2backup is ready. It restarts by itself."; }
-  else if (!updChecked) { $("update-t").textContent = "Check for updates"; $("update-sub").textContent = "You have " + (state.version ? "v" + state.version : "this version") + "."; }
+  if (state.update) { $("update-t").textContent = "Update to " + state.update; $("update-sub").textContent = "Restarts by itself"; }
+  else if (!updChecked) { $("update-t").textContent = "Check for updates"; $("update-sub").textContent = ""; }
   renderStatusActions(state);
   renderList();
 }
@@ -872,14 +873,14 @@ function renderList() {
   const busy = !!S.running || !!S.busy;
   let html = "";
   if (!S.configured) {
-    html = '<div class="empty"><b>Connect your storage</b>Choose where your backups go, then pick the folders to protect.<br><button class="mini" data-act="connect">Connect storage</button></div>';
+    html = '<div class="empty"><b>No storage connected</b><button class="mini" data-act="connect">Connect storage</button></div>';
   } else if (tab === "folders") {
     if (!S.folders || !S.folders.length) {
-      html = '<div class="empty"><b>No folders yet</b>Pick a folder and everything in it is backed up from then on.<br><button class="mini" data-act="add">Choose a folder…</button>' +
-        (remoteBackups ? '<br><button class="textbtn" data-act="restore-other" style="margin-top:8px">' + esc(remoteBackups) + "</button>" : "") + "</div>";
+      html = '<div class="empty"><b>No folders yet</b><button class="mini" data-act="add">Add a folder…</button>' +
+        (remoteBackups ? '<div><button class="textbtn" data-act="restore-other" style="margin-top:10px">' + esc(remoteBackups) + "</button></div>" : "") + "</div>";
     } else {
       for (const f of S.folders) {
-        const note = f.missing ? "Not where it was. Open it to say where it went." : f.note;
+        const note = f.missing ? "Folder not found" : f.note;
         const sub = f.kind === "attention" && note ? '<span class="err" title="' + esc(f.note) + '">' + esc(note) + "</span>" : "<span>" + esc(f.root) + "</span>";
         html += '<div class="row" data-folder="' + esc(f.name) + '" tabindex="0" role="button" title="' + esc(f.root) + '">' +
           '<div class="ic i-' + f.kind + '">' + (ICON.folder[f.kind] || ICON.folder.never) + "</div>" +
@@ -892,7 +893,7 @@ function renderList() {
     }
   } else {
     if (!S.recent || !S.recent.length) {
-      html = '<div class="empty"><b>No backups have run yet</b>Each run will be listed here with what it did.</div>';
+      html = '<div class="empty"><b>No backups yet</b></div>';
     } else {
       let day = "";
       S.recent.forEach((r, i) => {
@@ -992,7 +993,7 @@ async function findRemoteBackups() {
     const others = sets.filter((x) => !x.here);
     if (!others.length) { remoteBackups = ""; return; }
     const machines = [...new Set(others.map((x) => x.machine))];
-    remoteBackups = "Restore files backed up on " + (machines.length === 1 ? machines[0] : machines.length + " other computers") + "…";
+    remoteBackups = "Restore from " + (machines.length === 1 ? machines[0] : machines.length + " other computers") + "…";
     renderList();
   } catch (e) { /* nothing to offer */ }
 }
@@ -1069,10 +1070,10 @@ async function openRestore(setName) {
 
 async function loadSets(autoName) {
   const pane = rPane("pick");
-  pane.innerHTML = '<div class="note">Looking at your backups…</div>';
+  pane.innerHTML = '<div class="note">Loading…</div>';
   try {
     const sets = await call("restoreSets");
-    if (!sets.length) { pane.innerHTML = '<div class="empty"><b>Nothing to restore yet</b>Back up a folder first. It will be listed here.</div>'; return; }
+    if (!sets.length) { pane.innerHTML = '<div class="empty"><b>No backups yet</b></div>'; return; }
     if (autoName) { const m = sets.find((x) => x.here && x.name === autoName); if (m) { chooseSet(m); return; } }
     const groups = new Map();
     for (const x of sets) { const g = x.here || (S && x.machine === S.machine) ? "This computer" : x.machine; if (!groups.has(g)) groups.set(g, []); groups.get(g).push(x); }
@@ -1100,7 +1101,7 @@ async function loadSets(autoName) {
 function deleteBackup(x) {
   askDelete({
     title: "Delete " + x.name + "?", go: "Delete backup",
-    text: "Every file in it and every earlier version. This cannot be undone.",
+    text: "Every version is deleted. This can’t be undone.",
     run: async (where) => { const r = await call("storedDelete", { machine: x.machine, name: x.name, where }); loadSets(); return r.message; },
   });
 }
@@ -1110,7 +1111,7 @@ function chooseSet(x) { R.set = x; R.sel = new Map(); R.dir = ""; rShow("browse"
 async function loadDir(dir) {
   R.dir = dir;
   const pane = rPane("browse");
-  pane.innerHTML = '<div class="note">Opening…</div>';
+  pane.innerHTML = '<div class="note">Loading…</div>';
   try {
     const t = await call("restoreList", { set: R.set.name, machine: R.set.machine === undefined || R.set.here ? "" : R.set.machine, dir });
     R.entries = t.entries; R.total = { files: t.files, size: t.size };
@@ -1136,7 +1137,7 @@ function drawBrowse() {
   if (!R.entries.length) html += '<div class="note">This folder is empty.</div>';
   else {
     const allOn = R.entries.every((e) => pickedVia(fullPath(e.name)));
-    html += '<button class="sel-all" id="r-selall" role="checkbox" aria-checked="' + allOn + '"><span class="chk" aria-hidden="true">' + ICON_CHK + "</span>Select everything in this folder</button>";
+    html += '<button class="sel-all" id="r-selall" role="checkbox" aria-checked="' + allOn + '"><span class="chk" aria-hidden="true">' + ICON_CHK + "</span>Select all</button>";
     R.entries.forEach((e, i) => {
       const on = pickedVia(fullPath(e.name));
       html += '<div class="pick"><button class="chk-hit" data-tog="' + i + '" role="checkbox" aria-checked="' + on + '" aria-label="Select ' + esc(e.name) + '" style="display:grid;place-items:center;height:30px"><span class="chk" aria-hidden="true">' + ICON_CHK + "</span></button>" +
@@ -1176,10 +1177,9 @@ function toWhere() {
   const s = R.set;
   const canOrig = s.here && s.rootExists;
   $("r-opt-orig").disabled = !canOrig;
-  $("r-orig-path").textContent = canOrig ? s.root : "That folder is not on this computer.";
+  $("r-orig-path").textContent = canOrig ? s.root : "Not on this computer";
   $("r-other-path").textContent = R.to || "Choose one…";
-  const what = R.sel.size ? (R.sel.size === 1 ? "1 item" : R.sel.size + " items") : "Everything in " + s.name;
-  $("r-where-help").textContent = what + " will be restored.";
+  $("r-where-help").textContent = R.sel.size ? (R.sel.size === 1 ? "1 item" : R.sel.size + " items") : "Everything in " + s.name;
   R.mode = R.mode || (canOrig ? "orig" : "");
   setMode(R.mode);
   showErr("r-where-err", "");
@@ -1225,7 +1225,7 @@ function drawRun(st) {
   const box = $("r-run");
   if (st.done && !st.error) {
     box.innerHTML = '<div class="bigicon ok">' + ICON_CHK + "</div><h2>Restored " + st.files + (st.files === 1 ? " file" : " files") + " (" + esc(st.bytes || "0 B") + ")</h2>" +
-      "<p>" + esc(st.target || "") + (st.skipped ? "<br>" + st.skipped + " already there, left alone." : "") + '</p><div class="btns"><button class="mini" id="r-open">Open folder</button><button class="mini" id="r-done">Done</button></div>';
+      "<p>" + esc(st.target || "") + (st.skipped ? "<br>" + st.skipped + " already there." : "") + '</p><div class="btns"><button class="mini" id="r-open">Open folder</button><button class="mini" id="r-done">Done</button></div>';
     $("r-open").onclick = () => send("open", st.target);
     $("r-done").onclick = finishRestore;
   } else if (st.done) {
@@ -1497,20 +1497,19 @@ function drawCost(c) {
   const box = $("ac-cost");
   if (!box) return;
   if (c.provider === "drime") {
-    box.innerHTML = '<div class="group"><div class="stat"><span>Stored</span><b>' + esc(fmtBytes(c.storedBytes)) + '</b></div><div class="stat"><span>Files</span><b>' + (c.storedObjects || 0).toLocaleString() + '</b></div></div><p class="tip">Drime has no per-use charges here, so there is nothing to price or limit.</p>';
+    box.innerHTML = '<div class="group"><div class="stat"><span>Stored</span><b>' + esc(fmtBytes(c.storedBytes)) + '</b></div><div class="stat"><span>Files</span><b>' + (c.storedObjects || 0).toLocaleString() + '</b></div></div>';
     return;
   }
   let html = "";
-  if (c.budgetState === "exceeded") html += '<div class="banner"><b>Backups are paused.</b> This month reached your limit of ' + usd(c.budgetUSD) + '.<div class="inline" style="margin-top:8px"><button class="mini" id="k-resume">Carry on this month</button></div></div>';
-  else if (c.budgetState === "near") html += '<div class="banner">This month is close to your limit of ' + usd(c.budgetUSD) + ".</div>";
+  if (c.budgetState === "exceeded") html += '<div class="banner"><b>Backups paused.</b> Monthly limit of ' + usd(c.budgetUSD) + ' reached.<div class="inline" style="margin-top:8px"><button class="mini" id="k-resume">Carry on this month</button></div></div>';
+  else if (c.budgetState === "near") html += '<div class="banner">Close to your monthly limit of ' + usd(c.budgetUSD) + ".</div>";
   html += '<div class="group">' +
-    '<div class="stat"><span>This month so far</span><b>' + esc(c.withinFreeTier ? "Free" : usd(c.estimatedUSD)) + (c.withinFreeTier ? "<small>within the free allowance</small>" : "") + "</b></div>" +
+    '<div class="stat"><span>This month</span><b>' + esc(c.withinFreeTier ? "Free" : usd(c.estimatedUSD)) + (c.withinFreeTier ? "<small>free tier</small>" : "") + "</b></div>" +
     (c.withinFreeTier ? "" : '<div class="stat"><span>On track for</span><b>' + esc(usd(c.projectedUSD)) + "</b></div>") +
     '<div class="stat"><span>Stored</span><b>' + esc(fmtBytes(c.storedBytes)) + "<small>" + (c.storedObjects || 0).toLocaleString() + " files</small></b></div>" +
-    '<div class="stat"><span>Operations this month</span><b>' + (c.opsUsed || 0).toLocaleString() + (c.opsLimit ? "<small>of " + c.opsLimit.toLocaleString() + " free</small>" : "") + "</b></div></div>" +
-    '<div class="group"><div class="item"><div class="t"><b>Monthly limit</b><span>Backups pause if a month reaches this.</span></div></div>' +
-    '<div class="item" style="padding-top:0"><div class="inline" style="flex:1"><input id="k-limit" inputmode="decimal" placeholder="No limit" value="' + (c.budgetUSD > 0 ? c.budgetUSD : "") + '" aria-label="Monthly limit in dollars"><button class="mini" id="k-save">Save</button></div></div></div>' +
-    '<p class="tip">An estimate from what r2backup did, at Cloudflare\u2019s published prices. Anything else on the same account is not counted.</p>';
+    '<div class="stat"><span>Operations</span><b>' + (c.opsUsed || 0).toLocaleString() + (c.opsLimit ? "<small>of " + c.opsLimit.toLocaleString() + " free</small>" : "") + "</b></div></div>" +
+    '<div class="group"><div class="item"><div class="t"><b>Monthly limit</b><span>Backups pause here</span></div><div class="inline limit"><input id="k-limit" inputmode="decimal" placeholder="None" value="' + (c.budgetUSD > 0 ? c.budgetUSD : "") + '" aria-label="Monthly limit in dollars"><button class="mini" id="k-save">Save</button></div></div></div>' +
+    '<p class="tip">Estimate at Cloudflare\u2019s prices, for r2backup only.</p>';
   box.innerHTML = html;
   const save = $("k-save");
   save.onclick = async () => {
@@ -1706,7 +1705,7 @@ const primaryName = () => (S && S.configured && S.destination) || "your storage"
 
 async function openAccount(focus) {
   if (!$("sheet-account").classList.contains("open")) openSheet("sheet-account");
-  if (!AC.info) $("ac-main").innerHTML = '<div class="note">Checking your account…</div>';
+  if (!AC.info) $("ac-main").innerHTML = '<div class="note">Loading…</div>';
   try { AC.info = await call("accountConfig"); }
   catch (e) { AC.info = Object.assign({}, AC.info || {}, { err: e.message }); }
   acDraw();
@@ -1729,32 +1728,32 @@ function acDraw() {
   const email = a.email || (S && S.email) || "";
   const p = a.primary, s = a.second;
   let html = '<div class="group"><div class="me"><span class="avatar lg" aria-hidden="true">' + ICON_USER + '</span><div class="t"><b>' + esc(email || "Not signed in") +
-    "</b><span>This computer: " + esc(a.machine || (S && S.machine) || "") + '</span></div><button class="mini" id="ac-out">Sign out</button></div></div>';
+    "</b><span>" + esc(a.machine || (S && S.machine) || "") + '</span></div><button class="mini" id="ac-out">Sign out</button></div></div>';
   if (a.err) html += '<div class="err-line">' + esc(a.err) + "</div>";
 
   html += '<div class="sect">Where backups go</div><div class="group pickbox">' +
     seg("p", p ? p.provider : "", [["drime", "Drime"], ["r2", "Cloudflare R2"]], "Where backups go") +
-    (p ? keyLine(p, "p") : '<div class="keyline none">Choose one to connect it.</div>') + "</div>";
+    (p ? keyLine(p, "p") : '<div class="keyline none">Not connected</div>') + "</div>";
 
   html += '<div class="sect">Second copy</div><div class="group pickbox">' +
     seg("s", s ? s.provider : "none", [["none", "None"], ["drime", "Drime"], ["r2", "Cloudflare R2"]], "Second copy") +
-    (s ? keyLine(s, "s") : '<div class="keyline none">' + (p ? "None. Pick one to keep a copy with a second company too." : "Connect where backups go first.") + "</div>");
+    (s ? keyLine(s, "s") : p ? "" : '<div class="keyline none">Connect where backups go first.</div>');
   if (s) {
     html += '<div class="pickrow"><div class="t">Copy after every backup</div><button class="toggle sm" id="ac-auto" role="switch" aria-checked="' + !!a.auto + '" aria-label="Copy after every backup"></button></div>' +
-      '<button class="textbtn" id="ac-copy">Copy now, or copy back…</button>';
+      '<button class="textbtn" id="ac-copy">Copy now…</button>';
   }
   html += "</div>";
 
   if (p && email) {
     html += a.saved
-      ? '<div class="synced"><span class="ok-ic" aria-hidden="true">' + ICON_CHK + "</span><span>Saved to your account. Sign in on another computer and it gets these keys.</span></div>"
-      : '<div class="synced"><span>Not saved to your account yet.</span><button class="mini" id="ac-push">Save now</button></div>';
+      ? '<div class="synced"><span class="ok-ic" aria-hidden="true">' + ICON_CHK + "</span><span>Keys saved to your account</span></div>"
+      : '<div class="synced"><span>Keys not saved to your account</span><button class="mini" id="ac-push">Save now</button></div>';
   }
   if (a.devices && a.devices.length) {
     html += '<div class="sect">Computers</div><div class="group">' + a.devices.map((d) =>
       '<div class="dev"><div><b>' + esc(d.name) + "</b>" + (d.this ? '<span class="chip">This one</span>' : "") + "</div><span>" + esc(d.this ? "Now" : seen(d.lastSeen)) + "</span></div>").join("") + "</div>";
   }
-  if (p) html += '<div class="sect">Usage and cost</div><div id="ac-cost"><div class="note">Adding it up…</div></div>';
+  if (p) html += '<div class="sect">Usage and cost</div><div id="ac-cost"><div class="note">Loading…</div></div>';
   m.innerHTML = html;
 
   m.querySelectorAll("[data-p]").forEach((b) => { b.onclick = () => pickPrimary(b.dataset.p); });
@@ -1764,7 +1763,7 @@ function acDraw() {
   });
   if ($("ac-auto")) $("ac-auto").onclick = async () => {
     const on = $("ac-auto").getAttribute("aria-checked") !== "true";
-    try { await call("mirrorAuto", { on }); $("ac-auto").setAttribute("aria-checked", on); AC.info.auto = on; toast(on ? "Each backup is copied there once it finishes." : "Copying after each backup is off."); }
+    try { await call("mirrorAuto", { on }); $("ac-auto").setAttribute("aria-checked", on); AC.info.auto = on; toast(on ? "Copying after every backup." : "Copying after every backup is off."); }
     catch (e) { toast(e.message); }
   };
   if ($("ac-copy")) $("ac-copy").onclick = () => openMirror();
@@ -1794,7 +1793,7 @@ function pickPrimary(v) {
   if (!p) { openConnect(v, openAccount); return; }
   ask({
     title: "Back up to " + (v === "drime" ? "Drime" : "Cloudflare R2") + " instead?", go: "Continue", danger: false,
-    text: "Your folders back up there from now on. What is already in " + p.label + " stays where it is.",
+    text: "New backups go there. What’s in " + p.label + " stays.",
     run: async () => { openConnect(v, openAccount); },
   });
 }
@@ -1805,8 +1804,8 @@ function pickSecond(v) {
   if (v === "none") {
     ask({
       title: "Stop keeping a second copy?", go: "Stop", danger: false,
-      text: "What is already in " + s.label + " stays there. Nothing more is copied to it.",
-      run: async () => { await call("mirrorForget"); await openAccount(); return "No second copy is kept from now on."; },
+      text: "What’s in " + s.label + " stays. Nothing more is copied.",
+      run: async () => { await call("mirrorForget"); await openAccount(); return "Second copy off."; },
     });
     return;
   }
@@ -2114,16 +2113,16 @@ $("b-update").onclick = async () => {
   const t = $("update-t"), sub = $("update-sub");
   try {
     if (S && S.update) {
-      t.textContent = "Updating…"; sub.textContent = "Downloading and checking the new version.";
+      t.textContent = "Updating…"; sub.textContent = "";
       const r = await call("updateApply");
-      t.textContent = "Updated to " + r.version; sub.textContent = "r2backup restarts in a moment.";
+      t.textContent = "Updated to " + r.version; sub.textContent = "Restarting…";
       return;
     }
     t.textContent = "Checking…";
     const r = await call("updateCheck");
     updChecked = true;
-    if (r.version) { if (S) S.update = r.version; t.textContent = "Update to " + r.version; sub.textContent = "A newer r2backup is ready. It restarts by itself."; $("upd-dot").hidden = false; }
-    else { t.textContent = "r2backup is up to date"; sub.textContent = "You have v" + r.current + "."; }
+    if (r.version) { if (S) S.update = r.version; t.textContent = "Update to " + r.version; sub.textContent = "Restarts by itself"; $("upd-dot").hidden = false; }
+    else { t.textContent = "Up to date"; sub.textContent = "v" + r.current; }
   } catch (e) { t.textContent = S && S.update ? "Update to " + S.update : "Check for updates"; sub.textContent = e.message; }
   finally { updBusy = false; }
 };
