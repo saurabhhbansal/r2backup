@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -45,7 +46,9 @@ func runTray(ctx context.Context, opts *Options) error {
 		return err
 	}
 	defer d.close()
-	return tray.Run(ctx, &trayBackend{d: d})
+	t := &trayBackend{d: d, checkUpdates: true}
+	defer t.endCF()
+	return tray.Run(ctx, t)
 }
 
 // trayBackend is the panel's view of the program. Reading goes through the
@@ -59,6 +62,24 @@ type trayBackend struct {
 	busy  string
 	what  string // what the running child is backing up, for the status line
 	child *exec.Cmd
+	// stopped is set when the person stopped the child, so its exit is not
+	// reported as a failure.
+	stopped bool
+
+	// notice is said once by the panel: why something it started did not
+	// work, when that happened before there was a run to record it.
+	notice   string
+	noticeAt time.Time
+
+	// update is a newer release, found by a check made at most once a day
+	// when checkUpdates is on (it is off in tests, which must not reach
+	// the network).
+	update       string
+	updateCheck  time.Time
+	checkUpdates bool
+
+	mj *mirrorJob // the mirror copy the panel is running or has just run
+	cf *cfSession // a Cloudflare sign-in in progress
 
 	rj    *restoreJob           // the restore the panel is running or has just run
 	trees map[string]cachedTree // backed-up files by set, for browsing a restore
@@ -115,6 +136,17 @@ func (t *trayBackend) State(ctx context.Context) (tray.State, error) {
 	return t.summarize(views, ov, now), nil
 }
 
+// noticeFor is how long a notice stays on offer: long enough for a panel
+// opened a little later to still say it.
+const noticeFor = 2 * time.Minute
+
+// say leaves a notice for the panel.
+func (t *trayBackend) say(msg string) {
+	t.mu.Lock()
+	t.notice, t.noticeAt = msg, time.Now()
+	t.mu.Unlock()
+}
+
 // withCurrentSets brings views loaded earlier in line with the sets as they
 // are now: a set added since appears, not yet run, and a removed one goes.
 func withCurrentSets(views []ui.SetView, current []sets.Set) []ui.SetView {
@@ -144,13 +176,66 @@ func (t *trayBackend) summarize(views []ui.SetView, ov ui.Overview, now time.Tim
 			runs = h.Runs
 		}
 	}
-	return tray.Summarize(views, ov, runs, now)
+	st := tray.Summarize(views, ov, runs, now)
+	t.mu.Lock()
+	st.CanStop = t.child != nil && !t.stopped && t.busy == busyBackingUp
+	if t.notice != "" && now.Sub(t.noticeAt) < noticeFor {
+		st.Notice, st.NoticeAt = t.notice, t.noticeAt.UnixMilli()
+	}
+	st.Update = t.update
+	t.mu.Unlock()
+	t.maybeCheckUpdate(now)
+	return st
 }
 
 func (t *trayBackend) Busy() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	return t.busy
+}
+
+// busyBackingUp is the busy label of a backup the panel started.
+const busyBackingUp = "Backing up…"
+
+// tailWriter keeps the last few kilobytes written to it: the end of a hidden
+// child's error output, which is where it says why it stopped.
+type tailWriter struct {
+	mu  sync.Mutex
+	buf []byte
+}
+
+const tailMax = 4 << 10
+
+func (w *tailWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.buf = append(w.buf, p...)
+	if len(w.buf) > tailMax {
+		w.buf = w.buf[len(w.buf)-tailMax:]
+	}
+	return len(p), nil
+}
+
+// lastProblem picks the line that says what went wrong out of a child's
+// error output: the first line naming a folder's failure, else the last line.
+// "<set>: <error>" is how r2b backup reports each folder that did not finish,
+// followed by a count that says less.
+func lastProblem(out string) string {
+	var lines []string
+	for _, l := range strings.Split(out, "\n") {
+		l = strings.TrimSpace(l)
+		if l == "" || strings.HasPrefix(l, "Nothing was deleted.") {
+			continue
+		}
+		lines = append(lines, strings.TrimPrefix(l, "Error: "))
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	if len(lines) > 1 && strings.Contains(lines[len(lines)-1], "did not finish") {
+		return lines[0]
+	}
+	return lines[len(lines)-1]
 }
 
 // start runs r2b with args in the background, hidden, and remembers it so
@@ -175,18 +260,49 @@ func (t *trayBackend) start(label, what string, args ...string) error {
 	}
 	cmd := exec.Command(exe, append([]string{"--no"}, args...)...)
 	hideWindow(cmd)
+	// What a hidden child says when it fails would otherwise go nowhere,
+	// and a backup that never started -- storage not connected, another
+	// run holding the index -- records no run to show for it either.
+	errOut := &tailWriter{}
+	cmd.Stderr = errOut
 	if err := cmd.Start(); err != nil {
 		return err
 	}
-	t.child, t.busy, t.what = cmd, label, what
+	t.child, t.busy, t.what, t.stopped = cmd, label, what, false
 	go func() {
-		_ = cmd.Wait()
+		werr := cmd.Wait()
 		t.mu.Lock()
-		t.child, t.busy = nil, ""
+		stopped := t.stopped
+		t.child, t.busy, t.stopped = nil, "", false
 		t.last.ok = false // reload: the run has changed what there is to show
 		t.mu.Unlock()
+		switch {
+		case stopped:
+			t.say("Stopped. What was uploaded is kept, and the next backup carries on from there.")
+		case werr != nil:
+			errOut.mu.Lock()
+			msg := lastProblem(string(errOut.buf))
+			errOut.mu.Unlock()
+			if msg == "" {
+				msg = werr.Error()
+			}
+			t.say(tray.Plain(msg))
+		}
 	}()
 	return nil
+}
+
+// stop ends a backup this panel started. The run is cut off where it is,
+// exactly as if the computer had been shut down: what was uploaded stays,
+// and the next run carries on from there.
+func (t *trayBackend) stop() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.child == nil || t.busy != busyBackingUp {
+		return errors.New("there is no backup from here to stop")
+	}
+	t.stopped = true
+	return t.child.Process.Kill()
 }
 
 func (t *trayBackend) BackUp(name string) error {
@@ -194,7 +310,7 @@ func (t *trayBackend) BackUp(name string) error {
 	if name != "" {
 		args, what = append(args, name), name
 	}
-	return t.start("Backing up…", what, args...)
+	return t.start(busyBackingUp, what, args...)
 }
 
 func (t *trayBackend) AddFolder(path string) error {

@@ -35,6 +35,9 @@ func (t *trayBackend) Call(ctx context.Context, method string, raw json.RawMessa
 		}
 		err := t.d.SaveKeys(ctx, k)
 		t.invalidate()
+		if err == nil {
+			t.endCF() // the account and bucket it found are in the keys now
+		}
 		return nil, err
 
 	case "tokenPage":
@@ -90,17 +93,10 @@ func (t *trayBackend) Call(ctx context.Context, method string, raw json.RawMessa
 		}
 		return nil, err
 
-	case "storeVault":
-		var a struct {
-			Password string `json:"password"`
-		}
-		if err := decodeArgs(raw, &a); err != nil {
-			return nil, err
-		}
-		return nil, t.d.StoreVault(ctx, a.Password)
-
 	case "signOut":
-		return nil, t.d.SignOut(ctx)
+		err := t.d.SignOut(ctx)
+		t.invalidate()
+		return nil, err
 	}
 	if out, ok, err := t.restoreCall(ctx, method, raw); ok {
 		return out, err
@@ -109,6 +105,18 @@ func (t *trayBackend) Call(ctx context.Context, method string, raw json.RawMessa
 		return out, err
 	}
 	if out, ok, err := t.folderCall(ctx, method, raw); ok {
+		return out, err
+	}
+	if out, ok, err := t.addCall(ctx, method, raw); ok {
+		return out, err
+	}
+	if out, ok, err := t.mirrorCall(ctx, method, raw); ok {
+		return out, err
+	}
+	if out, ok, err := t.cloudflareCall(ctx, method, raw); ok {
+		return out, err
+	}
+	if out, ok, err := t.updateCall(ctx, method, raw); ok {
 		return out, err
 	}
 	return nil, fmt.Errorf("unknown request %q", method)
@@ -137,6 +145,7 @@ type deviceJSON struct {
 }
 
 type accountOut struct {
+	Machine     string       `json:"machine"`
 	SignedIn    bool         `json:"signedIn"`
 	Email       string       `json:"email,omitempty"`
 	VaultStored bool         `json:"vaultStored"`
@@ -146,7 +155,7 @@ type accountOut struct {
 }
 
 func accountJSON(v ui.AccountView) accountOut {
-	out := accountOut{SignedIn: v.SignedIn, Email: v.Email, VaultStored: v.VaultStored,
+	out := accountOut{Machine: machineName(), SignedIn: v.SignedIn, Email: v.Email, VaultStored: v.VaultStored,
 		Reachable: v.Reachable, Err: v.Err, Devices: []deviceJSON{}}
 	for _, d := range v.Devices {
 		out.Devices = append(out.Devices, deviceJSON{

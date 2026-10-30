@@ -650,6 +650,11 @@ func (p *panel) call(raw string) {
 	switch c.Method {
 	case "pickFolder":
 		out, err = p.pickFolderFor(c.Args)
+	case "cfSignIn":
+		// The sign-in happens in the browser, which takes focus and so
+		// hides the panel; it comes back when there is an answer to show.
+		out, err = p.be.Call(p.ctx, c.Method, c.Args)
+		p.show()
 	default:
 		out, err = p.be.Call(p.ctx, c.Method, c.Args)
 	}
@@ -660,7 +665,7 @@ func (p *panel) call(raw string) {
 		Error string `json:"error,omitempty"`
 	}{ID: c.ID, OK: err == nil, Data: out}
 	if err != nil {
-		reply.Error = err.Error()
+		reply.Error = Plain(err.Error())
 	}
 	js, jerr := json.Marshal(reply)
 	if jerr != nil {
@@ -703,7 +708,7 @@ func parseSchedule(arg string) (bool, int) {
 func (p *panel) do(f func() (string, error)) {
 	msg, err := f()
 	if err != nil {
-		msg = "Could not do that: " + err.Error()
+		msg = "Could not do that: " + Plain(err.Error())
 	}
 	if msg != "" {
 		p.toast(msg)
@@ -751,7 +756,7 @@ func (p *panel) refreshLoop() {
 func (p *panel) refresh() {
 	st, err := p.be.State(p.ctx)
 	if err != nil {
-		st.Status = Status{Kind: KindAttention, Title: "Could not read r2backup's state", Detail: err.Error()}
+		st.Status = Status{Kind: KindAttention, Title: "Could not read r2backup's state", Detail: Plain(err.Error())}
 	}
 	st.Busy = p.be.Busy()
 	st.Login = startAtLogin()

@@ -11,6 +11,7 @@ import (
 
 	"github.com/saurabhhbansal/r2backup/internal/scan"
 	"github.com/saurabhhbansal/r2backup/internal/sets"
+	"github.com/saurabhhbansal/r2backup/internal/tray"
 	"github.com/saurabhhbansal/r2backup/internal/ui"
 )
 
@@ -23,9 +24,11 @@ const localTreeTTL = 2 * time.Minute
 
 // localTree is the folder's files as they are on disk now, scanned once and
 // kept briefly, so opening folders in the picker costs nothing after the first.
+// It is kept by path, so a folder about to be added, which has no name yet,
+// is browsed the same way.
 func (t *trayBackend) localTree(ctx context.Context, s sets.Set, refresh bool) (*treeNode, error) {
 	t.mu.Lock()
-	c, ok := t.local[s.Name]
+	c, ok := t.local[s.Root]
 	t.mu.Unlock()
 	if ok && !refresh && time.Since(c.at) < localTreeTTL {
 		return c.root, nil
@@ -51,7 +54,7 @@ func (t *trayBackend) localTree(ctx context.Context, s sets.Set, refresh bool) (
 	if t.local == nil {
 		t.local = map[string]cachedTree{}
 	}
-	t.local[s.Name] = cachedTree{root, time.Now()}
+	t.local[s.Root] = cachedTree{root, time.Now()}
 	t.mu.Unlock()
 	return root, nil
 }
@@ -113,24 +116,13 @@ func (t *trayBackend) setExcluded(name, path string, exclude bool) error {
 	if err != nil {
 		return err
 	}
-	path = strings.Trim(path, "/")
-	if path == "" {
-		return errors.New("choose a file or folder")
+	next, err := toggleExclude(s.Excludes, path, exclude)
+	if err != nil {
+		return err
 	}
-	if up := ruleAbove(s.Excludes, path); up != "" {
-		return fmt.Errorf("it is left out because %s is. Change that one instead", up)
+	if len(next) == 0 {
+		next = nil
 	}
-	var next []string
-	for _, ex := range s.Excludes {
-		if ex == path || strings.HasPrefix(ex, path+"/") {
-			continue // replaced by this change, either way
-		}
-		next = append(next, ex)
-	}
-	if exclude {
-		next = append(next, path)
-	}
-	sort.Strings(next)
 	return t.d.SetExcludes(context.Background(), name, next)
 }
 
@@ -197,14 +189,24 @@ func (t *trayBackend) folderCall(ctx context.Context, method string, raw []byte)
 			Name    string `json:"name"`
 			Dir     string `json:"dir"`
 			Refresh bool   `json:"refresh"`
+			// Path and Excludes stand in for Name for a folder that is
+			// being added: it has no name yet, and the page holds what is
+			// left out until it is added.
+			Path     string   `json:"path"`
+			Excludes []string `json:"excludes"`
 		}
 		if err := decodeArgs(raw, &a); err != nil {
 			return nil, true, err
 		}
-		_ = t.d.app.sets.Reload()
-		s, err := t.d.app.sets.Get(a.Name)
-		if err != nil {
-			return nil, true, err
+		var s sets.Set
+		if a.Name == "" && a.Path != "" {
+			s = sets.Set{Root: a.Path, Excludes: cleanExcludes(a.Excludes)}
+		} else {
+			_ = t.d.app.sets.Reload()
+			var err error
+			if s, err = t.d.app.sets.Get(a.Name); err != nil {
+				return nil, true, err
+			}
 		}
 		root, err := t.localTree(ctx, s, a.Refresh)
 		if err != nil {
@@ -250,7 +252,18 @@ func (t *trayBackend) folderCall(ctx context.Context, method string, raw []byte)
 		if info, err := os.Stat(s.Root); err == nil && info.IsDir() {
 			exists = true
 		}
-		return map[string]any{"name": s.Name, "root": s.Root, "rootExists": exists, "excluded": len(s.Excludes), "trash": s.TrashEnabled()}, true, nil
+		res := map[string]any{"name": s.Name, "root": s.Root, "rootExists": exists, "excluded": len(s.Excludes),
+			"trash": s.TrashEnabled(), "retention": s.RetentionDays,
+			"missing": s.Status == sets.StatusNeedsAttention && !exists}
+		if s.StatusNote != "" {
+			res["note"] = tray.Plain(s.StatusNote)
+		}
+		// The stored name never changes (see rename), and it is the one
+		// other computers see.
+		if stored := strings.TrimPrefix(s.Prefix, "machines/"+s.Machine+"/"); stored != s.Prefix && stored != s.Name {
+			res["storedAs"] = stored
+		}
+		return res, true, nil
 
 	case "folderExclude":
 		var a struct {
