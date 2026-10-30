@@ -131,6 +131,12 @@ type Options struct {
 	// restores everything. See matchesOnly for the pattern language.
 	Only string
 
+	// OnlyAny restricts restore to paths matching any one of these, each a
+	// pattern as for Only. It is for a caller that has picked several files
+	// and folders, so they come from one listing and one run rather than one
+	// each. Empty means no restriction; Only still applies alongside it.
+	OnlyAny []string
+
 	// SourceMachine restores another computer's copy of this set instead
 	// of this one's own. Empty uses Set's own prefix. See sourcePrefix.
 	SourceMachine string
@@ -234,6 +240,13 @@ func resolveTarget(set sets.Set, target string) (string, error) {
 	}
 	return "", ErrNoTarget
 }
+
+// SourcePrefix is the bucket prefix a set's files for one computer live
+// under: the set's own, or another machine's copy of it.
+func SourcePrefix(set sets.Set, machine string) (string, error) { return sourcePrefix(set, machine) }
+
+// CurrentPrefix is where the live files under a set's prefix are stored.
+func CurrentPrefix(prefix string) string { return currentPrefix(prefix) }
 
 // currentPrefix returns the "<prefix>/current/" object-key prefix
 // everything live is stored under.

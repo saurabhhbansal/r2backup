@@ -129,12 +129,13 @@ type panel struct {
 	mu    sync.Mutex
 	queue []func()
 
-	visible  atomic.Bool
-	ready    atomic.Bool
-	lastHide atomic.Int64 // unix nanos
-	updated  atomic.Bool  // the program file was replaced: start the new one on the way out
-	kick     chan struct{}
-	lastKind string
+	visible   atomic.Bool
+	ready     atomic.Bool
+	lastHide  atomic.Int64 // unix nanos
+	updated   atomic.Bool  // the program file was replaced: start the new one on the way out
+	kick      chan struct{}
+	lastKind  string
+	lastLight bool // the taskbar was light when the icon was last set
 }
 
 // the one panel this process has, for the window procedure.
@@ -580,7 +581,7 @@ func (p *panel) onMessage(raw string) {
 	case "add":
 		p.hide()
 		go p.do(func() (string, error) {
-			path, err := pickFolder()
+			path, err := pickFolder("Choose a folder to back up", "Back up this folder")
 			if err != nil || path == "" {
 				return "", err
 			}
@@ -612,9 +613,6 @@ func (p *panel) onMessage(raw string) {
 			}
 			return "r2backup will not start with Windows.", nil
 		})
-	case "dashboard":
-		p.hide()
-		go p.do(func() (string, error) { return "", p.be.OpenDashboard() })
 	case "browser":
 		p.hide()
 		if u := p.be.StorageURL(); u != "" {
@@ -625,9 +623,71 @@ func (p *panel) onMessage(raw string) {
 		if m.Arg != "" {
 			shellOpen(m.Arg)
 		}
+	case "call":
+		go p.call(m.Arg)
 	case "quit":
 		p.cancel()
 	}
+}
+
+// callMsg is a request from the page that wants an answer: it names a method,
+// carries its arguments as JSON, and is replied to by id.
+type callMsg struct {
+	ID     int             `json:"id"`
+	Method string          `json:"method"`
+	Args   json.RawMessage `json:"args"`
+}
+
+// call serves one request from the page. A few methods need the window or
+// Windows' own dialogs and are answered here; the rest are the backend's.
+func (p *panel) call(raw string) {
+	var c callMsg
+	if json.Unmarshal([]byte(raw), &c) != nil {
+		return
+	}
+	var out any
+	var err error
+	switch c.Method {
+	case "pickFolder":
+		out, err = p.pickFolderFor(c.Args)
+	default:
+		out, err = p.be.Call(p.ctx, c.Method, c.Args)
+	}
+	reply := struct {
+		ID    int    `json:"id"`
+		OK    bool   `json:"ok"`
+		Data  any    `json:"data,omitempty"`
+		Error string `json:"error,omitempty"`
+	}{ID: c.ID, OK: err == nil, Data: out}
+	if err != nil {
+		reply.Error = err.Error()
+	}
+	js, jerr := json.Marshal(reply)
+	if jerr != nil {
+		js, _ = json.Marshal(struct {
+			ID    int    `json:"id"`
+			Error string `json:"error"`
+		}{c.ID, jerr.Error()})
+	}
+	p.post(func() { p.web.Eval("r2b.reply(" + string(js) + ")") })
+	p.refreshNow()
+}
+
+// pickFolderFor shows the folder picker for the page, with its own wording.
+// The panel closes itself when another window takes focus, so it is hidden
+// while the picker is up and shown again after, with the page still as it was.
+func (p *panel) pickFolderFor(args json.RawMessage) (any, error) {
+	var a struct{ Title, Button string }
+	_ = json.Unmarshal(args, &a)
+	if a.Title == "" {
+		a.Title = "Choose a folder"
+	}
+	if a.Button == "" {
+		a.Button = "Choose"
+	}
+	p.hide()
+	defer p.show()
+	return pickFolder(a.Title, a.Button)
 }
 
 func parseSchedule(arg string) (bool, int) {
@@ -696,9 +756,9 @@ func (p *panel) refresh() {
 	st.Busy = p.be.Busy()
 	st.Login = startAtLogin()
 
-	if st.Status.Kind != p.lastKind {
-		p.lastKind = st.Status.Kind
-		systray.SetIcon(Icon(st.Status.Kind))
+	if light := taskbarLight(); st.Status.Kind != p.lastKind || light != p.lastLight {
+		p.lastKind, p.lastLight = st.Status.Kind, light
+		systray.SetIcon(IconFor(st.Status.Kind, light))
 	}
 	tip := "r2backup — " + st.Status.Title
 	if len(tip) > 120 {
@@ -719,14 +779,14 @@ func (p *panel) refresh() {
 // --- the icon ---------------------------------------------------------------------
 
 func (p *panel) onReady() {
-	systray.SetIcon(Icon(KindPending))
+	p.lastLight = taskbarLight()
+	systray.SetIcon(IconFor(KindPending, p.lastLight))
 	systray.SetTitle("r2backup")
 	systray.SetTooltip("r2backup")
 	systray.SetOnTapped(p.toggle)
 
 	open := systray.AddMenuItem("Open r2backup", "Show the panel")
 	now := systray.AddMenuItem("Back up now", "Back up every folder")
-	dash := systray.AddMenuItem("Open r2b…", "The full interface: restore, trash and more")
 	systray.AddSeparator()
 	quit := systray.AddMenuItem("Quit", "Scheduled backups still run")
 	go func() {
@@ -736,8 +796,6 @@ func (p *panel) onReady() {
 				p.show()
 			case <-now.ClickedCh:
 				go p.do(func() (string, error) { return "Backing up every folder.", p.be.BackUp("") })
-			case <-dash.ClickedCh:
-				go p.do(func() (string, error) { return "", p.be.OpenDashboard() })
 			case <-quit.ClickedCh:
 				p.cancel()
 				return
@@ -855,6 +913,18 @@ func lightTheme() bool {
 	return err == nil && v == 1
 }
 
+// taskbarLight reports whether the taskbar itself is light, which Windows
+// keeps apart from the apps setting: the tray icon follows this one.
+func taskbarLight() bool {
+	k, err := registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Themes\Personalize`, registry.QUERY_VALUE)
+	if err != nil {
+		return false
+	}
+	defer k.Close()
+	v, _, err := k.GetIntegerValue("SystemUsesLightTheme")
+	return err == nil && v == 1
+}
+
 func startAtLogin() bool {
 	k, err := registry.OpenKey(registry.CURRENT_USER, runKey, registry.QUERY_VALUE)
 	if err != nil {
@@ -886,7 +956,7 @@ func setStartAtLogin(on bool) error {
 
 // pickFolder shows Windows' own folder picker -- the same dialog Explorer
 // uses -- and returns the chosen path, or "" if it was cancelled.
-func pickFolder() (string, error) {
+func pickFolder(title, okLabel string) (string, error) {
 	type result struct {
 		path string
 		err  error
@@ -895,7 +965,7 @@ func pickFolder() (string, error) {
 	go func() {
 		runtime.LockOSThread()
 		defer runtime.UnlockOSThread()
-		path, err := pickFolderSTA()
+		path, err := pickFolderSTA(title, okLabel)
 		ch <- result{path, err}
 	}()
 	r := <-ch
@@ -917,7 +987,7 @@ func vtbl(obj unsafe.Pointer, i int, args ...uintptr) uintptr {
 	return r
 }
 
-func pickFolderSTA() (string, error) {
+func pickFolderSTA(titleText, okText string) (string, error) {
 	// S_OK and S_FALSE (already initialised on this thread) are both fine;
 	// only a failure code, which is negative, is not.
 	if hr, _, _ := pCoInitializeEx.Call(0, 2); int32(hr) < 0 { // COINIT_APARTMENTTHREADED
@@ -935,9 +1005,9 @@ func pickFolderSTA() (string, error) {
 
 	const fosPickFolders, fosForceFileSystem = 0x20, 0x40
 	vtbl(dlg, 9, fosPickFolders|fosForceFileSystem) // SetOptions
-	title, _ := windows.UTF16PtrFromString("Choose a folder to back up")
+	title, _ := windows.UTF16PtrFromString(titleText)
 	vtbl(dlg, 17, uintptr(unsafe.Pointer(title))) // SetTitle
-	ok, _ := windows.UTF16PtrFromString("Back up this folder")
+	ok, _ := windows.UTF16PtrFromString(okText)
 	vtbl(dlg, 18, uintptr(unsafe.Pointer(ok))) // SetOkButtonLabel
 
 	if hr := vtbl(dlg, 3, 0); hr != 0 { // Show

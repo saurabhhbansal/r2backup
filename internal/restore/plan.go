@@ -41,6 +41,21 @@ func matchesOnly(pattern, relPath string) bool {
 	return err == nil && ok
 }
 
+// filterAny keeps the entries whose path under cPrefix matches any pattern.
+func filterAny(entries []remote.ListEntry, cPrefix string, patterns []string) []remote.ListEntry {
+	var out []remote.ListEntry
+	for _, e := range entries {
+		rel := strings.TrimPrefix(e.Key, cPrefix)
+		for _, pat := range patterns {
+			if matchesOnly(pat, rel) {
+				out = append(out, e)
+				break
+			}
+		}
+	}
+	return out
+}
+
 // planItem is one object queued for download.
 type planItem struct {
 	key       string // full object key in the bucket
@@ -118,6 +133,9 @@ func runSet(ctx context.Context, opts Options, prefix, target string, rep *Repor
 	}
 
 	obs.Phase(PhasePlanning, rep)
+	if len(opts.OnlyAny) > 0 {
+		entries = filterAny(entries, cPrefix, opts.OnlyAny)
+	}
 	p := buildPlan(entries, cPrefix, target, opts.Only, opts.Overwrite)
 	rep.SkippedExisting = len(p.skipped)
 	rep.Skipped = p.skipped

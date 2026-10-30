@@ -217,6 +217,8 @@ type RestoreRequest struct {
 	To string
 	// Only narrows a whole-set restore to matching paths.
 	Only string
+	// OnlyAny narrows it to any of several paths, each as for Only.
+	OnlyAny []string
 	// Deleted names one file to recover from trash instead of restoring
 	// the whole set.
 	Deleted string

@@ -1,6 +1,9 @@
 package tray
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+)
 
 // Backend is what the panel asks of the rest of the program. internal/cli
 // implements it on top of the same code the terminal interface uses, so a
@@ -21,8 +24,12 @@ type Backend interface {
 	// SetSchedule turns automatic backups on, every so many minutes, or off.
 	SetSchedule(ctx context.Context, on bool, everyMinutes int) error
 
-	// OpenDashboard opens the full terminal interface.
-	OpenDashboard() error
+	// Call answers one request from the page that wants a reply -- connect
+	// storage, list files to restore, and so on. The method is a name, the
+	// arguments are the page's JSON, and the answer is whatever marshals for
+	// the page. The page draws all of it: nothing here opens a terminal.
+	Call(ctx context.Context, method string, args json.RawMessage) (any, error)
+
 	// StorageURL is where the backups can be seen in a browser: Drime's web
 	// app, or the bucket in Cloudflare's dashboard.
 	StorageURL() string

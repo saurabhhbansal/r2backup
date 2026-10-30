@@ -154,7 +154,7 @@ func (d *dashboard) Restore(ctx context.Context, req ui.RestoreRequest, phase fu
 		return ui.RestoreResult{}, err
 	}
 	rep, err := restore.Run(ctx, restore.Options{
-		Set: s, Client: a.client, Target: req.To, Only: req.Only,
+		Set: s, Client: a.client, Target: req.To, Only: req.Only, OnlyAny: req.OnlyAny,
 		SourceMachine: req.Machine, Deleted: req.Deleted,
 		Overwrite: req.Overwrite, Verify: req.Verify,
 		Observer: &uiRestoreObserver{phase: phase, snap: snap, set: s.Name},
@@ -171,6 +171,9 @@ func (d *dashboard) Restore(ctx context.Context, req ui.RestoreRequest, phase fu
 	// its result line is a muted notice that nobody reads twice.
 	if rep.ListedFiles == 0 {
 		return ui.RestoreResult{}, fmt.Errorf("nothing is stored for %q, so nothing was restored", s.Name)
+	}
+	if len(req.OnlyAny) > 0 && rep.Downloaded == 0 && rep.SkippedExisting == 0 && len(rep.Failures) == 0 {
+		return ui.RestoreResult{}, fmt.Errorf("none of what you picked is stored for %s any more, so nothing was restored", s.Name)
 	}
 	if req.Only != "" && rep.Downloaded == 0 && rep.SkippedExisting == 0 && len(rep.Failures) == 0 {
 		return ui.RestoreResult{}, fmt.Errorf(

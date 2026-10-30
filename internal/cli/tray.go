@@ -59,6 +59,10 @@ type trayBackend struct {
 	busy  string
 	what  string // what the running child is backing up, for the status line
 	child *exec.Cmd
+
+	rj    *restoreJob           // the restore the panel is running or has just run
+	trees map[string]cachedTree // backed-up files by set, for browsing a restore
+	local map[string]cachedTree // each folder as it is on disk, for choosing what to include
 	last  struct {
 		views []ui.SetView
 		ov    ui.Overview
@@ -199,14 +203,6 @@ func (t *trayBackend) AddFolder(path string) error {
 
 func (t *trayBackend) SetSchedule(ctx context.Context, on bool, every int) error {
 	return t.d.Schedule(ctx, every, !on)
-}
-
-func (t *trayBackend) OpenDashboard() error {
-	exe, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	return openInTerminal(exe)
 }
 
 func (t *trayBackend) StorageURL() string {
