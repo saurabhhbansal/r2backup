@@ -17,6 +17,7 @@ package tray
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/saurabhhbansal/r2backup/internal/progress"
@@ -42,15 +43,24 @@ type State struct {
 	Machine     string `json:"machine"`
 	Version     string `json:"version"`
 
-	Status  Status    `json:"status"`
-	Running *Running  `json:"running,omitempty"`
-	Folders []Folder  `json:"folders"`
-	Recent  []Recent  `json:"recent"`
-	Sched   Schedule  `json:"schedule"`
-	Login   bool      `json:"startAtLogin"`
-	Busy    string    `json:"busy,omitempty"` // a command the panel started and is waiting on
-	Notice  string    `json:"notice,omitempty"`
-	At      time.Time `json:"at"`
+	Status  Status   `json:"status"`
+	Running *Running `json:"running,omitempty"`
+	Folders []Folder `json:"folders"`
+	Recent  []Recent `json:"recent"`
+	Sched   Schedule `json:"schedule"`
+	Login   bool     `json:"startAtLogin"`
+	Busy    string   `json:"busy,omitempty"` // a command the panel started and is waiting on
+	// CanStop is true while Busy is a backup this panel started, which it
+	// can also stop.
+	CanStop bool `json:"canStop,omitempty"`
+	// Notice is something the panel should say once, such as why a backup it
+	// started did not run. NoticeAt tells a new one from the same one read
+	// again on the next refresh.
+	Notice   string `json:"notice,omitempty"`
+	NoticeAt int64  `json:"noticeAt,omitempty"`
+	// Update names a newer release, from a check made at most once a day.
+	Update string    `json:"update,omitempty"`
+	At     time.Time `json:"at"`
 }
 
 // Status is the one-line answer at the top of the panel, and the tooltip.
@@ -58,6 +68,11 @@ type Status struct {
 	Kind   string `json:"kind"`
 	Title  string `json:"title"`
 	Detail string `json:"detail"`
+	// Action is what the status block's button does, when there is one
+	// thing worth doing about it: "cost" (the spending limit paused
+	// backups), "folder:<name>" (the one folder that needs a look) or
+	// "backup" (carry on a run that was interrupted).
+	Action string `json:"action,omitempty"`
 }
 
 // Running is a backup in progress, from this panel or the scheduler.
@@ -76,6 +91,9 @@ type Folder struct {
 	LastRun  string `json:"lastRun"` // "22m ago · 12 MB uploaded"
 	Note     string `json:"note,omitempty"`
 	Excludes int    `json:"excludes"`
+	// Missing is true when the folder's note says it is not where it was,
+	// which only a person can fix, by saying where it went.
+	Missing bool `json:"missing,omitempty"`
 }
 
 // Recent is one finished run, for the activity list.
@@ -86,6 +104,19 @@ type Recent struct {
 	Time string    `json:"time"`
 	Kind string    `json:"kind"` // ok, failed, cancelled, nochange
 	Text string    `json:"text"`
+
+	// The rest is for the run's own page: everything the history keeps.
+	Error      string   `json:"error,omitempty"`
+	Uploaded   int      `json:"uploaded"`
+	Moved      int      `json:"moved"`
+	Deleted    int      `json:"deleted"`
+	Unchanged  int      `json:"unchanged"`
+	Bytes      string   `json:"bytes,omitempty"`
+	Took       string   `json:"took,omitempty"`
+	Failures   int      `json:"failures"`
+	Problems   int      `json:"problems"`
+	Collisions int      `json:"collisions"`
+	Examples   []string `json:"examples,omitempty"`
 }
 
 // Schedule is whether backups run by themselves.
@@ -128,15 +159,18 @@ func Summarize(views []ui.SetView, ov ui.Overview, hist []runstate.Past, now tim
 	}
 
 	var bad, never int
+	var badName string
 	var last time.Time
 	for _, v := range views {
-		f := Folder{Name: v.Name, Root: v.Root, State: v.State, Note: v.Note, Excludes: len(v.Excludes)}
+		f := Folder{Name: v.Name, Root: v.Root, State: v.State, Note: Plain(v.Note), Excludes: len(v.Excludes)}
+		f.Missing = missingNote(v.Note)
 		switch v.State {
 		case "ok":
 			f.Kind = "ok"
 		case "needs attention", "failed":
 			f.Kind = "attention"
 			bad++
+			badName = v.Name
 		case "never run":
 			f.Kind = "never"
 			never++
@@ -156,6 +190,9 @@ func Summarize(views []ui.SetView, ov ui.Overview, hist []runstate.Past, now tim
 	}
 
 	st.Status = status(st, ov, len(views), bad, never, last, now)
+	if bad == 1 && st.Status.Kind == KindAttention {
+		st.Status.Action = "folder:" + badName
+	}
 	st.Recent = recent(hist, now)
 	return st
 }
@@ -174,9 +211,18 @@ func status(st State, ov ui.Overview, n, bad, never int, last time.Time, now tim
 			}
 		}
 		return Status{Kind: KindRunning, Title: "Backing up " + st.Running.Set, Detail: d}
+	case ov.BudgetState == "exceeded":
+		// Said here, above everything but a running backup: a paused run
+		// otherwise reads like a run with nothing to do, and the limit is
+		// the one thing that stops every folder at once.
+		d := "This month reached your spending limit."
+		if ov.BudgetUSD > 0 {
+			d = fmt.Sprintf("This month reached your $%.2f limit.", ov.BudgetUSD)
+		}
+		return Status{Kind: KindAttention, Title: "Backups are paused", Detail: d, Action: "cost"}
 	case ov.Interrupted != "":
 		return Status{Kind: KindInterrupted, Title: ov.Interrupted + " was interrupted",
-			Detail: "It carries on from where it stopped at the next run."}
+			Detail: "It carries on from where it stopped at the next run.", Action: "backup"}
 	case n == 0:
 		return Status{Kind: KindPending, Title: "Nothing backed up yet",
 			Detail: "Add a folder to start."}
@@ -207,12 +253,21 @@ func recent(hist []runstate.Past, now time.Time) []Recent {
 	}
 	out := make([]Recent, 0, len(runs))
 	for _, p := range runs {
-		r := Recent{Set: p.Set, At: p.FinishedAt, Day: day(p.FinishedAt, now), Time: p.FinishedAt.Local().Format("15:04")}
+		r := Recent{Set: p.Set, At: p.FinishedAt, Day: day(p.FinishedAt, now), Time: p.FinishedAt.Local().Format("15:04"),
+			Uploaded: p.Uploaded, Moved: p.Moved, Deleted: p.Deleted, Unchanged: p.Unchanged,
+			Failures: p.Failures, Problems: p.Problems, Collisions: p.Collisions, Examples: p.Examples}
+		if p.Bytes > 0 {
+			r.Bytes = progress.FormatBytes(p.Bytes)
+		}
+		if p.Duration > 0 {
+			r.Took = progress.FormatDuration(time.Duration(p.Duration * float64(time.Second)))
+		}
 		switch {
 		case p.Cancelled:
 			r.Kind, r.Text = "cancelled", "Stopped before it finished"
 		case p.Error != "":
-			r.Kind, r.Text = "failed", p.Error
+			r.Kind, r.Text = "failed", Plain(p.Error)
+			r.Error = r.Text
 		case p.Uploaded+p.Moved+p.Deleted == 0:
 			r.Kind, r.Text = "nochange", "No changes"
 		default:
@@ -222,9 +277,18 @@ func recent(hist []runstate.Past, now time.Time) []Recent {
 			r.Kind = "failed"
 			r.Text += fmt.Sprintf(" · %d failed", p.Failures)
 		}
+		if r.Kind == "nochange" && p.Problems > 0 {
+			r.Text += fmt.Sprintf(" · %s could not be read", plural(p.Problems, "file"))
+		}
 		out = append(out, r)
 	}
 	return out
+}
+
+// missingNote reports whether a folder's note is the one a backup leaves
+// when the folder is not where it was.
+func missingNote(note string) bool {
+	return strings.Contains(note, "no longer exists") || strings.Contains(note, "root does not exist")
 }
 
 func changeText(p runstate.Past) string {
