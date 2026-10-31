@@ -2,6 +2,7 @@ package account
 
 import (
 	"encoding/base64"
+	"errors"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/saurabhhbansal/r2backup/internal/config"
+	"github.com/saurabhhbansal/r2backup/internal/creds"
 )
 
 // tokenFileName lives directly under config.DataDir(), alongside index.db
@@ -61,9 +63,9 @@ func LoadToken() (string, error) {
 	return strings.TrimSpace(string(data)), nil
 }
 
-// ClearToken removes the cached token, e.g. on sign-out. Removing an
-// already-absent file is not an error, for the same reason a missing file
-// isn't one in LoadToken.
+// ClearToken removes the cached token and the seal key with it, e.g. on
+// sign-out. Removing an already-absent file is not an error, for the same
+// reason a missing file isn't one in LoadToken.
 func ClearToken() error {
 	path, err := TokenPath()
 	if err != nil {
@@ -72,7 +74,53 @@ func ClearToken() error {
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 		return fmt.Errorf("account: clear token: %w", err)
 	}
+	if s, err := sealKeyFile(); err == nil {
+		return s.Delete()
+	}
 	return nil
+}
+
+// sealKeyFileName holds the key that opens the keys the account keeps. Unlike
+// the token it is a real secret -- it is half made of the PIN -- so it is kept
+// under the same OS protection as the storage keys themselves.
+const sealKeyFileName = "account-key"
+
+func sealKeyFile() (*creds.Secret, error) {
+	dir, err := config.EnsureDataDir()
+	if err != nil {
+		return nil, err
+	}
+	return creds.OpenSecret(filepath.Join(dir, sealKeyFileName)), nil
+}
+
+// SaveSession stores a session from the PIN step: the token and the seal key.
+func SaveSession(s *Session) error {
+	f, err := sealKeyFile()
+	if err != nil {
+		return err
+	}
+	if err := f.Save(s.SealKey); err != nil {
+		return err
+	}
+	return SaveToken(s.Token)
+}
+
+// LoadSealKey reads the seal key saved by SaveSession. A computer signed in
+// before PINs has a token and no key; that is ErrPINRequired, because the
+// answer is the same as the server's -- set a PIN.
+func LoadSealKey() ([]byte, error) {
+	f, err := sealKeyFile()
+	if err != nil {
+		return nil, err
+	}
+	k, err := f.Load()
+	if errors.Is(err, creds.ErrNotFound) {
+		return nil, ErrPINRequired
+	}
+	if err == nil && len(k) != SealKeySize {
+		return nil, ErrPINRequired
+	}
+	return k, err
 }
 
 // EmailFromToken reads the subject out of a cached session token.

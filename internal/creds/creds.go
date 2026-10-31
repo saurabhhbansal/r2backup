@@ -150,16 +150,22 @@ func (s *Store) Save(c Credentials) error {
 	if err != nil {
 		return fmt.Errorf("encode credentials: %w", err)
 	}
-	sealed, err := s.protector.protect(plain)
+	return writeSealed(s.path, s.protector, plain)
+}
+
+// writeSealed protects plain and writes it to path, atomically and never
+// readable by anyone else, not even for an instant.
+func writeSealed(path string, p protector, plain []byte) error {
+	sealed, err := p.protect(plain)
 	if err != nil {
-		return fmt.Errorf("protect credentials with %s: %w", s.protector.name(), err)
+		return fmt.Errorf("protect secret with %s: %w", p.name(), err)
 	}
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
-		return fmt.Errorf("create directory for %q: %w", s.path, err)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create directory for %q: %w", path, err)
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(s.path), ".creds-*.tmp")
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".creds-*.tmp")
 	if err != nil {
-		return fmt.Errorf("create temp file beside %q: %w", s.path, err)
+		return fmt.Errorf("create temp file beside %q: %w", path, err)
 	}
 	name := tmp.Name()
 	defer os.Remove(name)
@@ -176,8 +182,8 @@ func (s *Store) Save(c Credentials) error {
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close %q: %w", name, err)
 	}
-	if err := os.Rename(name, s.path); err != nil {
-		return fmt.Errorf("replace %q: %w", s.path, err)
+	if err := os.Rename(name, path); err != nil {
+		return fmt.Errorf("replace %q: %w", path, err)
 	}
 	return nil
 }
@@ -218,4 +224,43 @@ func (s *Store) Delete() error {
 func (s *Store) Exists() bool {
 	info, err := os.Stat(s.path)
 	return err == nil && info.Size() > 0
+}
+
+// Secret is one small value kept under the same protection as the
+// credentials: the key that opens the keys an account keeps, for one.
+type Secret struct {
+	path      string
+	protector protector
+}
+
+// OpenSecret returns the secret stored at path.
+func OpenSecret(path string) *Secret {
+	return &Secret{path: path, protector: newProtector()}
+}
+
+// Save replaces the secret.
+func (s *Secret) Save(b []byte) error { return writeSealed(s.path, s.protector, b) }
+
+// Load reads the secret. ErrNotFound means none is stored.
+func (s *Secret) Load() ([]byte, error) {
+	sealed, err := os.ReadFile(s.path)
+	if os.IsNotExist(err) || (err == nil && len(sealed) == 0) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read %q: %w", s.path, err)
+	}
+	plain, err := s.protector.unprotect(sealed)
+	if err != nil {
+		return nil, fmt.Errorf("unlock %q with %s: %w", s.path, s.protector.name(), err)
+	}
+	return plain, nil
+}
+
+// Delete forgets the secret.
+func (s *Secret) Delete() error {
+	if err := os.Remove(s.path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("delete %q: %w", s.path, err)
+	}
+	return nil
 }

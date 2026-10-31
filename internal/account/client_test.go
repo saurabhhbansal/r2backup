@@ -66,17 +66,17 @@ func TestVerifySuccess(t *testing.T) {
 			t.Fatalf("path = %q", r.URL.Path)
 		}
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(`{"token":"the-jwt"}`))
+		_, _ = w.Write([]byte(`{"pin_token":"the-jwt","pin_set":false}`))
 	}))
 	defer server.Close()
 
 	c := NewClient(server.URL, nil)
-	token, err := c.Verify(context.Background(), "user@example.com", "123456")
+	ch, err := c.Verify(context.Background(), "user@example.com", "123456")
 	if err != nil {
 		t.Fatalf("Verify: %v", err)
 	}
-	if token != "the-jwt" {
-		t.Errorf("token = %q, want the-jwt", token)
+	if ch.PINToken != "the-jwt" || ch.PINSet {
+		t.Errorf("challenge = %+v", ch)
 	}
 }
 

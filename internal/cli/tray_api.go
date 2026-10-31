@@ -3,9 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/saurabhhbansal/r2backup/internal/ui"
@@ -88,25 +86,12 @@ func (t *trayBackend) call(ctx context.Context, method string, raw json.RawMessa
 		if err := decodeArgs(raw, &a); err != nil {
 			return nil, err
 		}
-		return nil, t.d.SignInVerify(ctx, a.Email, a.Code)
-
-	case "unlock":
-		var a struct {
-			Password string `json:"password"`
-		}
-		if err := decodeArgs(raw, &a); err != nil {
+		set, err := t.d.SignInVerify(ctx, a.Email, a.Code)
+		if err != nil {
 			return nil, err
 		}
-		err := t.d.UnlockVault(ctx, a.Password)
-		t.invalidate()
-		if err != nil {
-			// The terminal's wording points at one of its own keys; the
-			// panel has no such key, and says what the person can do here.
-			if i := strings.Index(err.Error(), " Press k"); i >= 0 {
-				err = errors.New(err.Error()[:i] + " Go back and enter your keys instead.")
-			}
-		}
-		return nil, err
+		// The PIN comes next: enter it (pinSet) or choose one.
+		return map[string]bool{"pinSet": set}, nil
 
 	case "signOut":
 		err := t.d.SignOut(ctx)

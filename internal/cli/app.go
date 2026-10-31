@@ -32,6 +32,10 @@ type app struct {
 	provider string
 	// mirror is the second destination `r2b mirror` copies to, if any.
 	mirror *creds.Store
+	// source is a Drime account whose folders are mirrored to S3 storage,
+	// for someone who backs up to Drime with another app. See
+	// mirror_sources.go.
+	source *creds.Store
 }
 
 // openApp opens local state only. Commands that never touch the network --
@@ -64,6 +68,7 @@ func openApp() (*app, error) {
 		index:  index.New(idxPath),
 		creds:  creds.Open(filepath.Join(dir, "credentials")),
 		mirror: creds.Open(filepath.Join(dir, "credentials-mirror")),
+		source: creds.Open(filepath.Join(dir, "credentials-source")),
 	}, nil
 }
 

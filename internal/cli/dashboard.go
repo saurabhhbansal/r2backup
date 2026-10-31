@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/saurabhhbansal/r2backup/internal/account"
 	"os"
 	"runtime"
 	"sync"
@@ -70,6 +71,11 @@ import (
 type dashboard struct {
 	opts *Options
 	app  *app
+
+	// pending is a sign-in between the email code and the PIN. pinMu guards
+	// it; the panel's requests run on their own goroutines.
+	pinMu   sync.Mutex
+	pending *account.PINChallenge
 
 	// mu guards lazily building the R2 client, and also the schedule cache
 	// just below: Load runs on the UI loop, a transfer runs on a worker, and

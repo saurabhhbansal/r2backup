@@ -149,21 +149,28 @@ func (f *fakeBackend) SignInStart(_ context.Context, email string) error {
 	return nil
 }
 
-func (f *fakeBackend) SignInVerify(_ context.Context, email, code string) error {
+func (f *fakeBackend) SignInVerify(_ context.Context, email, code string) (bool, error) {
 	f.codes = append(f.codes, [2]string{email, code})
-	f.acct.SignedIn, f.acct.Email = true, email
+	return true, nil
+}
+
+func (f *fakeBackend) SignInPIN(_ context.Context, pin string) error {
+	f.vaultPw = append(f.vaultPw, pin)
+	if len(f.codes) > 0 {
+		f.acct.SignedIn, f.acct.Email = true, f.codes[len(f.codes)-1][0]
+	}
 	return nil
 }
 
 func (f *fakeBackend) SignOut(context.Context) error { f.signedOut = true; return nil }
 
-func (f *fakeBackend) UnlockVault(_ context.Context, pw string) error {
-	f.vaultPw = append(f.vaultPw, pw)
+func (f *fakeBackend) PullKeys(context.Context) error {
+	f.vaultPw = append(f.vaultPw, "pull")
 	return nil
 }
 
-func (f *fakeBackend) StoreVault(_ context.Context, pw string) error {
-	f.vaultPw = append(f.vaultPw, pw)
+func (f *fakeBackend) PushKeys(context.Context) error {
+	f.vaultPw = append(f.vaultPw, "push")
 	return nil
 }
 
