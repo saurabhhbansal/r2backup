@@ -134,8 +134,13 @@ func (d *dashboard) ResetPIN(ctx context.Context, pin string) error {
 		return err
 	}
 	// The account has nothing now. This computer's keys, if it has any, are
-	// the obvious thing to keep there.
-	return d.PushKeys(ctx)
+	// the obvious thing to keep there. Not saving them is not a failed reset:
+	// the PIN is changed and this computer signed in, and the account screen
+	// offers to save them again.
+	if localStoredKeys(d.app).Primary != nil {
+		_ = d.PushKeys(ctx)
+	}
+	return nil
 }
 
 // SetPIN gives a computer signed in before PINs its PIN, without a new email

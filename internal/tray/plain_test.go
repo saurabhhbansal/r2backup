@@ -15,7 +15,7 @@ func TestPlain(t *testing.T) {
 			"Another backup was running at the same time, so this one did not start. It runs again next time."},
 		{"the folder this set points at no longer exists: C:\\Photos",
 			"This folder is not where it was. Nothing was deleted from your backup. Open the folder to find where it went."},
-		{"no credentials on this machine yet. Run: r2b setup", "Connect your storage first: Settings, then Storage."},
+		{"no credentials on this machine yet. Run: r2b setup", "Choose where backups go first: Settings, then Account."},
 		{"nothing is being backed up yet. Run: r2b add <folder>", "Nothing is being backed up yet. Add a folder first."},
 		{"your sign-in has expired. Run: r2b setup", "Your sign-in has expired. Sign in again from Settings, Account."},
 		{"no mirror destination yet. Run: r2b mirror setup", "There is no second copy set up yet. Set one up in Settings, Second copy."},

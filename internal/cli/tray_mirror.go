@@ -106,7 +106,7 @@ type mirrorInfoOut struct {
 	Main      string          `json:"main"`
 	Set       bool            `json:"set"`
 	Dest      string          `json:"dest,omitempty"`
-	Provider  string          `json:"provider,omitempty"` // drime or r2, the mirror's
+	Provider  string          `json:"provider,omitempty"` // the mirror's: drime, r2, b2, s3 or s3-custom
 	Suggest   string          `json:"suggest"`            // the other kind from the main one
 	Auto      bool            `json:"auto"`
 	Last      string          `json:"last,omitempty"`
@@ -156,7 +156,7 @@ func (t *trayBackend) mirrorSetup(ctx context.Context, c creds.Credentials, auto
 	a := t.d.app
 	main, err := a.creds.Load()
 	if err != nil {
-		return errors.New("connect your storage first: Settings, then Storage")
+		return errors.New("choose where backups go first: Settings, then Account")
 	}
 	if err := c.Valid(); err != nil {
 		return err
@@ -298,7 +298,8 @@ func (t *trayBackend) mirrorCall(ctx context.Context, method string, raw []byte)
 		if err := decodeArgs(raw, &a); err != nil {
 			return nil, true, err
 		}
-		return t.drimeSources(), true, removeDrimeSource(a.Name)
+		err := removeDrimeSource(a.Name) // before the list it returns is read
+		return t.drimeSources(), true, err
 
 	// Copy one Drime folder (or all, with no name) now, in the background;
 	// mirrorStatus follows it like any other copy.

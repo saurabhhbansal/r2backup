@@ -315,21 +315,8 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
 .me .t { flex: 1; min-width: 0; }
 .me .t b { display: block; font-weight: 600; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .me .t span { display: block; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.pickbox { padding: 10px; }
-.seg { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 2px; padding: 3px; background: var(--seg-track); border: 1px solid var(--line); border-radius: var(--r-md); }
-.seg button { height: 28px; border-radius: var(--r-sm); color: var(--muted); font-size: 12px; font-weight: 500; transition: background .12s, color .12s; }
-.seg button:hover { color: var(--text); }
-.seg button[aria-checked="true"] { background: var(--seg-on); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, .14); }
-.keyline { display: flex; align-items: center; gap: 10px; padding: 10px 2px 2px; }
-.keyline.none { color: var(--muted); font-size: 12px; }
-.keyline .t { flex: 1; min-width: 0; }
-.keyline .t b { display: block; font-weight: 500; }
-.keyline .t span { display: block; color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ok-ic { width: 20px; height: 20px; border-radius: 50%; flex: none; display: grid; place-items: center; color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
 .ok-ic svg { width: 12px; height: 12px; stroke: currentColor; fill: none; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
-.pickrow { display: flex; align-items: center; gap: 10px; padding: 10px 2px 0; margin-top: 10px; border-top: 1px solid var(--line); }
-.pickrow .t { flex: 1; }
-.pickbox .textbtn { margin-top: 4px; }
 .synced { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; padding: 0 2px 12px; }
 .synced .mini { margin-left: auto; }
 
@@ -353,8 +340,27 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
 .gate .pane > h2 + p { text-align: center; margin: -12px 0 18px; }
 .gate input, .gate .primary { height: 38px; }
 .gate .links { justify-content: center; margin-top: 14px; }
-#g-code { text-align: center; font-size: 18px; font-weight: 500; letter-spacing: .35em; padding-left: calc(10px + .35em); font-variant-numeric: tabular-nums; height: 44px; }
-#g-code::placeholder { letter-spacing: .35em; font-weight: 400; }
+.digits { text-align: center; font-size: 18px; font-weight: 500; letter-spacing: .35em; padding-left: calc(10px + .35em); font-variant-numeric: tabular-nums; }
+.gate input.digits { height: 44px; }
+.digits::placeholder { letter-spacing: .35em; font-weight: 400; }
+.gate .inline .mini { height: 38px; padding: 0 14px; }
+.gate .hint { margin-top: 8px; }
+.gate .pane > p#g-code-help, .gate .pane > p#g-pin-help, .gate .pane > p#g-new-help { text-align: center; }
+.hint { color: var(--faint); font-size: 12px; margin: 0 2px 12px; }
+.hint.center { text-align: center; margin-top: 8px; }
+.lead { color: var(--muted); font-size: 12px; margin: 0 2px 12px; }
+.or { display: flex; align-items: center; gap: 10px; color: var(--faint); font-size: 12px; margin: 18px 0; }
+.or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.warnbox { border: 1px solid color-mix(in srgb, var(--bad) 40%, var(--line)); background: color-mix(in srgb, var(--bad) 7%, var(--card)); border-radius: var(--radius); padding: 12px; margin-bottom: 16px; }
+.warnbox b { display: block; font-weight: 600; margin-bottom: 4px; }
+.warnbox p { color: var(--muted); font-size: 12px; }
+.primary.danger { background: var(--bad); color: var(--accent-ink); }
+.primary.danger:hover { background: color-mix(in srgb, var(--bad) 88%, var(--bg)); }
+.pathbox { flex: 1; min-width: 0; height: 34px; line-height: 32px; padding: 0 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--card); color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; direction: rtl; text-align: left; }
+.field > .inline { margin: 0; }
+.pane .group { margin-bottom: 12px; }
+.item .mini + .icon-btn { margin: -4px -6px -4px -4px; width: 28px; height: 28px; }
+.item .icon-btn svg { width: 15px; height: 15px; }
 .gate-foot { display: flex; justify-content: center; padding: 8px var(--gut) 14px; }
 
 /* asking before a delete */
@@ -449,6 +455,13 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
       <button class="item link" id="b-add"><div class="t"><b>Add a folder…</b></div></button>
     </div>
     <div class="group">
+      <button class="item link" id="b-dfold"><div class="t"><b>Drime folders</b><span>Copy another app’s Drime backups to S3 storage</span></div></button>
+    </div>
+    <div class="group">
+      <button class="item link" id="b-export"><div class="t"><b>Export keys…</b><span>An encrypted file to set up another computer</span></div></button>
+      <button class="item link" id="b-import"><div class="t"><b>Import keys…</b></div></button>
+    </div>
+    <div class="group">
       <button class="item link" id="b-update"><div class="t"><b id="update-t">Check for updates</b><span id="update-sub"></span></div></button>
     </div>
     <div class="group">
@@ -458,28 +471,16 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
   </main>
 </section>
 
-<section class="sheet" id="sheet-connect" aria-label="Connect your storage">
+<section class="sheet" id="sheet-connect" aria-label="Choose storage">
   <header>
     <button class="icon-btn" id="c-back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button>
-    <b id="c-title">Connect your storage</b>
+    <b id="c-title">Where backups go</b>
   </header>
   <main>
-    <div class="pane" data-pane="choose">
-      <div class="group">
-        <button class="item link" data-go="drime"><div class="t"><b>Drime</b></div></button>
-        <button class="item link" data-go="r2"><div class="t"><b>Cloudflare R2</b></div></button>
-      </div>
-    </div>
+    <div class="pane" data-pane="choose"><div id="c-kinds"></div></div>
 
-    <div class="pane" data-pane="drime" hidden>
-      <label class="field"><span>Access token</span><input id="c-token" type="password" autocomplete="off" spellcheck="false"></label>
-      <button class="textbtn getlink" id="c-drime-open">Get a token from Drime</button>
-      <div class="err-line" id="c-drime-err" hidden></div>
-      <button class="primary" id="c-drime-go"><span>Connect</span></button>
-    </div>
-
-    <div class="pane" data-pane="r2" hidden>
-      <div class="cfbox" id="c-cf">
+    <div class="pane" data-pane="form" hidden>
+      <div class="cfbox" id="c-cf" data-k="r2" data-only="primary">
         <div id="c-cf-start"><button class="wide" id="c-cf-go"><span>Sign in with Cloudflare</span></button></div>
         <div id="c-cf-wait" class="cfwait" hidden><span>Waiting for your browser…</span><button class="mini" id="c-cf-stop">Cancel</button></div>
         <div id="c-cf-pick" hidden>
@@ -489,15 +490,29 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
         </div>
         <div class="err-line" id="c-cf-err" hidden style="margin:8px 0 0"></div>
       </div>
-      <label class="field"><span>Account ID</span><input id="c-acct" autocomplete="off" spellcheck="false"></label>
-      <label class="field"><span>Bucket name</span><input id="c-bucket" autocomplete="off" spellcheck="false"></label>
-      <button class="textbtn getlink" id="c-r2-token">Create an API token</button>
-      <label class="field"><span>Access key ID</span><input id="c-key" autocomplete="off" spellcheck="false"></label>
-      <label class="field"><span>Secret access key</span><input id="c-secret" type="password" autocomplete="off" spellcheck="false"></label>
-      <div class="err-line" id="c-r2-err" hidden></div>
-      <button class="primary" id="c-r2-go"><span>Connect</span></button>
+      <label class="field" data-k="drime"><span>API token</span><input id="c-token" type="password" autocomplete="off" spellcheck="false"></label>
+      <button class="textbtn getlink" id="c-drime-open" data-k="drime">Get a token from Drime</button>
+      <label class="field" data-k="drime"><span>Folder in Drime</span><input id="c-folder" autocomplete="off" spellcheck="false" placeholder="r2backup"></label>
+      <label class="field" data-k="s3-custom"><span>Endpoint URL</span><input id="c-endpoint" autocomplete="off" spellcheck="false" placeholder="https://s3.example.com"></label>
+      <label class="field" data-k="r2"><span>Account ID</span><input id="c-acct" autocomplete="off" spellcheck="false"></label>
+      <label class="field" data-k="r2 b2 s3 s3-custom"><span>Bucket</span><input id="c-bucket" autocomplete="off" spellcheck="false"></label>
+      <label class="field" data-k="b2 s3 s3-custom"><span id="c-region-t">Region</span><input id="c-region" autocomplete="off" spellcheck="false"></label>
+      <button class="textbtn getlink" id="c-keylink" data-k="r2 b2 s3">Create an API token</button>
+      <label class="field" data-k="r2 b2 s3 s3-custom"><span id="c-key-t">Access key ID</span><input id="c-key" autocomplete="off" spellcheck="false"></label>
+      <label class="field" data-k="r2 b2 s3 s3-custom"><span id="c-secret-t">Secret access key</span><input id="c-secret" type="password" autocomplete="off" spellcheck="false"></label>
+      <div class="group">
+        <div class="item" data-k="s3-custom">
+          <div class="t"><b>Bucket in the hostname</b><span>For addresses like bucket.s3.example.com</span></div>
+          <button class="toggle" id="c-vhost" role="switch" aria-checked="false" aria-label="Bucket in the hostname"></button>
+        </div>
+        <div class="item">
+          <div class="t"><b>Pack small files</b><span>Packing cuts per-request costs: fewer, larger uploads.</span></div>
+          <button class="toggle" id="c-pack" role="switch" aria-checked="false" aria-label="Pack small files"></button>
+        </div>
+      </div>
+      <div class="err-line" id="c-err" hidden></div>
+      <button class="primary" id="c-go"><span>Connect</span></button>
     </div>
-
   </main>
 </section>
 
@@ -669,41 +684,98 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
   </header>
   <main id="m-main">
     <div class="pane" data-mpane="home"></div>
-    <div class="pane" data-mpane="drime" hidden>
-      <label class="field"><span>Access token</span><input id="m-token" type="password" autocomplete="off" spellcheck="false"></label>
-      <button class="textbtn getlink" id="m-drime-open">Get a token from Drime</button>
-      <div class="err-line" id="m-drime-err" hidden></div>
-      <button class="primary" id="m-drime-go"><span>Connect</span></button>
-    </div>
-    <div class="pane" data-mpane="r2" hidden>
-      <label class="field"><span>Account ID</span><input id="m-acct" autocomplete="off" spellcheck="false"></label>
-      <label class="field"><span>Bucket name</span><input id="m-bucket" autocomplete="off" spellcheck="false"></label>
-      <button class="textbtn getlink" id="m-r2-token">Create an API token</button>
-      <label class="field"><span>Access key ID</span><input id="m-key" autocomplete="off" spellcheck="false"></label>
-      <label class="field"><span>Secret access key</span><input id="m-secret" type="password" autocomplete="off" spellcheck="false"></label>
-      <div class="err-line" id="m-r2-err" hidden></div>
-      <button class="primary" id="m-r2-go"><span>Connect</span></button>
-    </div>
-    <div class="pane" data-mpane="run" hidden><div class="runbox" id="m-run"></div></div>
+    <div class="pane" data-mpane="run" hidden><div class="runbox" id="m-run" aria-live="polite"></div></div>
   </main>
 </section>
 
-<section class="sheet gate" id="sheet-signin" aria-label="Sign in">
+<section class="sheet" id="sheet-dfold" aria-label="Drime folders">
+  <header>
+    <button class="icon-btn" id="df-back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button>
+    <b id="df-title">Drime folders</b>
+  </header>
+  <main id="df-main">
+    <div class="pane" data-dfpane="home"></div>
+    <div class="pane" data-dfpane="add" hidden>
+      <label class="field" id="df-token-f"><span>Drime API token</span><input id="df-token" type="password" autocomplete="off" spellcheck="false"></label>
+      <button class="textbtn getlink" id="df-token-l">Get a token from Drime</button>
+      <label class="field"><span>Folder in Drime</span><input id="df-folder" autocomplete="off" spellcheck="false" placeholder="Backups/Laptop"></label>
+      <label class="field"><span>Name, if not the folder’s</span><input id="df-name" autocomplete="off" spellcheck="false"></label>
+      <div class="group">
+        <div class="item">
+          <div class="t"><b>Copy after every backup</b><span>Or copy it yourself from here.</span></div>
+          <button class="toggle" id="df-auto" role="switch" aria-checked="true" aria-label="Copy after every backup"></button>
+        </div>
+      </div>
+      <div class="err-line" id="df-err" hidden></div>
+      <button class="primary" id="df-go"><span>Add</span></button>
+    </div>
+    <div class="pane" data-dfpane="run" hidden><div class="runbox" id="df-run" aria-live="polite"></div></div>
+  </main>
+</section>
+
+<section class="sheet" id="sheet-keys" aria-label="Key file">
+  <header>
+    <button class="icon-btn" id="kf-back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button>
+    <b id="kf-title">Export keys</b>
+  </header>
+  <main>
+    <div class="pane">
+      <p id="kf-lead"></p>
+      <div class="field" id="kf-file-f"><span>Key file</span><div class="inline"><div class="pathbox" id="kf-file">No file chosen</div><button class="mini" id="kf-pick">Choose…</button></div></div>
+      <label class="field"><span>Passphrase</span><input id="kf-pass" type="password" autocomplete="new-password" spellcheck="false" minlength="8"></label>
+      <label class="field" id="kf-pass2-f"><span>Passphrase again</span><input id="kf-pass2" type="password" autocomplete="new-password" spellcheck="false" minlength="8"></label>
+      <p class="hint">At least 8 characters. Without it the file cannot be opened, by anyone.</p>
+      <div class="err-line" id="kf-err" hidden></div>
+      <button class="primary" id="kf-go"><span>Choose where to save…</span></button>
+    </div>
+  </main>
+</section>
+
+<section class="sheet gate" id="sheet-signin" aria-label="Get started">
   <main>
     <div class="logo" aria-hidden="true"></div>
-    <div class="pane" data-gpane="email">
-      <h2>Sign in</h2>
-      <label class="field"><input id="g-email" type="email" autocomplete="email" spellcheck="false" placeholder="Email" aria-label="Email"></label>
+    <div class="pane" data-gpane="start">
+      <h2>Get started</h2>
+      <div class="inline"><input id="g-email" type="email" autocomplete="email" spellcheck="false" placeholder="Email" aria-label="Email" aria-describedby="g-email-help"><button class="mini" id="g-email-go" aria-label="Continue with email"><span>Continue</span></button></div>
+      <p class="hint" id="g-email-help">Hosted account, for personal use. It keeps your storage keys, locked with a PIN, for your other computers.</p>
       <div class="err-line" id="g-email-err" hidden></div>
-      <button class="primary" id="g-email-go"><span>Continue</span></button>
+      <div class="or"><span>or</span></div>
+      <button class="primary" id="g-local"><span>Use without an account</span></button>
+      <p class="hint center">Keys stay on this computer. Move them with a key file.</p>
     </div>
     <div class="pane" data-gpane="code" hidden>
       <h2>Enter code</h2>
       <p id="g-code-help"></p>
-      <label class="field"><input id="g-code" inputmode="numeric" autocomplete="one-time-code" spellcheck="false" maxlength="6" placeholder="······" aria-label="Code"></label>
+      <label class="field"><input class="digits" id="g-code" inputmode="numeric" autocomplete="one-time-code" spellcheck="false" maxlength="6" placeholder="······" aria-label="Code"></label>
       <div class="err-line" id="g-code-err" hidden></div>
-      <button class="primary" id="g-code-go"><span>Sign in</span></button>
+      <button class="primary" id="g-code-go"><span>Continue</span></button>
       <div class="links"><button class="textbtn" id="g-resend">Resend</button><button class="textbtn" id="g-change">Change email</button></div>
+    </div>
+    <div class="pane" data-gpane="pin" hidden>
+      <h2>Enter your PIN</h2>
+      <p id="g-pin-help"></p>
+      <label class="field"><input class="digits" id="g-pin" type="password" inputmode="numeric" autocomplete="off" spellcheck="false" maxlength="6" placeholder="······" aria-label="PIN"></label>
+      <div class="err-line" id="g-pin-err" hidden></div>
+      <button class="primary" id="g-pin-go"><span>Sign in</span></button>
+      <div class="links"><button class="textbtn" id="g-forgot">Forgot PIN?</button></div>
+    </div>
+    <div class="pane" data-gpane="newpin" hidden>
+      <h2 id="g-new-title">Choose a PIN</h2>
+      <p id="g-new-help"></p>
+      <label class="field"><input class="digits" id="g-new" type="password" inputmode="numeric" autocomplete="off" spellcheck="false" maxlength="6" placeholder="······" aria-label="PIN"></label>
+      <div class="err-line" id="g-new-err" hidden></div>
+      <button class="primary" id="g-new-go"><span>Continue</span></button>
+      <div class="links"><button class="textbtn" id="g-new-out" hidden>Sign out</button></div>
+    </div>
+    <div class="pane" data-gpane="forgot" hidden>
+      <h2>Reset your PIN?</h2>
+      <div class="warnbox">
+        <b>This deletes the keys saved to your account.</b>
+        <p>They were locked with the old PIN, so nobody can open them now. Your other computers are signed out, too. Backups in your storage are not touched: connect again with your storage keys or a key file.</p>
+      </div>
+      <div class="err-line" id="g-forgot-err" hidden></div>
+      <button class="primary danger" id="g-forgot-go"><span>Email me a code</span></button>
+      <div class="links"><button class="textbtn" id="g-forgot-back">Back</button></div>
     </div>
   </main>
   <div class="gate-foot"><button class="textbtn" id="g-quit">Quit</button></div>
@@ -782,7 +854,7 @@ function closeSheet(id) {
   $(id).classList.remove("open");
   // Whatever a sheet was waiting on stops with it.
   if (id === "sheet-connect") cfAbort();
-  if (id === "sheet-mirror") clearInterval(M.poll);
+  if (id === "sheet-mirror" || id === "sheet-dfold") clearInterval(jobPoll);
 }
 function topSheet() { const o = [...document.querySelectorAll(".sheet.open")]; return o.length ? o[o.length - 1] : null; }
 
@@ -806,8 +878,11 @@ function toast(msg) {
 function render(state) {
   S = state;
   $("acct-row-t").textContent = state.signedIn ? state.email : "Account";
-  $("acct-row-sub").textContent = state.machine || "";
-  if (!state.signedIn) showGate();
+  $("acct-row-sub").textContent = (state.mode === "local" ? "No account · " : "") + (state.machine || "");
+  // Choosing how keys are kept comes first, and so does a PIN an older
+  // sign-in still needs.
+  if (needGate(state)) showGate(state.needsPin ? "set" : "start");
+  else if ($("sheet-signin").classList.contains("open") && !G.manual) closeGate();
   $("b-restore").disabled = $("b-trash").disabled = !state.configured;
 
   const st = $("status");
@@ -948,47 +1023,96 @@ document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   if (!$("modal").hidden) { if (!$("md-go").disabled) closeModal(); return; }
   const t = topSheet();
-  // Signing in is required: Escape hides the panel rather than skipping it.
-  if (t && t.id !== "sheet-signin") closeSheet(t.id); else send("hide");
+  // Getting started cannot be skipped: Escape hides the panel instead,
+  // unless it was opened from the account screen.
+  if (t && t.id === "sheet-signin" && G.manual) $("g-quit").click();
+  else if (t && t.id !== "sheet-signin") closeSheet(t.id); else send("hide");
 });
 document.addEventListener("contextmenu", (e) => e.preventDefault());
-// --- connect storage and sign in -----------------------------------------------------
+// --- choosing storage: where backups go, or the second copy ------------------------------
+// One picker for both. Drime first; any S3-compatible storage second, with
+// presets that each ask only for their own fields.
 
-const TITLES = { choose: "Connect your storage", drime: "Drime", r2: "Cloudflare R2" };
-const BACK = { drime: "choose", r2: "choose" };
-let pane = "choose";
+const KINDS = {
+  drime: { name: "Drime", sub: "Cloud storage with a free plan. Files stay as they are." },
+  r2: { name: "Cloudflare R2", sub: "No fees to download." },
+  b2: { name: "Backblaze B2", sub: "Low-cost storage." },
+  s3: { name: "Amazon S3", sub: "" },
+  "s3-custom": { name: "Other S3 storage", sub: "MinIO, Wasabi, a NAS: anything with an S3 endpoint." },
+};
+const kindName = (k) => (KINDS[k] ? KINDS[k].name : "your storage");
+// Where each kind's keys are made.
+const KEYLINK = {
+  r2: { t: "Create an API token", url: "" },
+  b2: { t: "Create an application key", url: "https://secure.backblaze.com/app_keys.htm" },
+  s3: { t: "Create an access key", url: "https://console.aws.amazon.com/iam/home#/security_credentials" },
+};
+const DC = { which: "primary", kind: "", then: null, direct: false, pane: "choose" };
+
+// The kinds as a list to choose from, one marked with a chip.
+function kindList(suggest, mark) {
+  const item = (k) => '<button class="item link" data-kind="' + k + '"><div class="t"><b>' + esc(KINDS[k].name) +
+    (k === suggest ? '<span class="chip">' + esc(mark) + "</span>" : "") + "</b><span>" + esc(KINDS[k].sub) + "</span></div></button>";
+  return '<div class="group">' + item("drime") + '</div><div class="sect">S3-compatible storage</div><div class="group">' +
+    ["r2", "b2", "s3", "s3-custom"].map(item).join("") + "</div>";
+}
+function bindKinds(box, f) { box.querySelectorAll("[data-kind]").forEach((b) => { b.onclick = () => f(b.dataset.kind); }); }
 
 function showPane(name) {
-  pane = name;
+  DC.pane = name;
   document.querySelectorAll("#sheet-connect .pane").forEach((p) => { p.hidden = p.dataset.pane !== name; });
-  $("c-title").textContent = TITLES[name];
+  $("c-title").textContent = name === "form" ? kindName(DC.kind) : DC.which === "second" ? "Second copy" : "Where backups go";
   $("sheet-connect").querySelector("main").scrollTop = 0;
-  const first = document.querySelector('#sheet-connect .pane[data-pane="' + name + '"] input');
-  if (first) first.focus();
+  setTimeout(() => {
+    const pane = document.querySelector('#sheet-connect .pane[data-pane="' + name + '"]');
+    const f = [...pane.querySelectorAll(name === "form" ? "input" : "button")].find((i) => i.offsetParent !== null && !i.closest("#c-cf"));
+    if (f) f.focus();
+  }, 0);
 }
-function openConnect(start, then) {
-  connectThen = then || null;
-  document.querySelectorAll("#sheet-connect input").forEach((i) => { i.value = ""; });
-  ["c-drime-err", "c-r2-err", "c-cf-err"].forEach((id) => showErr(id, ""));
+function chooseKind(k) {
+  DC.kind = k;
+  document.querySelectorAll("#sheet-connect [data-k]").forEach((el) => {
+    el.hidden = !el.dataset.k.split(" ").includes(k) || (!!el.dataset.only && el.dataset.only !== DC.which);
+  });
+  // Field names follow each company's own words.
+  $("c-key-t").textContent = k === "b2" ? "Key ID" : "Access key ID";
+  $("c-secret-t").textContent = k === "b2" ? "Application key" : "Secret access key";
+  $("c-region-t").textContent = k === "s3-custom" ? "Region, if it asks for one" : "Region";
+  $("c-region").placeholder = k === "b2" ? "us-west-004" : "us-east-1";
+  if (KEYLINK[k]) $("c-keylink").textContent = KEYLINK[k].t;
+  // Packing is on for storage that charges by the request, off for Drime.
+  $("c-pack").setAttribute("aria-checked", k !== "drime");
+  $("c-vhost").setAttribute("aria-checked", "false");
+  showErr("c-err", ""); showErr("c-cf-err", "");
   cfShow("start");
-  showPane(start || "choose");
-  openSheet("sheet-connect");
+  showPane("form");
 }
-const actions = { connect: () => openAccount(), cost: () => openAccount("cost"), "restore-set": (name) => openRestore(name), add: () => openAdd(), "restore-other": () => openRestore() };
+// openConnect opens the picker for where backups go (which "primary") or the
+// second copy ("second"). A kind skips the list; then runs once it is saved.
+function openConnect(kind, then, which) {
+  DC.which = which || "primary"; DC.then = then || null; DC.direct = !!kind;
+  document.querySelectorAll("#sheet-connect input").forEach((i) => { i.value = ""; });
+  const suggest = DC.which === "second" ? (S && S.provider === "drime" ? "r2" : "drime") : "drime";
+  $("c-kinds").innerHTML = kindList(suggest, DC.which === "second" ? "Suggested" : "Recommended");
+  bindKinds($("c-kinds"), chooseKind);
+  openSheet("sheet-connect");
+  if (kind) chooseKind(kind); else showPane("choose");
+}
+const openSecond = (kind, then) => openConnect(kind, then, "second");
+const actions = { connect: () => openConnect(), cost: () => openAccount("cost"), "restore-set": (name) => openRestore(name), add: () => openAdd(), "restore-other": () => openRestore() };
 
 // Done: the folders list takes over, which is where a new person goes next.
 function connected(msg) {
   closeSheet("sheet-connect"); closeSheet("sheet");
   toast(msg || "Connected.");
   call("cfDone").catch(() => {});
-  if (connectThen) { const f = connectThen; connectThen = null; f(); return; }
+  if (DC.then) { const f = DC.then; DC.then = null; f(); return; }
   findRemoteBackups();
 }
 
 // A computer that has just connected may be here for backups another one
 // made. Said in the empty folder list, where a new person looks next.
 let remoteBackups = "";
-let connectThen = null;
 async function findRemoteBackups() {
   try {
     const sets = await call("restoreSets");
@@ -1000,33 +1124,50 @@ async function findRemoteBackups() {
   } catch (e) { /* nothing to offer */ }
 }
 
-// Opened from the account's picker straight on one kind, Back goes back there.
-$("c-back").onclick = () => { if (pane === "r2") cfAbort(); if (BACK[pane] && !connectThen) showPane(BACK[pane]); else { connectThen = null; closeSheet("sheet-connect"); } };
-document.querySelectorAll("#sheet-connect [data-go]").forEach((b) => { b.onclick = () => showPane(b.dataset.go); });
-
-$("c-drime-open").onclick = () => send("open", "https://app.drime.cloud/account-settings");
-$("c-drime-go").onclick = () => working($("c-drime-go"), "Checking…", async () => {
-  showErr("c-drime-err", "");
-  try { await call("connect", { provider: "drime", token: $("c-token").value }); connected("Connected to Drime."); }
-  catch (e) { showErr("c-drime-err", e.message); }
-});
-
-$("c-r2-token").onclick = async () => {
-  try { send("open", await call("tokenPage", { accountId: $("c-acct").value.trim() })); } catch (e) { showErr("c-r2-err", e.message); }
+// Opened straight on one kind, Back leaves; from the list, it goes back there.
+$("c-back").onclick = () => {
+  cfAbort();
+  if (DC.pane === "form" && !DC.direct) showPane("choose");
+  else { DC.then = null; closeSheet("sheet-connect"); }
 };
-$("c-r2-go").onclick = () => working($("c-r2-go"), "Checking…", async () => {
-  showErr("c-r2-err", "");
+$("c-drime-open").onclick = () => send("open", "https://app.drime.cloud/account-settings");
+$("c-keylink").onclick = async () => {
   try {
-    await call("connect", { provider: "r2", accountId: $("c-acct").value, bucket: $("c-bucket").value, accessKeyId: $("c-key").value, secret: $("c-secret").value });
-    connected("Connected to Cloudflare R2.");
-  } catch (e) { showErr("c-r2-err", e.message); }
+    const url = DC.kind === "r2" ? await call("tokenPage", { accountId: $("c-acct").value.trim() }) : KEYLINK[DC.kind].url;
+    send("open", url);
+  } catch (e) { showErr("c-err", e.message); }
+};
+const flip = (el) => { const on = el.getAttribute("aria-checked") !== "true"; el.setAttribute("aria-checked", on); return on; };
+$("c-vhost").onclick = () => flip($("c-vhost"));
+$("c-pack").onclick = () => flip($("c-pack"));
+
+function destArgs() {
+  const v = (id) => $(id).value.trim();
+  return {
+    provider: DC.kind, token: v("c-token"), drimeFolder: v("c-folder"), accountId: v("c-acct"), bucket: v("c-bucket"),
+    region: v("c-region"), endpoint: v("c-endpoint"), accessKeyId: v("c-key"), secret: v("c-secret"),
+    virtualHost: $("c-vhost").getAttribute("aria-checked") === "true", bundle: $("c-pack").getAttribute("aria-checked") === "true",
+  };
+}
+$("c-go").onclick = () => working($("c-go"), "Checking…", async () => {
+  showErr("c-err", "");
+  try {
+    if (DC.which === "second") {
+      await call("mirrorSetup", Object.assign({ auto: true }, destArgs()));
+      closeSheet("sheet-connect");
+      toast("Second copy: " + kindName(DC.kind) + ".");
+      if (DC.then) { const f = DC.then; DC.then = null; f(); }
+      return;
+    }
+    await call("connect", destArgs());
+    connected("Connected to " + kindName(DC.kind) + ".");
+  } catch (e) { showErr("c-err", e.message); }
 });
 
 document.querySelectorAll("#sheet-connect input").forEach((i) => {
   i.addEventListener("keydown", (e) => {
-    if (e.key !== "Enter") return;
-    const go = i.closest(".pane").querySelector(".primary");
-    if (go && !go.disabled) go.click();
+    if (e.key !== "Enter" || i.closest("#c-cf")) return;
+    if (!$("c-go").disabled) $("c-go").click();
   });
 });
 
@@ -1700,8 +1841,11 @@ function openRun(r) {
 $("u-back").onclick = () => closeSheet("sheet-run");
 
 // --- account ----------------------------------------------------------------------------------
+// How keys are kept (an account, or this computer alone), where backups go
+// and the second copy, with packing for each, and the computers.
 
 const ICON_USER = '<svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.6"/><path d="M5 19.5c1.2-3.3 3.9-5 7-5s5.8 1.7 7 5"/></svg>';
+const ICON_PC = '<svg viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="11.5" rx="1.5"/><path d="M8.5 19.5h7M12 16v3.5"/></svg>';
 const AC = { info: null, armed: false, renaming: false };
 const ICON_PEN = '<svg viewBox="0 0 24 24"><path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-4-4L4 16v4z"/><path d="m13.5 6.5 4 4"/></svg>';
 const primaryName = () => (S && S.configured && S.destination) || "your storage";
@@ -1711,61 +1855,79 @@ async function openAccount(focus) {
   if (!AC.info) $("ac-main").innerHTML = '<div class="note">Loading…</div>';
   try { AC.info = await call("accountConfig"); }
   catch (e) { AC.info = Object.assign({}, AC.info || {}, { err: e.message }); }
+  if (AC.info.needsPin) { showGate("set"); return; }
   acDraw();
   if (AC.info && AC.info.primary) loadCost(focus === "cost");
 }
 
-// One choice per place: which company, and whether its key is there.
-function seg(kind, cur, choices, label) {
-  return '<div class="seg" role="radiogroup" aria-label="' + label + '">' + choices.map(([v, t]) =>
-    '<button role="radio" data-' + kind + '="' + v + '" aria-checked="' + (v === cur) + '">' + t + "</button>").join("") + "</div>";
-}
-function keyLine(st, which) {
-  return '<div class="keyline"><span class="ok-ic" aria-hidden="true">' + ICON_CHK + '</span><div class="t"><b>Key saved</b><span title="' + esc(st.label) + '">' +
-    esc(st.hint) + '</span></div><button class="mini" data-replace="' + which + '">Replace…</button></div>';
+// A destination, its packing switch, and Change.
+function destBlock(st, which) {
+  const id = which === "primary" ? "p" : "s";
+  return '<div class="item"><div class="t"><b>' + esc(st.label) + '</b><span title="' + esc(st.hint) + '">' + esc(st.hint) + "</span></div>" +
+    '<button class="mini" id="ac-' + id + '-change">Change…</button></div>' +
+    '<div class="item"><div class="t"><b>Pack small files</b><span>' + (st.bundle ? "Fewer uploads, lower per-request costs" : "Each file uploaded on its own") + "</span></div>" +
+    '<button class="toggle" id="ac-' + id + '-pack" role="switch" aria-checked="' + !!st.bundle + '" aria-label="Pack small files at ' + esc(st.label) + '"></button></div>';
 }
 
 function acDraw() {
   const a = AC.info || {}, m = $("ac-main");
   AC.armed = false;
+  const mode = a.mode || (S && S.mode) || "";
+  const account = mode === "account" || a.signedIn;
   const email = a.email || (S && S.email) || "";
   const p = a.primary, s = a.second;
-  let html = '<div class="group"><div class="me"><span class="avatar lg" aria-hidden="true">' + ICON_USER + '</span><div class="t"><b>' + esc(email || "Not signed in") +
-    "</b><span>" + esc(a.machine || (S && S.machine) || "") + '</span></div><button class="mini" id="ac-out">Sign out</button></div></div>';
-  if (a.err) html += '<div class="err-line">' + esc(a.err) + "</div>";
+  let html = '<div class="group"><div class="me"><span class="avatar lg" aria-hidden="true">' + ICON_USER + '</span><div class="t"><b>' +
+    esc(account ? email : "No account") + "</b><span>" + esc(account ? "Hosted account, locked with your PIN" : "Keys stay on this computer") + "</span></div>" +
+    (account ? '<button class="mini" id="ac-out">Sign out</button>' : '<button class="mini" id="ac-in">Sign in…</button>') + "</div></div>";
+  if (a.err) html += '<div class="alert"><div class="t"><p>' + esc(a.err) + "</p></div></div>";
 
-  html += '<div class="sect">Where backups go</div><div class="group pickbox">' +
-    seg("p", p ? p.provider : "", [["drime", "Drime"], ["r2", "Cloudflare R2"]], "Where backups go") +
-    (p ? keyLine(p, "p") : '<div class="keyline none">Not connected</div>') + "</div>";
+  html += '<div class="sect">Where backups go</div><div class="group">' + (p ? destBlock(p, "primary")
+    : '<div class="item"><div class="t"><b>Not connected</b></div><button class="mini" id="ac-p-change">Connect…</button></div>') + "</div>";
 
-  html += '<div class="sect">Second copy</div><div class="group pickbox">' +
-    seg("s", s ? s.provider : "none", [["none", "None"], ["drime", "Drime"], ["r2", "Cloudflare R2"]], "Second copy") +
-    (s ? keyLine(s, "s") : p ? "" : '<div class="keyline none">Connect where backups go first.</div>');
+  html += '<div class="sect">Second copy</div><div class="group">';
   if (s) {
-    html += '<div class="pickrow"><div class="t">Copy after every backup</div><button class="toggle sm" id="ac-auto" role="switch" aria-checked="' + !!a.auto + '" aria-label="Copy after every backup"></button></div>' +
-      '<button class="textbtn" id="ac-copy">Copy now…</button>';
+    html += destBlock(s, "second") +
+      '<div class="item"><div class="t"><b>Copy after every backup</b></div><button class="toggle" id="ac-auto" role="switch" aria-checked="' + !!a.auto + '" aria-label="Copy after every backup"></button></div>' +
+      '<button class="item link" id="ac-copy"><div class="t"><b>Copy now…</b></div></button>' +
+      '<button class="item link danger" id="ac-s-off"><div class="t"><b>Stop keeping a second copy</b></div></button>';
+  } else {
+    html += '<div class="item"><div class="t"><b>None</b><span>' + (p ? "Keep your backups with a second company too." : "Connect where backups go first.") + "</span></div>" +
+      '<button class="mini" id="ac-s-change"' + (p ? "" : " disabled") + ">Set up…</button></div>";
   }
   html += "</div>";
 
-  if (p && email) {
+  if (p && account && !a.needsPin) {
     html += a.saved
       ? '<div class="synced"><span class="ok-ic" aria-hidden="true">' + ICON_CHK + "</span><span>Keys saved to your account</span></div>"
       : '<div class="synced"><span>Keys not saved to your account</span><button class="mini" id="ac-push">Save now</button></div>';
   }
-  if (a.devices && a.devices.length) {
-    html += '<div class="sect">Computers</div><div class="group">' + a.devices.map((d) => d.this && AC.renaming
-      ? '<div class="dev-edit"><div class="inline"><input id="ac-ren-in" maxlength="63" autocomplete="off" spellcheck="false" aria-label="Name of this computer" value="' + esc(d.name) + '">' +
-        '<button class="mini" id="ac-ren-save"><span>Save</span></button><button class="mini" id="ac-ren-cancel"><span>Cancel</span></button></div><div class="err-line" id="ac-ren-err" hidden></div></div>'
-      : '<div class="dev"><div><b>' + esc(d.name) + "</b>" + (d.this ? '<span class="chip">This one</span>' : "") + '</div><span class="dev-end"><span>' + esc(d.this ? "Now" : seen(d.lastSeen)) + "</span>" +
-        (d.this ? '<button class="icon-btn" id="ac-ren" title="Rename this computer" aria-label="Rename this computer">' + ICON_PEN + "</button>" : "") + "</span></div>").join("") + "</div>";
-  }
+  // Without an account there is only this computer to list.
+  const devices = a.devices && a.devices.length ? a.devices : [{ name: a.machine || (S && S.machine) || "", this: true }];
+  html += '<div class="sect">' + (account ? "Computers" : "This computer") + '</div><div class="group">' + devices.map((d) => d.this && AC.renaming
+    ? '<div class="dev-edit"><div class="inline"><input id="ac-ren-in" maxlength="63" autocomplete="off" spellcheck="false" aria-label="Name of this computer" value="' + esc(d.name) + '">' +
+      '<button class="mini" id="ac-ren-save"><span>Save</span></button><button class="mini" id="ac-ren-cancel"><span>Cancel</span></button></div><div class="err-line" id="ac-ren-err" hidden></div></div>'
+    : '<div class="dev"><div><b>' + esc(d.name) + "</b>" + (d.this && account ? '<span class="chip">This one</span>' : "") + '</div><span class="dev-end"><span>' + esc(d.this ? (account ? "Now" : "") : seen(d.lastSeen)) + "</span>" +
+      (d.this ? '<button class="icon-btn" id="ac-ren" title="Rename this computer" aria-label="Rename this computer">' + ICON_PEN + "</button>" : "") + "</span></div>").join("") + "</div>";
   if (p) html += '<div class="sect">Usage and cost</div><div id="ac-cost"><div class="note">Loading…</div></div>';
   m.innerHTML = html;
 
-  m.querySelectorAll("[data-p]").forEach((b) => { b.onclick = () => pickPrimary(b.dataset.p); });
-  m.querySelectorAll("[data-s]").forEach((b) => { b.onclick = () => pickSecond(b.dataset.s); });
-  m.querySelectorAll("[data-replace]").forEach((b) => {
-    b.onclick = () => (b.dataset.replace === "p" ? openConnect(p.provider, openAccount) : secondForm(s.provider));
+  $("ac-p-change").onclick = () => changePrimary();
+  // Change… on the second copy picks a new place; it replaces the old one.
+  if ($("ac-s-change")) $("ac-s-change").onclick = () => openSecond(null, openAccount);
+  [["p", "primary", p], ["s", "second", s]].forEach(([id, which, st]) => {
+    const sw = $("ac-" + id + "-pack");
+    if (!sw) return;
+    sw.onclick = async () => {
+      const on = sw.getAttribute("aria-checked") !== "true";
+      sw.disabled = true;
+      try {
+        const r = await call("setBundle", { which, on });
+        if (which === "primary") AC.info.primary = r; else AC.info.second = r;
+        acDraw();
+        const again = $("ac-" + id + "-pack"); if (again) again.focus();
+        toast(on ? "Packing small files at " + st.label + "." : "Uploading files one by one at " + st.label + ".");
+      } catch (e) { sw.disabled = false; toast(e.message); }
+    };
   });
   if ($("ac-auto")) $("ac-auto").onclick = async () => {
     const on = $("ac-auto").getAttribute("aria-checked") !== "true";
@@ -1773,6 +1935,11 @@ function acDraw() {
     catch (e) { toast(e.message); }
   };
   if ($("ac-copy")) $("ac-copy").onclick = () => openMirror();
+  if ($("ac-s-off")) $("ac-s-off").onclick = () => ask({
+    title: "Stop keeping a second copy?", go: "Stop", danger: false,
+    text: "What’s in " + s.label + " stays. Nothing more is copied.",
+    run: async () => { await call("mirrorForget"); await openAccount(); return "Second copy off."; },
+  });
   if ($("ac-ren")) $("ac-ren").onclick = () => { AC.renaming = true; acDraw(); const i = $("ac-ren-in"); i.focus(); i.select(); };
   if ($("ac-ren-in")) {
     const done = () => { AC.renaming = false; acDraw(); if ($("ac-ren")) $("ac-ren").focus(); };
@@ -1798,13 +1965,14 @@ function acDraw() {
   if ($("ac-push")) $("ac-push").onclick = () => working($("ac-push"), "Saving…", async () => {
     try { await call("keysPush"); toast("Saved to your account."); await openAccount(); } catch (e) { toast(e.message); }
   });
-  $("ac-out").onclick = async () => {
+  if ($("ac-in")) $("ac-in").onclick = () => showGate("start", true);
+  if ($("ac-out")) $("ac-out").onclick = async () => {
     if (!AC.armed) {
       AC.armed = true; $("ac-out").textContent = "Sure?";
       setTimeout(() => { if (AC.armed && $("ac-out")) { AC.armed = false; $("ac-out").textContent = "Sign out"; } }, 4000);
       return;
     }
-    try { await call("signOut"); AC.info = null; if (S) S.signedIn = false; showGate(); } catch (e) { toast(e.message); }
+    try { await call("signOut"); AC.info = null; if (S) { S.signedIn = false; S.mode = ""; } showGate(); } catch (e) { toast(e.message); }
   };
 }
 
@@ -1815,97 +1983,193 @@ function seen(iso) {
   return n === "Today" || n === "Yesterday" ? n : "Seen " + n;
 }
 
-function pickPrimary(v) {
+// Moving where backups go asks first: what is already there stays there.
+function changePrimary() {
   const p = AC.info && AC.info.primary;
-  if (p && p.provider === v) return;
-  if (!p) { openConnect(v, openAccount); return; }
+  if (!p) { openConnect(null, openAccount); return; }
   ask({
-    title: "Back up to " + (v === "drime" ? "Drime" : "Cloudflare R2") + " instead?", go: "Continue", danger: false,
-    text: "New backups go there. What’s in " + p.label + " stays.",
-    run: async () => { openConnect(v, openAccount); },
+    title: "Back up somewhere else?", go: "Continue", danger: false,
+    text: "New backups go to the new place. What’s in " + p.label + " stays.",
+    run: async () => { openConnect(null, openAccount); },
   });
 }
-function pickSecond(v) {
-  const p = AC.info && AC.info.primary, s = AC.info && AC.info.second;
-  if ((s ? s.provider : "none") === v) return;
-  if (!p) { toast("Connect where backups go first."); return; }
-  if (v === "none") {
-    ask({
-      title: "Stop keeping a second copy?", go: "Stop", danger: false,
-      text: "What’s in " + s.label + " stays. Nothing more is copied.",
-      run: async () => { await call("mirrorForget"); await openAccount(); return "Second copy off."; },
-    });
-    return;
-  }
-  secondForm(v);
-}
-// The second copy's key is entered on the second copy's own screen, which
-// comes back here once it is saved.
-function secondForm(v) {
-  M.then = openAccount;
-  document.querySelectorAll("#sheet-mirror input").forEach((i) => { i.value = ""; });
-  ["m-drime-err", "m-r2-err"].forEach((id) => showErr(id, ""));
-  openSheet("sheet-mirror");
-  mShow(v);
-  const f = document.querySelector('[data-mpane="' + v + '"] input');
-  if (f) f.focus();
-}
 $("ac-back").onclick = () => closeSheet("sheet-account");
-$("b-account").onclick = openAccount;
+$("b-account").onclick = () => openAccount();
 
-// --- sign in: required, with an emailed code ---------------------------------------------------
+// --- getting started: without an account, or signed in with email, code and PIN -------------
+// Using r2backup without an account is the first choice. The hosted account
+// is the second: an emailed code, then a 6-digit PIN that locks the keys it
+// keeps. A computer signed in before PINs is asked to set one first.
 
-const G = { email: "" };
+// flow: "signin" (enter or choose the PIN), "reset" (forgot it), "set" (a
+// sign-in from before PINs). manual: opened from the account screen by
+// someone using r2backup without an account, so it can be closed again.
+const G = { email: "", flow: "signin", first: "", manual: false, view: "" };
+const needGate = (st) => !!st.needsPin || (!st.signedIn && st.mode !== "local");
+
 function gShow(v) {
+  G.view = v;
   document.querySelectorAll("#sheet-signin [data-gpane]").forEach((p) => { p.hidden = p.dataset.gpane !== v; });
+  ["g-email-err", "g-code-err", "g-pin-err", "g-new-err", "g-forgot-err"].forEach((id) => showErr(id, ""));
   const f = document.querySelector('#sheet-signin [data-gpane="' + v + '"] input');
   if (f) setTimeout(() => f.focus(), 0);
+  else { const b = document.querySelector('#sheet-signin [data-gpane="' + v + '"] .primary'); if (b) setTimeout(() => b.focus(), 0); }
 }
-function showGate() {
-  if ($("sheet-signin").classList.contains("open")) return;
-  // Nothing stays open behind it.
-  document.querySelectorAll(".sheet.open").forEach((x) => closeSheet(x.id));
-  closeModal();
-  $("g-email").value = G.email; $("g-code").value = "";
-  showErr("g-email-err", ""); showErr("g-code-err", "");
-  gShow("email");
-  openSheet("sheet-signin");
+// showGate opens the screen at view "start", or "set" for a PIN to set.
+function showGate(view, manual) {
+  view = view || "start";
+  const open = $("sheet-signin").classList.contains("open");
+  if (open && (view === "start" || (view === "set" && G.flow === "set"))) return;
+  if (!open) {
+    // Nothing stays open behind it.
+    document.querySelectorAll(".sheet.open").forEach((x) => closeSheet(x.id));
+    closeModal();
+    G.manual = !!manual;
+    $("g-quit").textContent = G.manual ? "Cancel" : "Quit";
+    $("g-email").value = G.email || "";
+    openSheet("sheet-signin");
+  }
+  if (view === "set") newPin("set"); else { G.flow = "signin"; gShow("start"); }
 }
-async function sendCode() {
-  showErr("g-email-err", ""); showErr("g-code-err", "");
+function closeGate() { G.manual = false; G.view = ""; closeSheet("sheet-signin"); }
+
+// newPin asks for a PIN twice: for a new account, after a reset, or for a
+// sign-in from before PINs.
+function newPin(flow) {
+  G.flow = flow; G.first = "";
+  $("g-new").value = "";
+  $("g-new-title").textContent = flow === "set" ? "Set a PIN" : flow === "reset" ? "Choose a new PIN" : "Choose a PIN";
+  $("g-new-help").textContent = flow === "set"
+    ? "Your account now needs a 6-digit PIN. It locks the keys your account keeps, so only you can open them."
+    : "6 digits. It locks the keys your account keeps. You enter it when you sign in on another computer.";
+  $("g-new-out").hidden = flow !== "set";
+  gShow("newpin");
+}
+
+async function sendCode(errId) {
   G.email = $("g-email").value.trim();
-  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(G.email)) { showErr("g-email-err", "Enter a valid email."); return false; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(G.email)) { showErr(errId, "Enter a valid email."); $("g-email").focus(); return false; }
   await call("signInStart", { email: G.email });
-  $("g-code-help").textContent = "Sent to " + G.email;
+  $("g-code-help").textContent = "Sent to " + G.email + (G.flow === "reset" ? ". Then you choose a new PIN." : "");
+  $("g-code").value = "";
   return true;
 }
 $("g-email-go").onclick = () => working($("g-email-go"), "Sending…", async () => {
-  try { if (await sendCode()) { $("g-code").value = ""; gShow("code"); } } catch (e) { showErr("g-email-err", e.message); }
+  showErr("g-email-err", "");
+  G.flow = "signin";
+  try { if (await sendCode("g-email-err")) gShow("code"); } catch (e) { showErr("g-email-err", e.message); }
+});
+$("g-local").onclick = () => working($("g-local"), "One moment…", async () => {
+  showErr("g-email-err", "");
+  try { await call("useLocal"); } catch (e) { showErr("g-email-err", e.message); return; }
+  if (S) S.mode = "local";
+  closeGate();
+  AC.info = null;
+  if (S && !S.configured) { openConnect(); toast("Keys stay on this computer. Choose where backups go."); }
+  else toast("Using r2backup without an account.");
 });
 $("g-resend").onclick = async () => {
-  try { if (await sendCode()) { $("g-code").value = ""; toast("New code sent."); } } catch (e) { showErr("g-code-err", e.message); }
+  try { if (await sendCode("g-code-err")) toast("New code sent."); } catch (e) { showErr("g-code-err", e.message); }
 };
-$("g-change").onclick = () => gShow("email");
-$("g-quit").onclick = () => send("quit");
-$("g-code").oninput = () => { if (/^\d{6}$/.test($("g-code").value.trim()) && !$("g-code-go").disabled) $("g-code-go").click(); };
+$("g-change").onclick = () => { G.flow = "signin"; gShow("start"); };
+$("g-quit").onclick = () => { if (G.manual) { closeGate(); openAccount(); } else send("quit"); };
+
+// Six digits typed is as good as pressing the button.
+const autoGo = (input, btn) => { $(input).oninput = () => { if (/^\d{6}$/.test($(input).value.trim()) && !$(btn).disabled) $(btn).click(); }; };
+autoGo("g-code", "g-code-go");
+autoGo("g-pin", "g-pin-go");
+autoGo("g-new", "g-new-go");
+
 $("g-code-go").onclick = () => working($("g-code-go"), "Checking…", async () => {
   showErr("g-code-err", "");
   const code = $("g-code").value.replace(/\s/g, "");
   if (!code) { showErr("g-code-err", "Enter the code."); return; }
-  try { await call("signInVerify", { email: G.email, code }); }
-  catch (e) { showErr("g-code-err", e.message); return; }
-  $("g-code-go").querySelector("span").textContent = "Signing in…";
-  let r = null;
-  try { r = await call("keysSync"); } catch (e) { /* the account screen says what is wrong */ }
-  if (S) { S.signedIn = true; S.email = G.email; }
-  closeSheet("sheet-signin");
-  AC.info = null;
-  if (r && r.primary) toast("Signed in.");
-  else { openAccount(); toast(r && r.err ? r.err : "Signed in. Choose where backups go."); }
+  let r;
+  try { r = await call("signInVerify", { email: G.email, code }); }
+  catch (e) { showErr("g-code-err", e.message); $("g-code").select(); return; }
+  // Not signed in yet: the PIN comes next.
+  if (G.flow === "reset" && r.pinSet) newPin("reset");
+  else if (r.pinSet) { $("g-pin").value = ""; $("g-pin-help").textContent = G.email; gShow("pin"); }
+  else newPin("signin");
 });
-["g-email", "g-code"].forEach((id) => $(id).addEventListener("keydown", (e) => {
+
+$("g-pin-go").onclick = () => working($("g-pin-go"), "Checking…", async () => {
+  showErr("g-pin-err", "");
+  const pin = $("g-pin").value.trim();
+  if (!/^\d{6}$/.test(pin)) { showErr("g-pin-err", "Your PIN is 6 digits."); return; }
+  let r = null;
+  try { r = await call("signInPin", { pin }); }
+  catch (e) {
+    $("g-pin").value = "";
+    // The PIN step has a time limit; past it, start again from the email.
+    if (/new email code/i.test(e.message)) { gShow("start"); showErr("g-email-err", e.message); return; }
+    // Wrong (with tries left) or locked for a while: the server says which.
+    showErr("g-pin-err", e.message);
+    $("g-pin").focus();
+    return;
+  }
+  signedIn(r);
+});
+
+$("g-new-go").onclick = () => {
+  showErr("g-new-err", "");
+  const pin = $("g-new").value.trim();
+  if (!/^\d{6}$/.test(pin)) { showErr("g-new-err", "Use 6 digits."); $("g-new").focus(); return; }
+  if (!G.first) {
+    G.first = pin; $("g-new").value = "";
+    $("g-new-title").textContent = "Enter it again";
+    $("g-new-help").textContent = "To be sure it is the one you meant.";
+    $("g-new").focus();
+    return;
+  }
+  if (pin !== G.first) {
+    const flow = G.flow;
+    newPin(flow);
+    showErr("g-new-err", "The two did not match. Choose one again.");
+    return;
+  }
+  working($("g-new-go"), "Saving…", async () => {
+    const method = G.flow === "reset" ? "pinReset" : G.flow === "set" ? "setPin" : "signInPin";
+    let r = null;
+    try { r = await call(method, { pin }); }
+    catch (e) {
+      if (/new email code/i.test(e.message)) { gShow("start"); showErr("g-email-err", e.message); return; }
+      newPin(G.flow); showErr("g-new-err", e.message); return;
+    }
+    signedIn(r);
+  });
+};
+$("g-new-out").onclick = async () => {
+  try { await call("signOut"); } catch (e) { showErr("g-new-err", e.message); return; }
+  if (S) { S.signedIn = false; S.needsPin = false; S.mode = ""; }
+  G.flow = "signin"; gShow("start");
+};
+
+$("g-forgot").onclick = () => gShow("forgot");
+$("g-forgot-back").onclick = () => gShow("pin");
+$("g-forgot-go").onclick = () => working($("g-forgot-go"), "Sending…", async () => {
+  G.flow = "reset";
+  try { if (await sendCode("g-forgot-err")) gShow("code"); } catch (e) { showErr("g-forgot-err", e.message); }
+});
+
+// signedIn closes the screen with what the sign-in found: keys pulled from
+// the account, or nowhere for backups yet.
+function signedIn(r) {
+  const flow = G.flow;
+  if (S) { S.signedIn = true; S.needsPin = false; S.mode = "account"; S.email = G.email || S.email; }
+  closeGate();
+  AC.info = null;
+  if (flow === "reset") toast("New PIN set. Your other computers are signed out.");
+  else if (r && r.primary) toast("Signed in. Backups go to " + r.primary + ".");
+  else if (r && r.err) toast(r.err);
+  else toast(flow === "set" ? "PIN set." : "Signed in.");
+  if (S && !S.configured && !(r && r.primary)) openConnect();
+}
+
+["g-email", "g-code", "g-pin", "g-new"].forEach((id) => $(id).addEventListener("keydown", (e) => {
   if (e.key !== "Enter") return;
-  const go = $(id).closest(".pane").querySelector(".primary");
+  e.preventDefault();
+  const go = id === "g-email" ? $("g-email-go") : $(id).closest(".pane").querySelector(".primary");
   if (go && !go.disabled) go.click();
 }));
 
@@ -1955,8 +2219,8 @@ $("md-go").onclick = () => {
 
 // --- second copy (mirror) ------------------------------------------------------------------
 
-const M = { view: "home", info: null, poll: 0, armed: "", then: null };
-const MTITLES = { home: "Second copy", drime: "Drime", r2: "Cloudflare R2", run: "Copying" };
+const M = { view: "home", info: null, poll: 0, armed: "" };
+const MTITLES = { home: "Second copy", run: "Copying" };
 function mShow(v) {
   M.view = v;
   document.querySelectorAll("#sheet-mirror [data-mpane]").forEach((p) => { p.hidden = p.dataset.mpane !== v; });
@@ -1971,7 +2235,7 @@ async function openMirror() {
   pane.innerHTML = '<div class="note">Loading…</div>';
   try {
     M.info = await call("mirrorInfo");
-    if (!M.info.job.idle) { mShow("run"); watchMirror(); return; }
+    if (!M.info.job.idle) { mShow("run"); watchJob($("m-run"), finishMirror); return; }
     mDraw();
   } catch (e) { pane.innerHTML = '<div class="empty"><b>Could not read it</b>' + esc(e.message) + "</div>"; }
 }
@@ -1980,21 +2244,18 @@ function mDraw() {
   M.armed = "";
   let html = "";
   if (!m.set) {
-    const opt = (p, name) => '<button class="item link" data-mgo="' + p + '"><div class="t"><b>' + name + (m.suggest === p ? '<span class="chip">Suggested</span>' : "") + "</b></div></button>";
-    const drime = opt("drime", "Drime");
-    const r2 = opt("r2", "Cloudflare R2");
-    html += '<div class="group">' + (m.suggest === "drime" ? drime + r2 : r2 + drime) + "</div>";
+    // The same choice as where backups go, with the other family suggested.
+    html = '<p class="lead">Keep your backups with a second company too. Choose where.</p>' + kindList(S && S.provider === "drime" ? "r2" : "drime", "Suggested");
   } else {
     html = '<div class="group"><div class="stat"><span>Backups</span><b>' + esc(m.main) + '</b></div><div class="stat"><span>Second copy</span><b>' + esc(m.dest) + "</b></div></div>";
     html += '<div class="group"><div class="item"><div class="t"><b>Copy after every backup</b><span>' + esc(m.last ? "Last copied " + dayName(m.last).toLowerCase() + " at " + new Date(m.last).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : "Not copied yet") + "</span></div>" +
       '<button class="toggle" id="m-auto" role="switch" aria-checked="' + m.auto + '" aria-label="Copy after every backup"></button></div></div>';
     html += '<div class="group"><button class="item link" id="m-now"' + (m.haveFolders ? "" : " disabled") + '><div class="t"><b>Copy now</b></div></button>' +
       '<button class="item link" id="m-all"><div class="t"><b>Copy all computers’ backups</b></div></button></div>';
-    html += '<div class="group"><button class="item link" id="m-back-copy"><div class="t"><b id="m-back-t">Copy back…</b><span>Fills in what’s missing. Removes nothing.</span></div></button>' +
-      "</div>";
+    html += '<div class="group"><button class="item link" id="m-back-copy"><div class="t"><b id="m-back-t">Copy back…</b><span>Fills in what’s missing. Removes nothing.</span></div></button></div>';
   }
   pane.innerHTML = html;
-  pane.querySelectorAll("[data-mgo]").forEach((b) => { b.onclick = () => { mShow(b.dataset.mgo); const f = document.querySelector('[data-mpane="' + b.dataset.mgo + '"] input'); if (f) f.focus(); }; });
+  bindKinds(pane, (k) => openSecond(k, openMirror));
   if ($("m-auto")) $("m-auto").onclick = async () => {
     const on = $("m-auto").getAttribute("aria-checked") !== "true";
     try { await call("mirrorAuto", { on }); $("m-auto").setAttribute("aria-checked", on); M.info.auto = on; toast(on ? "Copying after every backup." : "Copying after every backup is off."); }
@@ -2003,9 +2264,6 @@ function mDraw() {
   if ($("m-now")) $("m-now").onclick = () => runMirror(false, false);
   if ($("m-all")) $("m-all").onclick = () => runMirror(true, false);
   if ($("m-back-copy")) $("m-back-copy").onclick = () => mTwice("back", "m-back-t", "Press again to copy back", () => runMirror(true, true));
-  if ($("m-forget")) $("m-forget").onclick = () => mTwice("forget", "m-forget-t", "Press again to stop keeping it", async () => {
-    try { await call("mirrorForget"); toast("No second copy is kept from now on."); openMirror(); } catch (e) { toast(e.message); }
-  });
 }
 function mTwice(key, labelId, ask, run) {
   if (M.armed !== key) {
@@ -2017,68 +2275,189 @@ function mTwice(key, labelId, ask, run) {
   M.armed = ""; run();
 }
 async function runMirror(everything, reverse) {
-  try { await call("mirrorRun", { everything, reverse }); mShow("run"); mRunDraw({ percent: 0, reverse, to: "" }); watchMirror(); }
+  try { await call("mirrorRun", { everything, reverse }); mShow("run"); jobDraw($("m-run"), { percent: 0, reverse, to: "" }, finishMirror); watchJob($("m-run"), finishMirror); }
   catch (e) { toast(e.message); }
 }
-function watchMirror() {
-  clearInterval(M.poll);
+// A copy running in the background -- the second copy, or Drime folders --
+// is followed with mirrorStatus and drawn in box; done is its Done button.
+let jobPoll = 0;
+function watchJob(box, done) {
+  clearInterval(jobPoll);
   const tick = async () => {
     try {
       const st = await call("mirrorStatus");
-      if (st.idle) { clearInterval(M.poll); return; }
-      mRunDraw(st);
-      if (st.done) clearInterval(M.poll);
+      if (st.idle) { clearInterval(jobPoll); return; }
+      jobDraw(box, st, done);
+      if (st.done) clearInterval(jobPoll);
     } catch (e) { /* again next time */ }
   };
-  tick(); M.poll = setInterval(tick, 800);
+  tick(); jobPoll = setInterval(tick, 800);
 }
-function mRunDraw(st) {
-  const box = $("m-run");
+function jobDraw(box, st, done) {
   if (st.done && !st.error) {
     const num = (n) => (n || 0).toLocaleString();
     let p = "Copied " + num(st.copied) + (st.copied === 1 ? " file" : " files") + (st.bytes ? " (" + esc(st.bytes) + ")" : "") +
       (st.removed ? ", removed " + num(st.removed) : "") + ". " + num(st.unchanged) + " already there.";
-    if (st.held) p += "<br>" + st.held + " kept on the second copy: your backups looked empty.";
+    if (st.held) p += "<br>" + st.held + " kept on the copy: the source looked empty.";
     if (st.failed) p += "<br>" + st.failed + " could not be copied. The next copy tries again.";
-    box.innerHTML = '<div class="bigicon ok">' + ICON_CHK + "</div><h2>" + (st.reverse ? "Copied back" : "Second copy is up to date") + "</h2><p>" + p + '</p><div class="btns"><button class="mini" id="m-done">Done</button></div>';
-    $("m-done").onclick = finishMirror;
+    box.innerHTML = '<div class="bigicon ok">' + ICON_CHK + "</div><h2>" + (st.reverse ? "Copied back" : "Up to date") + "</h2><p>" + p + '</p><div class="btns"><button class="mini" data-jdone>Done</button></div>';
   } else if (st.done) {
-    box.innerHTML = '<div class="bigicon bad"><svg viewBox="0 0 24 24"><path d="M12 7.5v5m0 3.5h.01"/></svg></div><h2>Could not finish</h2><p>' + esc(st.error) + '</p><div class="btns"><button class="mini" id="m-done">Close</button></div>';
-    $("m-done").onclick = finishMirror;
+    box.innerHTML = '<div class="bigicon bad"><svg viewBox="0 0 24 24"><path d="M12 7.5v5m0 3.5h.01"/></svg></div><h2>Could not finish</h2><p>' + esc(st.error) + '</p><div class="btns"><button class="mini" data-jdone>Close</button></div>';
   } else {
-    box.innerHTML = "<h2>" + (st.reverse ? "Copying back from " : "Copying to ") + esc(st.to || "the second copy") + "</h2><p>" + (st.files ? esc(st.files) + " files" : "Comparing the two…") + '</p><div class="bar' + (st.percent > 0 ? "" : " indet") + '"><i style="width:' + Math.min(100, st.percent || 0) + '%"></i></div>' +
-      "<p>" + (st.bytesAll ? esc(st.bytesDone) + " of " + esc(st.bytesAll) : "&nbsp;") + '</p><div class="btns"><button class="mini" id="m-stop">Stop</button></div>';
-    $("m-stop").onclick = () => { call("mirrorCancel").catch(() => {}); };
+    box.innerHTML = "<h2>" + (st.reverse ? "Copying back from " : /→/.test(st.to || "") ? "Copying " : "Copying to ") + esc(st.to || "the second copy") + "</h2><p>" + (st.files ? esc(st.files) + " files" : "Comparing the two…") + '</p><div class="bar' + (st.percent > 0 ? "" : " indet") + '"><i style="width:' + Math.min(100, st.percent || 0) + '%"></i></div>' +
+      "<p>" + (st.bytesAll ? esc(st.bytesDone) + " of " + esc(st.bytesAll) : "&nbsp;") + '</p><div class="btns"><button class="mini" data-jstop>Stop</button></div>';
+    box.querySelector("[data-jstop]").onclick = () => { call("mirrorCancel").catch(() => {}); };
+    return;
   }
+  const b = box.querySelector("[data-jdone]");
+  b.onclick = done;
+  setTimeout(() => b.focus(), 0);
 }
-async function finishMirror() { clearInterval(M.poll); try { await call("mirrorDismiss"); } catch (e) { /* nothing */ } openMirror(); }
-$("m-back").onclick = () => {
-  if ((M.view === "drime" || M.view === "r2") && M.then) { M.then = null; closeSheet("sheet-mirror"); }
-  else if (M.view === "drime" || M.view === "r2") mShow("home");
-  else { clearInterval(M.poll); closeSheet("sheet-mirror"); }
-};
-$("m-drime-open").onclick = () => send("open", "https://app.drime.cloud/account-settings");
-$("m-r2-token").onclick = async () => { try { send("open", await call("tokenPage", { accountId: $("m-acct").value.trim() })); } catch (e) { showErr("m-r2-err", e.message); } };
-async function setupMirror(btn, errId, args) {
-  await working(btn, "Checking…", async () => {
-    showErr(errId, "");
-    try {
-      await call("mirrorSetup", Object.assign({ auto: true }, args));
-      toast("Second copy connected.");
-      document.querySelectorAll("#sheet-mirror input").forEach((i) => { i.value = ""; });
-      if (M.then) { const f = M.then; M.then = null; closeSheet("sheet-mirror"); f(); } else openMirror();
-    } catch (e) { showErr(errId, e.message); }
+async function finishMirror() { clearInterval(jobPoll); try { await call("mirrorDismiss"); } catch (e) { /* nothing */ } openMirror(); }
+$("m-back").onclick = () => { clearInterval(jobPoll); closeSheet("sheet-mirror"); };
+
+// --- Drime folders: another app's Drime backups, copied to S3 storage ---------------------------
+
+const DF = { info: null, view: "home", armed: "" };
+const DFTITLES = { home: "Drime folders", add: "Add a Drime folder", run: "Copying" };
+function dfShow(v) {
+  DF.view = v;
+  document.querySelectorAll("#sheet-dfold [data-dfpane]").forEach((p) => { p.hidden = p.dataset.dfpane !== v; });
+  $("df-title").textContent = DFTITLES[v];
+  $("df-main").scrollTop = 0;
+}
+async function openDrimeFolders() {
+  clearInterval(jobPoll);
+  openSheet("sheet-dfold");
+  dfShow("home");
+  const pane = document.querySelector('[data-dfpane="home"]');
+  pane.innerHTML = '<div class="note">Loading…</div>';
+  try {
+    const st = await call("mirrorStatus");
+    if (!st.idle && /^Drime folder/.test(st.to || "")) { dfShow("run"); watchJob($("df-run"), finishDrime); return; }
+    DF.info = await call("drimeSources");
+    dfDraw();
+  } catch (e) { pane.innerHTML = '<div class="empty"><b>Could not read it</b>' + esc(e.message) + "</div>"; }
+}
+function dfDraw() {
+  const d = DF.info, pane = document.querySelector('[data-dfpane="home"]');
+  DF.armed = "";
+  let html = '<p class="lead">Back up to Drime with another app? Keep a copy of those folders on your S3 storage too.</p>';
+  if (d.destErr) {
+    html += '<div class="banner">' + esc(d.destErr) + '</div><div class="group"><button class="item link" id="df-dest"><div class="t"><b>Add S3 storage as a second copy…</b></div></button></div>';
+  } else {
+    html += '<div class="group"><div class="stat"><span>Copied to</span><b>' + esc(d.dest) + "</b></div></div>";
+    if (d.sources.length) {
+      html += '<div class="group">' + d.sources.map((s, i) =>
+        '<div class="item"><div class="t"><b>' + esc(s.name) + "</b><span>" + esc(s.folder + (s.lastRun ? " · copied " + dayName(s.lastRun).toLowerCase() : " · not copied yet") + (s.auto ? " · after every backup" : "")) + "</span></div>" +
+        '<button class="mini" data-dfrun="' + i + '">Copy now</button>' +
+        '<button class="icon-btn bk-del" data-dfrm="' + i + '" title="Stop copying ' + esc(s.name) + '" aria-label="Stop copying ' + esc(s.name) + '">' + ICON_TRASH + "</button></div>").join("") + "</div>";
+    }
+    html += '<div class="group"><button class="item link" id="df-add"><div class="t"><b>Add a Drime folder…</b></div></button>' +
+      (d.sources.length > 1 ? '<button class="item link" id="df-all"><div class="t"><b>Copy all now</b></div></button>' : "") + "</div>";
+  }
+  pane.innerHTML = html;
+  if ($("df-dest")) $("df-dest").onclick = () => openSecond(null, openDrimeFolders);
+  if ($("df-add")) $("df-add").onclick = dfAddForm;
+  if ($("df-all")) $("df-all").onclick = () => runDrime("");
+  pane.querySelectorAll("[data-dfrun]").forEach((b) => { b.onclick = () => runDrime(d.sources[+b.dataset.dfrun].name); });
+  pane.querySelectorAll("[data-dfrm]").forEach((b) => {
+    const s = d.sources[+b.dataset.dfrm];
+    b.onclick = () => ask({
+      title: "Stop copying " + s.name + "?", go: "Stop", danger: false,
+      text: "Nothing is deleted: what is in Drime and the copy on " + d.dest + " both stay.",
+      run: async () => { DF.info = await call("drimeSourceRemove", { name: s.name }); dfDraw(); return "No longer copying " + s.name + "."; },
+    });
   });
 }
-$("m-drime-go").onclick = () => setupMirror($("m-drime-go"), "m-drime-err", { provider: "drime", token: $("m-token").value });
-$("m-r2-go").onclick = () => setupMirror($("m-r2-go"), "m-r2-err", { provider: "r2", accountId: $("m-acct").value, bucket: $("m-bucket").value, accessKeyId: $("m-key").value, secret: $("m-secret").value });
-document.querySelectorAll("#sheet-mirror input").forEach((i) => {
-  i.addEventListener("keydown", (e) => {
-    if (e.key !== "Enter") return;
-    const go = i.closest(".pane").querySelector(".primary");
-    if (go && !go.disabled) go.click();
-  });
+function dfAddForm() {
+  ["df-token", "df-folder", "df-name"].forEach((id) => { $(id).value = ""; });
+  $("df-token-f").hidden = $("df-token-l").hidden = DF.info.haveToken;
+  $("df-auto").setAttribute("aria-checked", "true");
+  showErr("df-err", "");
+  dfShow("add");
+  setTimeout(() => (DF.info.haveToken ? $("df-folder") : $("df-token")).focus(), 0);
+}
+$("df-auto").onclick = () => flip($("df-auto"));
+$("df-token-l").onclick = () => send("open", "https://app.drime.cloud/account-settings");
+$("df-go").onclick = () => working($("df-go"), "Checking…", async () => {
+  showErr("df-err", "");
+  const folder = $("df-folder").value.trim();
+  if (!folder) { showErr("df-err", "Enter the folder’s path in Drime."); $("df-folder").focus(); return; }
+  try {
+    DF.info = await call("drimeSourceAdd", { token: DF.info.haveToken ? "" : $("df-token").value.trim(), folder, name: $("df-name").value.trim(), auto: $("df-auto").getAttribute("aria-checked") === "true" });
+    dfShow("home"); dfDraw();
+    toast("Added " + folder + ".");
+  } catch (e) { showErr("df-err", e.message); }
 });
+["df-token", "df-folder", "df-name"].forEach((id) => $(id).addEventListener("keydown", (e) => { if (e.key === "Enter" && !$("df-go").disabled) $("df-go").click(); }));
+async function runDrime(name) {
+  try { await call("drimeSourceRun", { name }); dfShow("run"); jobDraw($("df-run"), { percent: 0, to: name ? "Drime folder " + name : "Drime folders" }, finishDrime); watchJob($("df-run"), finishDrime); }
+  catch (e) { toast(e.message); }
+}
+async function finishDrime() { clearInterval(jobPoll); try { await call("mirrorDismiss"); } catch (e) { /* nothing */ } openDrimeFolders(); }
+$("df-back").onclick = () => { if (DF.view === "add") { dfShow("home"); dfDraw(); } else { clearInterval(jobPoll); closeSheet("sheet-dfold"); } };
+$("b-dfold").onclick = () => openDrimeFolders();
+
+// --- key files: moving storage keys without an account ------------------------------------------
+
+const KF = { mode: "export", path: "" };
+function openKeys(mode) {
+  KF.mode = mode; KF.path = "";
+  ["kf-pass", "kf-pass2"].forEach((id) => { $(id).value = ""; });
+  $("kf-title").textContent = mode === "export" ? "Export keys" : "Import keys";
+  $("kf-lead").textContent = mode === "export"
+    ? "Saves where backups go and the second copy to a file, encrypted with a passphrase. Import it on your other computer."
+    : "Opens a key file made with Export keys. Its keys replace the ones on this computer.";
+  $("kf-pass2-f").hidden = mode !== "export";
+  $("kf-pass").autocomplete = mode === "export" ? "new-password" : "current-password";
+  $("kf-file-f").hidden = mode === "export";
+  $("kf-file").textContent = "No file chosen";
+  $("kf-go").querySelector("span").textContent = mode === "export" ? "Choose where to save…" : "Import";
+  showErr("kf-err", "");
+  openSheet("sheet-keys");
+  setTimeout(() => (mode === "export" ? $("kf-pass") : $("kf-pick")).focus(), 0);
+}
+$("kf-pick").onclick = async () => {
+  showErr("kf-err", "");
+  try {
+    const p = await call("pickFile", { title: "Choose a key file", button: "Open", kind: "r2backup key file", ext: "r2b" });
+    if (p) { KF.path = p; $("kf-file").textContent = p; $("kf-pass").focus(); }
+  } catch (e) { showErr("kf-err", e.message); }
+};
+$("kf-go").onclick = () => {
+  showErr("kf-err", "");
+  const pass = $("kf-pass").value;
+  if (pass.length < 8) { showErr("kf-err", "Use a passphrase of at least 8 characters."); $("kf-pass").focus(); return; }
+  if (KF.mode === "export") {
+    if (pass !== $("kf-pass2").value) { showErr("kf-err", "The two passphrases do not match."); $("kf-pass2").focus(); return; }
+    working($("kf-go"), "Saving…", async () => {
+      try {
+        const name = "r2backup-keys-" + String((S && S.machine) || "computer").replace(/[^\w.-]+/g, "-") + ".r2b";
+        const path = await call("pickFile", { save: true, title: "Save the key file", button: "Save", name, kind: "r2backup key file", ext: "r2b" });
+        if (!path) return;
+        await call("keysExport", { path, passphrase: pass });
+        closeSheet("sheet-keys");
+        toast("Saved to " + path + ".");
+      } catch (e) { showErr("kf-err", e.message); }
+    });
+    return;
+  }
+  if (!KF.path) { showErr("kf-err", "Choose the key file first."); $("kf-pick").focus(); return; }
+  working($("kf-go"), "Opening…", async () => {
+    try {
+      const r = await call("keysImport", { path: KF.path, passphrase: pass });
+      closeSheet("sheet-keys"); closeSheet("sheet");
+      AC.info = null;
+      toast(r.primary ? "Imported. Backups go to " + r.primary + "." : r.second ? "Imported. Second copy: " + r.second + "." : "Imported.");
+      if (r.primary) findRemoteBackups();
+    } catch (e) { showErr("kf-err", e.message); }
+  });
+};
+["kf-pass", "kf-pass2"].forEach((id) => $(id).addEventListener("keydown", (e) => { if (e.key === "Enter" && !$("kf-go").disabled) $("kf-go").click(); }));
+$("kf-back").onclick = () => closeSheet("sheet-keys");
+$("b-export").onclick = () => openKeys("export");
+$("b-import").onclick = () => openKeys("import");
 
 // --- Cloudflare sign-in, while connecting R2 -------------------------------------------------
 

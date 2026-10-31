@@ -36,6 +36,8 @@ type fakeWorker struct {
 	proof  string
 	share  string
 
+	wrong    int               // wrong PINs in a row; five locks the account
+
 	sealed   map[string]string // {ciphertext, nonce}; nil when nothing stored
 	devices  []string
 	requests []string
@@ -112,12 +114,37 @@ func newFakeWorker(t *testing.T) (*fakeWorker, func()) {
 				reply(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 				return
 			}
+			if w.wrong >= 5 {
+				reply(http.StatusTooManyRequests, map[string]any{"error": "locked", "retry_after": 900})
+				return
+			}
 			var in struct{ Proof string }
 			_ = json.NewDecoder(r.Body).Decode(&in)
 			if in.Proof != w.proof {
-				reply(http.StatusUnauthorized, map[string]any{"error": "wrong pin", "tries_left": 4})
+				w.wrong++
+				if w.wrong >= 5 {
+					reply(http.StatusTooManyRequests, map[string]any{"error": "locked", "retry_after": 900})
+					return
+				}
+				reply(http.StatusUnauthorized, map[string]any{"error": "wrong pin", "tries_left": 5 - w.wrong})
 				return
 			}
+			w.wrong = 0
+			session()
+		case r.URL.Path == "/auth/pin/reset":
+			// Forgot the PIN: a new one, and the keys locked with the old
+			// one are gone.
+			if bearer != w.pinToken {
+				reply(http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
+				return
+			}
+			var in struct {
+				Salt  string          `json:"salt"`
+				KDF   json.RawMessage `json:"kdf_params"`
+				Proof string          `json:"proof"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			w.pinSet, w.salt, w.kdf, w.proof, w.wrong, w.sealed = true, in.Salt, in.KDF, in.Proof, 0, nil
 			session()
 		case r.URL.Path == "/keys" && r.Method == http.MethodGet:
 			if !authed() {
