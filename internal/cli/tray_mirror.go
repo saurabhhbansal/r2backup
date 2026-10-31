@@ -29,7 +29,7 @@ func destLabel(c creds.Credentials) string {
 		}
 		return "Drime · " + root
 	}
-	return "Cloudflare R2 · " + c.Bucket
+	return c.Label() + " · " + c.Bucket
 }
 
 // samePlace reports whether two destinations are the same storage, which a
@@ -43,7 +43,8 @@ func samePlace(a, b creds.Credentials) bool {
 		return strings.TrimSpace(a.DrimeToken) == strings.TrimSpace(b.DrimeToken) &&
 			a.DrimeWorkspace == b.DrimeWorkspace && a.DrimeRoot == b.DrimeRoot
 	}
-	return strings.EqualFold(strings.TrimSpace(a.AccountID), strings.TrimSpace(b.AccountID)) &&
+	ea, eb := a.S3(), b.S3()
+	return strings.EqualFold(strings.TrimSpace(ea.URL), strings.TrimSpace(eb.URL)) && ea.Region == eb.Region &&
 		strings.TrimSpace(a.Bucket) == strings.TrimSpace(b.Bucket)
 }
 
@@ -126,10 +127,7 @@ func (t *trayBackend) mirrorInfo() (mirrorInfoOut, error) {
 		return out, err
 	}
 	if mc, err := a.mirror.Load(); err == nil {
-		out.Set, out.Dest, out.Provider = true, destLabel(mc), "r2"
-		if mc.IsDrime() {
-			out.Provider = "drime"
-		}
+		out.Set, out.Dest, out.Provider = true, destLabel(mc), mc.Kind()
 	}
 	if s, err := config.LoadSettings(); err == nil {
 		out.Auto = s.MirrorAuto && out.Set
@@ -261,27 +259,13 @@ func (t *trayBackend) mirrorCall(ctx context.Context, method string, raw []byte)
 
 	case "mirrorSetup":
 		var a struct {
-			Provider    string `json:"provider"`
-			Token       string `json:"token"`
-			AccountID   string `json:"accountId"`
-			AccessKeyID string `json:"accessKeyId"`
-			Secret      string `json:"secret"`
-			Bucket      string `json:"bucket"`
-			Auto        bool   `json:"auto"`
+			destArgs
+			Auto bool `json:"auto"`
 		}
 		if err := decodeArgs(raw, &a); err != nil {
 			return nil, true, err
 		}
-		c := creds.Credentials{
-			AccountID:       strings.TrimSpace(a.AccountID),
-			AccessKeyID:     strings.TrimSpace(a.AccessKeyID),
-			SecretAccessKey: strings.TrimSpace(a.Secret),
-			Bucket:          strings.TrimSpace(a.Bucket),
-		}
-		if a.Provider == "drime" {
-			c = creds.Credentials{Provider: creds.ProviderDrime, DrimeToken: strings.TrimSpace(a.Token)}
-		}
-		return nil, true, t.mirrorSetup(ctx, c, a.Auto)
+		return nil, true, t.mirrorSetup(ctx, credsFromKeys(a.keys()), a.Auto)
 
 	case "mirrorAuto":
 		var a struct {

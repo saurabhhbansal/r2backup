@@ -33,17 +33,31 @@ const (
 
 // Credentials are what is needed to reach a bucket.
 type Credentials struct {
-	// Provider says which kind of storage these are for: ProviderR2 (or
-	// empty) or ProviderDrime.
+	// Provider says which kind of storage these are for: ProviderDrime, or
+	// one of the S3-compatible kinds -- ProviderR2 (or empty), ProviderB2,
+	// ProviderS3, ProviderCustom. See s3.go.
 	Provider string `json:"provider,omitempty"`
 
 	AccountID       string `json:"account_id"`
 	AccessKeyID     string `json:"access_key_id"`
 	SecretAccessKey string `json:"secret_access_key"`
 	Bucket          string `json:"bucket"`
-	// Endpoint overrides the derived R2 endpoint, or Drime's base URL. Tests
-	// point it at a local server; users never set it.
+	// Endpoint overrides the derived R2 or B2 endpoint, or Drime's base URL;
+	// tests point it at a local server. For ProviderCustom it is the
+	// endpoint the person entered.
 	Endpoint string `json:"endpoint,omitempty"`
+	// Region is the region to sign for: B2's "us-west-004", Amazon's
+	// "eu-west-1". R2 has none ("auto").
+	Region string `json:"region,omitempty"`
+	// VirtualHost puts the bucket in the hostname for a custom endpoint that
+	// wants it. Path-style is the default; Amazon S3 always uses this.
+	VirtualHost bool `json:"virtual_host,omitempty"`
+
+	// Bundle packs files into archives before they go up, so a folder of
+	// many small files costs a handful of write operations instead of one
+	// per file. It is a property of the destination: everything backed up
+	// to it is bundled, or nothing is. See internal/bundle.
+	Bundle bool `json:"bundle,omitempty"`
 
 	// DrimeToken is a Drime API token (Settings > Developer in Drime).
 	DrimeToken string `json:"drime_token,omitempty"`
@@ -66,13 +80,10 @@ func (c Credentials) Valid() error {
 		}
 		return nil
 	}
-	if c.Provider != "" && c.Provider != ProviderR2 {
+	if !knownProvider(c.Provider) {
 		return fmt.Errorf("unknown storage provider %q", c.Provider)
 	}
-	var missing []string
-	if c.AccountID == "" && c.Endpoint == "" {
-		missing = append(missing, "account id")
-	}
+	missing := c.validS3()
 	if c.AccessKeyID == "" {
 		missing = append(missing, "access key id")
 	}

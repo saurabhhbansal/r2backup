@@ -333,15 +333,7 @@ func (d *dashboard) SignInStart(ctx context.Context, email string) error {
 
 func (d *dashboard) SaveKeys(ctx context.Context, k ui.Keys) error {
 	a := d.app
-	c := creds.Credentials{
-		AccountID:       strings.TrimSpace(k.AccountID),
-		AccessKeyID:     strings.TrimSpace(k.AccessKeyID),
-		SecretAccessKey: strings.TrimSpace(k.Secret),
-		Bucket:          strings.TrimSpace(k.Bucket),
-	}
-	if t := strings.TrimSpace(k.DrimeToken); t != "" {
-		c = creds.Credentials{Provider: creds.ProviderDrime, DrimeToken: t}
-	}
+	c := credsFromKeys(k)
 	if err := c.Valid(); err != nil {
 		return err
 	}
@@ -438,4 +430,28 @@ func (d *dashboard) ResumeBudget(ctx context.Context) error {
 	}
 	s.BudgetResumedMonth = cost.MonthKey(time.Now())
 	return config.SaveSettings(s)
+}
+
+// credsFromKeys turns what a person typed into credentials. A Drime token
+// means Drime whatever else is filled in.
+func credsFromKeys(k ui.Keys) creds.Credentials {
+	if t := strings.TrimSpace(k.DrimeToken); t != "" || k.Provider == creds.ProviderDrime {
+		return creds.Credentials{Provider: creds.ProviderDrime, DrimeToken: t,
+			DrimeRoot: strings.Trim(strings.TrimSpace(k.DrimeFolder), "/"), Bundle: k.Bundle}
+	}
+	c := creds.Credentials{
+		Provider:        strings.TrimSpace(k.Provider),
+		AccountID:       strings.TrimSpace(k.AccountID),
+		AccessKeyID:     strings.TrimSpace(k.AccessKeyID),
+		SecretAccessKey: strings.TrimSpace(k.Secret),
+		Bucket:          strings.TrimSpace(k.Bucket),
+		Region:          strings.TrimSpace(k.Region),
+		Endpoint:        strings.TrimRight(strings.TrimSpace(k.Endpoint), "/"),
+		VirtualHost:     k.VirtualHost,
+		Bundle:          k.Bundle,
+	}
+	if c.Provider == creds.ProviderR2 {
+		c.Provider = "" // as every R2 credentials file has always been written
+	}
+	return c
 }

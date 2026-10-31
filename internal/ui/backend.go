@@ -244,13 +244,23 @@ type RestoreResult struct {
 
 // Keys are the four values that make an R2 connection.
 type Keys struct {
+	// Provider is one of the creds provider values: "drime", "r2" (or
+	// empty), "b2", "s3", "s3-custom".
+	Provider    string
 	AccountID   string
 	AccessKeyID string
 	Secret      string
 	Bucket      string
-	// DrimeToken, when set, means back up to Drime instead, and the R2
+	Region      string
+	Endpoint    string
+	VirtualHost bool
+	// DrimeToken, when set, means back up to Drime instead, and the S3
 	// fields are ignored.
 	DrimeToken string
+	// DrimeFolder is the Drime folder backups go under; empty is "r2backup".
+	DrimeFolder string
+	// Bundle packs files into archives before upload (see internal/bundle).
+	Bundle bool
 }
 
 // Backend is everything the interface needs from the rest of the program.

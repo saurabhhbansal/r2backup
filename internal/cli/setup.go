@@ -477,7 +477,7 @@ func checkConnection(ctx context.Context, a *app, p *prompter) error {
 		return fmt.Errorf("credentials saved, but the bucket could not be read: %w", err)
 	}
 	fmt.Fprintln(p.out, "Connection works.")
-	if d, ok := a.client.(*drime.Client); ok {
+	if d, ok := baseStore(a.client).(*drime.Client); ok {
 		if u, err := d.SpaceUsage(ctx); err == nil && u.Available > 0 {
 			fmt.Fprintf(p.out, "Drime space: %s used of %s.\n", progress.FormatBytes(u.Used), progress.FormatBytes(u.Available))
 		}

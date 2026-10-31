@@ -260,7 +260,7 @@ func (d *dashboard) Load(ctx context.Context) ([]ui.SetView, ui.Overview, error)
 	// Read from the stored credentials rather than by connecting: Load runs
 	// once a second, and this must stay free.
 	if c, err := a.creds.Load(); err == nil {
-		ov.Bucket, ov.Provider = c.Bucket, creds.ProviderR2
+		ov.Bucket, ov.Provider = c.Bucket, c.Kind()
 		if c.IsDrime() {
 			root := c.DrimeRoot
 			if root == "" {
