@@ -124,18 +124,40 @@ describe("POST /auth/verify", () => {
     return sent.code;
   }
 
-  it("issues a 30-day JWT for the correct code", async () => {
+  it("issues a 10-minute PIN-step token for the correct code, not a session", async () => {
     const email = "verify-me@example.com";
     const code = await requestAndGetCode(email);
 
     const res = await handleVerify(postJson("/auth/verify", { email, code }), ctx);
     expect(res.status).toBe(200);
-    const { token } = (await res.json()) as { token: string };
+    const body = (await res.json()) as { pin_token: string; pin_set: boolean; token?: string };
+    expect(body.token).toBeUndefined();
+    expect(body.pin_set).toBe(false);
 
-    const payload = await verifyJWT(token, "test-secret");
+    const payload = await verifyJWT(body.pin_token, "test-secret");
     expect(payload).not.toBeNull();
     expect(payload?.sub).toBe(email);
-    expect(payload!.exp - payload!.iat).toBe(30 * 24 * 60 * 60);
+    expect(payload?.scope).toBe("pin");
+    expect(payload!.exp - payload!.iat).toBe(10 * 60);
+  });
+
+  it("hands back the PIN salt and parameters when the account has a PIN", async () => {
+    const email = "has-pin@example.com";
+    await storage.putPin(email, {
+      salt: "c2FsdHNhbHRzYWx0c2FsdA",
+      kdf_params: JSON.stringify({ time: 3, memory_kib: 65536, threads: 4, key_len: 64 }),
+      verifier: "v",
+      version: 1,
+      failures: 0,
+      locked_until: 0,
+      updated_at: 0,
+    });
+    const code = await requestAndGetCode(email);
+    const res = await handleVerify(postJson("/auth/verify", { email, code }), ctx);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.pin_set).toBe(true);
+    expect(body.salt).toBe("c2FsdHNhbHRzYWx0c2FsdA");
+    expect(body.kdf_params).toEqual({ time: 3, memory_kib: 65536, threads: 4, key_len: 64 });
   });
 
   it("rejects a wrong code without consuming the real one", async () => {

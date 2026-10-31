@@ -1,12 +1,12 @@
 import type { AppContext } from "../context";
 import { normalizeEmail, isValidEmail } from "../email";
 import { generateCode, hashCode, constantTimeEqual, signJWT } from "../crypto";
+import { PIN_TOKEN_TTL_SECONDS } from "./pin";
 import { checkRateLimit } from "../ratelimit";
 import { readJsonBody, jsonResponse, MAX_AUTH_BODY_BYTES } from "../http";
 
 const OTP_TTL_SECONDS = 10 * 60;
 const MAX_ATTEMPTS = 5;
-const TOKEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 const REQUEST_WINDOW_SECONDS = 10 * 60;
 const MAX_REQUESTS_PER_EMAIL = 3;
@@ -101,6 +101,20 @@ export async function handleVerify(request: Request, ctx: AppContext): Promise<R
   await ctx.storage.deleteOtp(email);
   await ctx.storage.upsertUser(email, now);
 
-  const token = await signJWT({ sub: email, iat: now, exp: now + TOKEN_TTL_SECONDS }, ctx.jwtSecret);
-  return jsonResponse({ token }, 200);
+  // Not a session yet: the code proves the email, and the PIN comes next (see
+  // handlers/pin.ts). The salt and parameters let the client stretch the PIN
+  // the same way it was stretched when it was set.
+  const pinToken = await signJWT(
+    { sub: email, iat: now, exp: now + PIN_TOKEN_TTL_SECONDS, scope: "pin" },
+    ctx.jwtSecret,
+  );
+  const pin = await ctx.storage.getPin(email);
+  if (!pin) return jsonResponse({ pin_token: pinToken, pin_set: false }, 200);
+  let kdf: unknown = pin.kdf_params;
+  try {
+    kdf = JSON.parse(pin.kdf_params);
+  } catch {
+    // Left as stored; the client says it cannot use it.
+  }
+  return jsonResponse({ pin_token: pinToken, pin_set: true, salt: pin.salt, kdf_params: kdf }, 200);
 }
