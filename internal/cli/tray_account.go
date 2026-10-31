@@ -162,21 +162,28 @@ func (t *trayBackend) syncKeys(ctx context.Context) (keysSyncOut, error) {
 // storeOut describes saved keys without giving them away: enough to see
 // they are there and which ones they are.
 type storeOut struct {
-	Provider string `json:"provider"` // drime or r2
-	Label    string `json:"label"`    // "Drime · r2backup", "Cloudflare R2 · my-bucket"
+	Provider string `json:"provider"` // drime, r2, b2, s3 or s3-custom
+	Label    string `json:"label"`    // "Drime · r2backup", "Backblaze B2 · my-bucket"
 	Hint     string `json:"hint"`     // "Token ••••3f2a"
+	// Bundle is whether small files are packed into archives here.
+	Bundle bool `json:"bundle"`
 }
 
 func describeStore(c creds.Credentials) *storeOut {
-	o := &storeOut{Provider: "r2", Label: destLabel(c)}
+	o := &storeOut{Provider: c.Kind(), Label: destLabel(c), Bundle: c.Bundle}
 	if c.IsDrime() {
 		root := c.DrimeRoot
 		if root == "" {
 			root = "r2backup"
 		}
-		o.Provider, o.Hint = "drime", "Folder "+root+" · token "+masked(c.DrimeToken)
+		o.Hint = "Folder " + root + " · token " + masked(c.DrimeToken)
 	} else {
 		o.Hint = "Bucket " + c.Bucket + " · key " + masked(c.AccessKeyID)
+		if ep := c.S3(); c.Kind() == creds.ProviderCustom {
+			o.Hint = ep.URL + " · " + o.Hint
+		} else if ep.Region != "" && ep.Region != "auto" {
+			o.Hint = o.Hint + " · " + ep.Region
+		}
 	}
 	return o
 }
@@ -278,6 +285,33 @@ func (t *trayBackend) accountCall(ctx context.Context, method string, raw []byte
 
 	case "keysPush":
 		return nil, true, t.pushKeys(ctx)
+
+	// Pack small files into archives at a destination, or stop. Backups
+	// already there stay readable either way (see internal/bundle).
+	case "setBundle":
+		var a struct {
+			Which string `json:"which"` // "primary" or "second"
+			On    bool   `json:"on"`
+		}
+		if err := decodeArgs(raw, &a); err != nil {
+			return nil, true, err
+		}
+		store := t.d.app.creds
+		if a.Which == "second" {
+			store = t.d.app.mirror
+		}
+		c, err := store.Load()
+		if err != nil {
+			return nil, true, err
+		}
+		c.Bundle = a.On
+		if err := store.Save(c); err != nil {
+			return nil, true, err
+		}
+		t.d.forgetClient()
+		t.invalidate()
+		_ = t.pushKeys(ctx)
+		return describeStore(c), true, nil
 
 	// The PIN step after signInVerify: the account's PIN, or its first one.
 	case "signInPin", "pinReset", "setPin":

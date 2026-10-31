@@ -54,13 +54,23 @@ var tuiSurface = map[string]surface{
 
 	"r2b mirror": {NA: "copying between two stores is a terminal task for now; " +
 		"it runs on its own after each backup once `r2b mirror auto on` is set, scheduled runs included."},
-	"r2b mirror --dry-run":        {NA: "part of r2b mirror, which the interface does not yet offer."},
-	"r2b mirror --everything":     {NA: "part of r2b mirror, which the interface does not yet offer."},
-	"r2b mirror --keep":           {NA: "part of r2b mirror, which the interface does not yet offer."},
-	"r2b mirror --reverse":        {NA: "part of r2b mirror, which the interface does not yet offer."},
-	"r2b mirror setup":            {NA: "a one-time prompt-driven setup, like r2b setup's first run."},
-	"r2b mirror setup --provider": {NA: "part of r2b mirror setup."},
-	"r2b mirror auto":             {NA: "a one-word switch; set once and forgotten."},
+	"r2b mirror --dry-run":    {NA: "part of r2b mirror, which the interface does not yet offer."},
+	"r2b mirror --everything": {NA: "part of r2b mirror, which the interface does not yet offer."},
+	"r2b mirror --keep":       {NA: "part of r2b mirror, which the interface does not yet offer."},
+	"r2b mirror --reverse":    {NA: "part of r2b mirror, which the interface does not yet offer."},
+	"r2b mirror drime": {NA: "copying Drime folders is set up in the taskbar panel and here; " +
+		"it runs on its own after each scheduled backup."},
+	"r2b mirror drime add":             {NA: "part of r2b mirror drime."},
+	"r2b mirror drime add --name":      {NA: "part of r2b mirror drime."},
+	"r2b mirror drime add --workspace": {NA: "part of r2b mirror drime."},
+	"r2b mirror drime add --auto":      {NA: "part of r2b mirror drime."},
+	"r2b mirror drime ls":              {NA: "part of r2b mirror drime."},
+	"r2b mirror drime run":             {NA: "part of r2b mirror drime."},
+	"r2b mirror drime run --dry-run":   {NA: "part of r2b mirror drime."},
+	"r2b mirror drime rm":              {NA: "part of r2b mirror drime."},
+	"r2b mirror setup":                 {NA: "a one-time prompt-driven setup, like r2b setup's first run."},
+	"r2b mirror setup --provider":      {NA: "part of r2b mirror setup."},
+	"r2b mirror auto":                  {NA: "a one-word switch; set once and forgotten."},
 
 	"r2b tray": {NA: "the taskbar app is a second interface of its own, started from the Start menu " +
 		"or at sign-in; opening it from inside the terminal one would be a window opening a window."},

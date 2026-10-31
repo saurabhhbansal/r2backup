@@ -10,6 +10,7 @@ import (
 	"github.com/saurabhhbansal/r2backup/internal/backup"
 	"github.com/saurabhhbansal/r2backup/internal/index"
 	"github.com/saurabhhbansal/r2backup/internal/mirror"
+	"github.com/saurabhhbansal/r2backup/internal/remote"
 	"github.com/saurabhhbansal/r2backup/internal/restore"
 	"github.com/saurabhhbansal/r2backup/internal/sets"
 )
@@ -111,5 +112,45 @@ func TestBackupTrashRestoreAndMirrorThroughBundles(t *testing.T) {
 	}
 	if !dst.has(set.KeyScope()+"current/notes/n000.txt") || dst.count(set.KeyScope()+Dir) != 0 {
 		t.Fatalf("mirror did not copy plain files: %d bundling objects", dst.count(set.KeyScope()+Dir))
+	}
+}
+
+// A Drime folder another app backs up to, mirrored whole into a backup-shaped
+// place on S3 storage: copied, bundled, kept exact, and readable as a backup.
+func TestAFolderMirroredIntoABundledPlace(t *testing.T) {
+	ctx := context.Background()
+	drime := newMem() // the other app's folder, keys relative to it
+	for i := 0; i < 40; i++ {
+		put(t, drime, fmt.Sprintf("2026/week%02d/backup.dat", i), fmt.Sprintf("data %d", i))
+	}
+	dst := newMem()
+	place := "machines/drime-mirror/Laptop/current/"
+	run := func() *mirror.Report {
+		t.Helper()
+		s := New(rangeMem{dst}, Options{Pack: true, TempDir: t.TempDir()})
+		rep, err := mirror.Run(ctx, mirror.Options{Src: drime, Dst: remote.Sub(s, place), Prefixes: []string{""}, Delete: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return rep
+	}
+	if rep := run(); rep.Copied != 40 {
+		t.Fatalf("copied %d, want 40", rep.Copied)
+	}
+	if dst.puts > 5 {
+		t.Errorf("40 files took %d writes on a bundling destination", dst.puts)
+	}
+	if err := drime.Delete(ctx, "2026/week03/backup.dat"); err != nil {
+		t.Fatal(err)
+	}
+	if rep := run(); rep.Deleted != 1 || rep.Copied != 0 {
+		t.Fatalf("second run copied %d, deleted %d", rep.Copied, rep.Deleted)
+	}
+	r := New(rangeMem{dst}, Options{TempDir: t.TempDir()})
+	if got := mustGet(t, r, place+"2026/week07/backup.dat"); got != "data 7" {
+		t.Fatalf("got %q", got)
+	}
+	if n := len(keys(t, r, place)); n != 39 {
+		t.Fatalf("%d files on the destination, want 39", n)
 	}
 }

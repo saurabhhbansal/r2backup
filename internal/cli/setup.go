@@ -60,7 +60,7 @@ func newSetupCmd(opts *Options) *cobra.Command {
 			defer a.close()
 			if provider != "" {
 				if _, ok := remote.ParseProvider(provider); !ok {
-					return fmt.Errorf("unknown provider %q: use drime or r2", provider)
+					return fmt.Errorf("unknown provider %q: use drime, r2, b2, s3 or s3-custom", provider)
 				}
 			}
 			return runSetup(cmd.Context(), a, opts, keysOnly, provider)
@@ -69,7 +69,7 @@ func newSetupCmd(opts *Options) *cobra.Command {
 	cmd.Flags().BoolVar(&keysOnly, "keys", false,
 		"enter storage keys directly, even if a saved copy exists (use after rotating them)")
 	cmd.Flags().StringVar(&provider, "provider", "",
-		"where backups go: drime or r2 (asked if not given)")
+		"where backups go: drime, r2, b2, s3 or s3-custom (asked if not given)")
 	return cmd
 }
 
@@ -428,23 +428,112 @@ func askForKeys(ctx context.Context, p *prompter) (creds.Credentials, error) {
 }
 
 // askForDestination asks where backups should go, then for what that place
-// needs.
+// needs, then whether to bundle small files there.
 func askForDestination(ctx context.Context, p *prompter, provider string) (creds.Credentials, error) {
 	if provider == "" {
 		fmt.Fprintln(p.out)
 		fmt.Fprintln(p.out, "Where should backups go?")
-		fmt.Fprintln(p.out, "  1. Drime          -- needs one API token")
-		fmt.Fprintln(p.out, "  2. Cloudflare R2  -- needs an account, a bucket and a key pair")
-		i, err := askIndex(p, "Choose 1 or 2", 2)
+		fmt.Fprintln(p.out, "  1. Drime                  -- needs one API token")
+		fmt.Fprintln(p.out, "  2. Cloudflare R2          -- an account, a bucket and a key pair")
+		fmt.Fprintln(p.out, "  3. Backblaze B2           -- a bucket, its region and an application key")
+		fmt.Fprintln(p.out, "  4. Amazon S3              -- a bucket, its region and an access key")
+		fmt.Fprintln(p.out, "  5. Other S3-compatible    -- an endpoint URL, a bucket and a key pair")
+		i, err := askIndex(p, "Choose 1 to 5", 5)
 		if err != nil {
 			return creds.Credentials{}, err
 		}
-		provider = []string{"drime", "r2"}[i]
+		provider = []string{"drime", "r2", "b2", "s3", "s3-custom"}[i]
 	}
-	if pv, _ := remote.ParseProvider(provider); pv == remote.ProviderDrime {
-		return askForDrime(p)
+	pv, _ := remote.ParseProvider(provider)
+	var c creds.Credentials
+	var err error
+	switch pv {
+	case remote.ProviderDrime:
+		c, err = askForDrime(p)
+	case remote.ProviderR2:
+		c, err = askForKeys(ctx, p)
+	default:
+		c, err = askForS3(p, string(pv))
 	}
-	return askForKeys(ctx, p)
+	if err != nil {
+		return c, err
+	}
+	c.Bundle, err = askBundle(p, c)
+	return c, err
+}
+
+// askBundle asks whether small files are packed into archives at this
+// destination. Yes by default where storage charges by the request.
+func askBundle(p *prompter, c creds.Credentials) (bool, error) {
+	fmt.Fprintln(p.out)
+	if c.IsDrime() {
+		fmt.Fprintln(p.out, "Pack small files into zip archives before upload? Fewer, bigger uploads;")
+		fmt.Fprintln(p.out, "Drime does not charge by the request, so most people leave this off.")
+		return confirm(p, "Pack small files? [y/N]", false)
+	}
+	fmt.Fprintf(p.out, "%s counts every upload against a monthly allowance. Packing small files\n", c.Label())
+	fmt.Fprintln(p.out, "into zip archives first turns thousands of uploads into a handful, and")
+	fmt.Fprintln(p.out, "restores, trash and the second copy work the same. Without it, the bucket")
+	fmt.Fprintln(p.out, "holds one plain object per file.")
+	return confirm(p, "Pack small files? [Y/n]", true)
+}
+
+// askForS3 takes the keys for Backblaze B2, Amazon S3 or another
+// S3-compatible service.
+func askForS3(p *prompter, kind string) (creds.Credentials, error) {
+	c := creds.Credentials{Provider: kind}
+	fmt.Fprintln(p.out)
+	switch kind {
+	case creds.ProviderB2:
+		fmt.Fprintln(p.out, "In Backblaze: B2 Cloud Storage > Buckets for the bucket and its endpoint")
+		fmt.Fprintln(p.out, "(s3.<region>.backblazeb2.com), then Application Keys for a key pair.")
+	case creds.ProviderS3:
+		fmt.Fprintln(p.out, "In the AWS console: the S3 bucket and its region, and an IAM access key")
+		fmt.Fprintln(p.out, "allowed to read, write, list and delete in it.")
+	default:
+		fmt.Fprintln(p.out, "Any service that speaks S3: MinIO, Wasabi, a NAS. You need its endpoint URL.")
+		url, err := p.askRequired("Endpoint URL (https://...)")
+		if err != nil {
+			return c, err
+		}
+		c.Endpoint = strings.TrimRight(strings.TrimSpace(url), "/")
+	}
+	bucket, err := p.askRequired("Bucket name")
+	if err != nil {
+		return c, err
+	}
+	c.Bucket = bucket
+	switch kind {
+	case creds.ProviderB2:
+		if c.Region, err = p.askRequired("Region (from the endpoint, us-west-004 say)"); err != nil {
+			return c, err
+		}
+	case creds.ProviderS3:
+		if c.Region, err = p.askRequired("Region (eu-west-1, say)"); err != nil {
+			return c, err
+		}
+	default:
+		if c.Region, err = p.ask("Region (press enter if it has none)"); err != nil {
+			return c, err
+		}
+	}
+	label := "Access key ID"
+	if kind == creds.ProviderB2 {
+		label = "keyID"
+	}
+	if c.AccessKeyID, err = p.askRequired(label); err != nil {
+		return c, err
+	}
+	secretLabel := "Secret access key"
+	if kind == creds.ProviderB2 {
+		secretLabel = "applicationKey"
+	}
+	if c.SecretAccessKey, err = p.secret(secretLabel); err != nil {
+		return c, err
+	}
+	c.AccessKeyID, c.SecretAccessKey = strings.TrimSpace(c.AccessKeyID), strings.TrimSpace(c.SecretAccessKey)
+	c.Region = strings.TrimSpace(c.Region)
+	return c, c.Valid()
 }
 
 // askForDrime takes a Drime API token. That is the whole of Drime's setup:
