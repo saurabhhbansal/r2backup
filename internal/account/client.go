@@ -80,21 +80,6 @@ func (c *Client) RequestCode(ctx context.Context, email string) error {
 	return err
 }
 
-// Verify exchanges an email and the code it received for a session token
-// valid 30 days. The code is single-use: a successful Verify (or five wrong
-// attempts) burns it on the server whether or not this call succeeds
-// end-to-end on the client's side.
-func (c *Client) Verify(ctx context.Context, email, code string) (string, error) {
-	var out struct {
-		Token string `json:"token"`
-	}
-	_, err := c.do(ctx, http.MethodPost, "/auth/verify", "", map[string]string{"email": email, "code": code}, &out)
-	if err != nil {
-		return "", err
-	}
-	return out.Token, nil
-}
-
 // GetVault fetches the stored ciphertext blob and KDF parameters for the
 // account behind token. ErrNotFound means the account exists but has never
 // stored a vault (e.g. this is the very first computer).
@@ -116,31 +101,13 @@ func (c *Client) PutVault(ctx context.Context, token string, vault *EncryptedVau
 }
 
 // StoredKeys is what an account keeps for its computers: where backups go,
-// and the second copy if there is one. Signing in with an email code is
-// enough to get them back; the account server encrypts them at rest with a
-// key of its own (see worker/migrations/0003_stored_keys.sql), so unlike the
-// password-locked vault this replaced, the server could read them.
+// the second copy if there is one, and a Drime account mirrored from. They
+// travel sealed with a key made from the PIN (see pin.go); the server cannot
+// open them.
 type StoredKeys struct {
 	Primary *creds.Credentials `json:"primary,omitempty"`
 	Second  *creds.Credentials `json:"second,omitempty"`
-}
-
-// GetKeys fetches the keys kept for the account behind token. ErrNotFound
-// means none have been saved yet.
-func (c *Client) GetKeys(ctx context.Context, token string) (*StoredKeys, error) {
-	var out struct {
-		Keys StoredKeys `json:"keys"`
-	}
-	if _, err := c.do(ctx, http.MethodGet, "/keys", token, nil, &out); err != nil {
-		return nil, err
-	}
-	return &out.Keys, nil
-}
-
-// PutKeys replaces the keys kept for the account behind token.
-func (c *Client) PutKeys(ctx context.Context, token string, k StoredKeys) error {
-	_, err := c.do(ctx, http.MethodPut, "/keys", token, map[string]any{"keys": k}, nil)
-	return err
+	Source  *creds.Credentials `json:"source,omitempty"`
 }
 
 // RegisterDevice records that name (running os) is one of this account's
@@ -231,11 +198,29 @@ func (c *Client) do(ctx context.Context, method, path, token string, body, out a
 			}
 		}
 		return resp, nil
+	case resp.StatusCode == http.StatusUnauthorized && path == "/auth/pin":
+		var e struct {
+			TriesLeft int `json:"tries_left"`
+		}
+		if json.Unmarshal(respBody, &e) == nil && e.TriesLeft > 0 {
+			return resp, &WrongPINError{TriesLeft: e.TriesLeft}
+		}
+		return resp, ErrUnauthorized
 	case resp.StatusCode == http.StatusUnauthorized:
 		return resp, ErrUnauthorized
+	case resp.StatusCode == http.StatusForbidden && bytes.Contains(respBody, []byte("pin required")):
+		return resp, ErrPINRequired
+	case resp.StatusCode == http.StatusConflict && path == "/auth/pin/setup":
+		return resp, ErrPINAlreadySet
 	case resp.StatusCode == http.StatusNotFound:
 		return resp, ErrNotFound
 	case resp.StatusCode == http.StatusTooManyRequests:
+		var e struct {
+			RetryAfter int `json:"retry_after"`
+		}
+		if json.Unmarshal(respBody, &e) == nil && e.RetryAfter > 0 {
+			return resp, &PINLockedError{RetryAfterSeconds: e.RetryAfter}
+		}
 		return resp, ErrRateLimited
 	case resp.StatusCode == http.StatusBadRequest && path == "/auth/verify":
 		// The Worker's only 400 on this path is "invalid or expired code";

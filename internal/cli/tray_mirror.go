@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -29,7 +30,7 @@ func destLabel(c creds.Credentials) string {
 		}
 		return "Drime · " + root
 	}
-	return "Cloudflare R2 · " + c.Bucket
+	return c.Label() + " · " + c.Bucket
 }
 
 // samePlace reports whether two destinations are the same storage, which a
@@ -43,7 +44,8 @@ func samePlace(a, b creds.Credentials) bool {
 		return strings.TrimSpace(a.DrimeToken) == strings.TrimSpace(b.DrimeToken) &&
 			a.DrimeWorkspace == b.DrimeWorkspace && a.DrimeRoot == b.DrimeRoot
 	}
-	return strings.EqualFold(strings.TrimSpace(a.AccountID), strings.TrimSpace(b.AccountID)) &&
+	ea, eb := a.S3(), b.S3()
+	return strings.EqualFold(strings.TrimSpace(ea.URL), strings.TrimSpace(eb.URL)) && ea.Region == eb.Region &&
 		strings.TrimSpace(a.Bucket) == strings.TrimSpace(b.Bucket)
 }
 
@@ -126,10 +128,7 @@ func (t *trayBackend) mirrorInfo() (mirrorInfoOut, error) {
 		return out, err
 	}
 	if mc, err := a.mirror.Load(); err == nil {
-		out.Set, out.Dest, out.Provider = true, destLabel(mc), "r2"
-		if mc.IsDrime() {
-			out.Provider = "drime"
-		}
+		out.Set, out.Dest, out.Provider = true, destLabel(mc), mc.Kind()
 	}
 	if s, err := config.LoadSettings(); err == nil {
 		out.Auto = s.MirrorAuto && out.Set
@@ -261,27 +260,56 @@ func (t *trayBackend) mirrorCall(ctx context.Context, method string, raw []byte)
 
 	case "mirrorSetup":
 		var a struct {
-			Provider    string `json:"provider"`
-			Token       string `json:"token"`
-			AccountID   string `json:"accountId"`
-			AccessKeyID string `json:"accessKeyId"`
-			Secret      string `json:"secret"`
-			Bucket      string `json:"bucket"`
-			Auto        bool   `json:"auto"`
+			destArgs
+			Auto bool `json:"auto"`
 		}
 		if err := decodeArgs(raw, &a); err != nil {
 			return nil, true, err
 		}
-		c := creds.Credentials{
-			AccountID:       strings.TrimSpace(a.AccountID),
-			AccessKeyID:     strings.TrimSpace(a.AccessKeyID),
-			SecretAccessKey: strings.TrimSpace(a.Secret),
-			Bucket:          strings.TrimSpace(a.Bucket),
+		return nil, true, t.mirrorSetup(ctx, credsFromKeys(a.keys()), a.Auto)
+
+	// Drime folders another app backs up to, copied to S3 storage. See
+	// mirror_sources.go.
+	case "drimeSources":
+		return t.drimeSources(), true, nil
+
+	case "drimeSourceAdd":
+		var a struct {
+			Token     string `json:"token"` // only when none is saved yet
+			Folder    string `json:"folder"`
+			Name      string `json:"name"`
+			Workspace string `json:"workspace"`
+			Auto      bool   `json:"auto"`
 		}
-		if a.Provider == "drime" {
-			c = creds.Credentials{Provider: creds.ProviderDrime, DrimeToken: strings.TrimSpace(a.Token)}
+		if err := decodeArgs(raw, &a); err != nil {
+			return nil, true, err
 		}
-		return nil, true, t.mirrorSetup(ctx, c, a.Auto)
+		err := addDrimeSource(ctx, t.d.app, a.Token, config.MirrorSource{
+			Name: a.Name, Folder: a.Folder, Workspace: a.Workspace, Auto: a.Auto})
+		if err == nil && a.Token != "" {
+			_ = t.pushKeys(ctx)
+		}
+		return t.drimeSources(), true, err
+
+	case "drimeSourceRemove":
+		var a struct {
+			Name string `json:"name"`
+		}
+		if err := decodeArgs(raw, &a); err != nil {
+			return nil, true, err
+		}
+		return t.drimeSources(), true, removeDrimeSource(a.Name)
+
+	// Copy one Drime folder (or all, with no name) now, in the background;
+	// mirrorStatus follows it like any other copy.
+	case "drimeSourceRun":
+		var a struct {
+			Name string `json:"name"`
+		}
+		if err := decodeArgs(raw, &a); err != nil {
+			return nil, true, err
+		}
+		return nil, true, t.startDrimeSources(a.Name)
 
 	case "mirrorAuto":
 		var a struct {
@@ -344,4 +372,99 @@ func (t *trayBackend) mirrorCall(ctx context.Context, method string, raw []byte)
 		return nil, true, t.d.app.mirror.Delete()
 	}
 	return nil, false, nil
+}
+
+type drimeSourceOut struct {
+	Name    string `json:"name"`
+	Folder  string `json:"folder"`
+	Auto    bool   `json:"auto"`
+	LastRun string `json:"lastRun,omitempty"`
+}
+
+type drimeSourcesOut struct {
+	Sources []drimeSourceOut `json:"sources"`
+	// Dest is the S3 storage they are copied to; DestErr says why there is
+	// none yet.
+	Dest    string `json:"dest,omitempty"`
+	DestErr string `json:"destErr,omitempty"`
+	// HaveToken is whether a Drime token to read with is on this computer.
+	HaveToken bool `json:"haveToken"`
+}
+
+func (t *trayBackend) drimeSources() drimeSourcesOut {
+	a := t.d.app
+	out := drimeSourcesOut{Sources: []drimeSourceOut{}}
+	if c, err := s3Destination(a); err == nil {
+		out.Dest = destLabel(c)
+	} else {
+		out.DestErr = err.Error()
+	}
+	_, err := drimeSourceCreds(a)
+	out.HaveToken = err == nil
+	if st, err := config.LoadSettings(); err == nil {
+		for _, s := range st.MirrorSources {
+			o := drimeSourceOut{Name: s.Name, Folder: s.Folder, Auto: s.Auto}
+			if s.LastRun > 0 {
+				o.LastRun = time.Unix(s.LastRun, 0).Format(time.RFC3339)
+			}
+			out.Sources = append(out.Sources, o)
+		}
+	}
+	return out
+}
+
+func (t *trayBackend) startDrimeSources(name string) error {
+	t.mu.Lock()
+	if t.mj != nil && !t.mj.done {
+		t.mu.Unlock()
+		return errors.New("a copy is already running")
+	}
+	t.mu.Unlock()
+	a := t.d.app
+	dest, err := s3Destination(a)
+	if err != nil {
+		return err
+	}
+	var names []string
+	label := "Drime folders"
+	if name != "" {
+		names, label = []string{name}, "Drime folder "+name
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	j := &mirrorJob{to: label + " → " + destLabel(dest), cancel: cancel}
+	t.mu.Lock()
+	t.mj = j
+	t.mu.Unlock()
+	go func() {
+		defer cancel()
+		results, err := runDrimeSources(ctx, a, names, false, nil, func(_ string, p mirror.Progress) {
+			j.mu.Lock()
+			j.p = p
+			j.mu.Unlock()
+		})
+		total := &mirror.Report{}
+		for _, r := range results {
+			if r.Err != nil && err == nil {
+				err = fmt.Errorf("%s: %w", r.Name, r.Err)
+			}
+			if r.Report != nil {
+				total.Copied += r.Report.Copied
+				total.Deleted += r.Report.Deleted
+				total.Unchanged += r.Report.Unchanged
+				total.Bytes += r.Report.Bytes
+				total.Failures = append(total.Failures, r.Report.Failures...)
+				total.SkippedDeletes += r.Report.SkippedDeletes
+			}
+		}
+		j.mu.Lock()
+		j.done, j.rep = true, total
+		switch {
+		case errors.Is(ctx.Err(), context.Canceled):
+			j.err = "Stopped before it finished. The next copy picks up from there."
+		case err != nil:
+			j.err = err.Error()
+		}
+		j.mu.Unlock()
+	}()
+	return nil
 }

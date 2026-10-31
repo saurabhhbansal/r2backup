@@ -57,9 +57,33 @@ type Settings struct {
 	// Empty means the computer's own hostname. New folders are filed under
 	// it; folders already backed up keep the name they were filed under.
 	MachineName string `json:"machine_name,omitempty"`
+	// AccountMode is how this computer keeps its storage keys: "local" on
+	// this computer only (moved with an exported key file), "account" synced
+	// through the hosted account, or "" before anyone has chosen.
+	AccountMode string `json:"account_mode,omitempty"`
+
+	// MirrorSources are Drime folders copied to S3 storage for someone who
+	// backs up to Drime with another app. See internal/cli/mirror_sources.go.
+	MirrorSources []MirrorSource `json:"mirror_sources,omitempty"`
+
 	// MachineNamesBefore are the names this computer went by before, so
 	// backups filed under an earlier name still read as this computer's.
 	MachineNamesBefore []string `json:"machine_names_before,omitempty"`
+}
+
+// MirrorSource is one Drime folder mirrored to S3 storage.
+type MirrorSource struct {
+	// Name is what it is called here, and the folder it lands in on the
+	// destination: drime-mirror/<Name>/.
+	Name string `json:"name"`
+	// Folder is the path of the folder in Drime, "Backups/Laptop" say.
+	Folder string `json:"folder"`
+	// Workspace picks a shared Drime workspace; empty is the personal drive.
+	Workspace string `json:"workspace,omitempty"`
+	// Auto copies it after each scheduled run.
+	Auto bool `json:"auto,omitempty"`
+	// LastRun is when it was last mirrored in full, Unix seconds.
+	LastRun int64 `json:"last_run,omitempty"`
 }
 
 // SettingsPath is where the settings file lives.

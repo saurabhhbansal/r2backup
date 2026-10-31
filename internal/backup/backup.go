@@ -411,6 +411,14 @@ func run(ctx context.Context, opts Options) (*Report, error) {
 	rep.Failures = res.Failed
 
 	// --- 5. Record ---------------------------------------------------------
+	//
+	// A store that holds writes back -- bundling packs small files and only
+	// puts them on its index when flushed -- is flushed before anything is
+	// recorded as backed up. If that fails, nothing is recorded, and the
+	// next run sends those files again rather than believing they are safe.
+	if err := remote.FlushStore(ctx, opts.Client); err != nil {
+		return nil, fmt.Errorf("save what was uploaded: %w", err)
+	}
 	if len(recorded) > 0 {
 		if err := opts.Index.PutMany(set.Name, recorded); err != nil {
 			return nil, fmt.Errorf("record %d uploads in the index: %w", len(recorded), err)
@@ -486,6 +494,13 @@ func run(ctx context.Context, opts Options) (*Report, error) {
 		trashOps = p.TrashOps(true)
 	}
 	rep.Operations = rep.Uploaded + rep.Moved + trashOps + rep.Pruned.Ops
+	// A bundling store knows exactly what it sent: a few packs and an index,
+	// not one request per file, and trash moves that were index edits.
+	if bw, ok := opts.Client.(interface{ BundledWrites() (int, bool) }); ok {
+		if n, packing := bw.BundledWrites(); packing {
+			rep.Operations = n + rep.Pruned.Ops
+		}
+	}
 	if err := opts.Index.AddOps(rep.Operations); err != nil {
 		return nil, fmt.Errorf("record operation count: %w", err)
 	}

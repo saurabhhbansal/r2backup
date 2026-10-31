@@ -5,7 +5,7 @@
   <img src="assets/logo.png" alt="r2backup" width="420">
 </picture>
 
-**Back up your folders to Cloudflare R2 or Drime, and get them back anywhere.**
+**Back up your folders to Drime or any S3-compatible storage, and get them back anywhere.**
 
 [![Release](https://img.shields.io/github/v/release/saurabhhbansal/r2backup?style=flat-square&color=0b7285)](https://github.com/saurabhhbansal/r2backup/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/saurabhhbansal/r2backup/ci.yml?branch=main&style=flat-square&label=tests)](https://github.com/saurabhhbansal/r2backup/actions)
@@ -31,14 +31,20 @@ it stopped after a dropped connection, and restores to any computer you sign
 in on. On Windows it lives in the taskbar; everywhere, it is one static `r2b`
 binary with a full terminal interface.
 
-- **Two places to keep backups.** [Cloudflare R2](https://www.cloudflare.com/developer-platform/products/r2/)
-  or [Drime](https://drime.cloud), and optionally a second copy on the other.
-- **Plain files, not a format.** The bucket holds your folder as it is, one
-  object per file. You can browse and download it without r2backup.
+- **Drime first, any S3 storage too.** [Drime](https://drime.cloud), or
+  S3-compatible storage — [Cloudflare R2](https://www.cloudflare.com/developer-platform/products/r2/),
+  Backblaze B2, Amazon S3, or an endpoint of your own — and optionally a second
+  copy on another.
+- **Plain files, or packed when it pays.** By default the storage holds your
+  folder as it is, one object per file, browsable without r2backup. Turn on
+  packing for a destination and small files go up in zip archives instead, so
+  a folder of thousands of files costs a handful of uploads against your
+  provider's monthly allowance.
 - **Nothing to pay when nothing changed.** A local index decides what to
   upload, so an unchanged folder makes no requests.
-- **Any computer.** Sign in with the same email elsewhere and your storage
-  keys and backups are already there.
+- **One computer or several.** Use it with no account at all and move your
+  keys in an encrypted file, or sign in with an email, a code and your PIN and
+  every computer picks them up.
 - **No background service.** It runs when the scheduler starts it, then exits.
 
 ## Install
@@ -61,12 +67,17 @@ Prefer to do it by hand? Every release has archives for Windows, macOS and
 Linux on amd64 and arm64 on the
 [releases page](https://github.com/saurabhhbansal/r2backup/releases/latest).
 
-You need somewhere to put the backups — either:
+You need somewhere to put the backups — one of:
 
 - **Drime** — one API token, from Drime → Settings → Developer.
 - **Cloudflare R2** — a bucket and an S3 API token for it. r2backup can sign
   you in to Cloudflare to find your account and buckets (or make one); the
   token itself is made in the dashboard → R2 → Manage API tokens.
+- **Backblaze B2** — a bucket, its region (from the endpoint,
+  `s3.<region>.backblazeb2.com`) and an application key.
+- **Amazon S3** — a bucket, its region and an access key.
+- **Anything else that speaks S3** — MinIO, Wasabi, a NAS: its endpoint URL,
+  a bucket and a key pair.
 
 ## The taskbar app
 
@@ -172,7 +183,9 @@ scripts use.
 | `r2b remove <set>` | Stop backing a folder up. `--purge` deletes the copy too |
 | `r2b budget` | What this is costing. `set <amount>`, `off`, `continue` |
 | `r2b account` | The computers signed in. `devices`, `logout` |
-| `r2b mirror` | Copy backups to a second place, Drime ↔ R2. `setup`, `auto on`, `--reverse`, `--dry-run` |
+| `r2b keys` | Move your storage keys without an account. `export <file>`, `import <file>` |
+| `r2b mirror` | Copy backups to a second place. `setup`, `auto on`, `--reverse`, `--dry-run` |
+| `r2b mirror drime` | Copy Drime folders another app backs up to, to S3 storage. `add`, `ls`, `run`, `rm` |
 | `r2b update` | Update to the latest release |
 
 ## How it works
@@ -204,6 +217,7 @@ it.
 ```
 machines/<computer>/<folder>/current/…   the folder as it is now
 machines/<computer>/<folder>/trash/…     deleted files, kept 30 days
+machines/<computer>/<folder>/.bundles/…  packed small files, when packing is on
 ```
 
 On R2 that is the top of the bucket; on Drime it sits inside a folder called
@@ -213,20 +227,50 @@ stored — so another computer restoring it uses the name it had when it was
 added. `r2b rename` prints that original name whenever it differs, so you
 don't have to remember it.
 
+### Packing small files
+
+Storage priced by the request — R2 and S3 Class A operations, B2 transactions
+— charges the same to upload a 2 KB file as a 2 GB one, and the free monthly
+allowance goes quickly on a folder of source code or photos' sidecar files.
+Turn on **Pack small files** for a destination (the panel, or the question in
+`r2b setup`) and files under 4 MB go up in 16 MB zip archives, with an index
+saying where each one is.
+
+- A changed file goes into a new archive; nothing already uploaded is sent
+  again. Moving files to trash, renaming and deleting only edit the index.
+- Archives that end up mostly empty are repacked, and empty ones deleted.
+- Restores, **Backups**, trash and the second copy work exactly as before. An
+  archive downloaded by hand opens with any unzip tool.
+- It is a setting of the destination, and can be turned off again: what was
+  packed stays readable, and new files go up one by one.
+
+It is on by default for S3 storage and off for Drime, which does not charge by
+the request.
+
 ## More than one computer
 
-Sign in with the same email on each. In the taskbar app that is all there is
-to it. In the terminal, run `r2b setup` on each: the first machine stores your
-R2 keys, encrypted under a password you choose, and every one after that finds
-them and asks for that password.
+You choose how your storage keys get to another computer:
+
+- **Without an account** (the first option). The keys stay on this computer.
+  `r2b keys export keys.r2b` (or **Settings → Export keys** in the panel)
+  writes them to a file encrypted under a passphrase you choose; carry it
+  across and `r2b keys import keys.r2b` there.
+- **With an account** (hosted, for personal use). Sign in with your email, the
+  six-digit code sent to it, and your PIN. The first computer saves its keys to
+  the account; every one after that picks them up.
 
 ```sh
 r2b setup
 r2b restore Documents --to ~/Documents
 ```
 
-Leave the email blank at the prompt to skip the account and keep everything on
-one machine.
+The PIN is six digits, chosen the first time you sign in. Your keys are
+encrypted on your computer with a key made from it before they are saved, so
+the account server stores something it cannot read. Five wrong PINs lock the
+account for 15 minutes, then longer. Forgot it? Ask for a new email code and
+choose a new PIN: the keys saved to the account are deleted (they were locked
+with the old one) and every other computer is signed out. Your backups are not
+touched — you enter your storage keys once more.
 
 ## Drime
 
@@ -282,6 +326,23 @@ source ever lists nothing at all, the copy keeps its files: that is far more
 often a wrong account or an outage than a real deletion. With automatic
 copying on, every backup (scheduled ones included) is copied once it finishes.
 
+## Drime folders from another app
+
+Back up to Drime with something else, and want a copy with a second company?
+r2backup can copy those folders to your S3 storage without changing how you
+back up:
+
+```sh
+r2b mirror drime add "Backups/Laptop"   # asks for a Drime API token the first time
+r2b mirror drime run                    # copy now: only what changed
+```
+
+The copy stays exact — files removed in Drime are removed from it too — and is
+kept under `machines/drime-mirror/<name>/` on the S3 storage, so
+`r2b restore <name> --machine drime-mirror` brings it back, and it is packed if
+packing is on there. Folders added with `--auto` (the default) are copied after
+each scheduled run. In the panel this is under **Settings → Drime folders**.
+
 ## Cost
 
 R2 bills for storage and operations; most people backing up a documents folder
@@ -298,14 +359,18 @@ paused. There is no limit unless you set one.
 
 - **Your files go straight from your computer to your storage.** They never
   pass through any server of ours.
+- **No account is needed.** Used without one, nothing about you or your keys
+  leaves your computer except to your own storage.
 - **The account** is a small Cloudflare Worker ([`worker/`](worker)). It
-  knows your email, the names of your computers, and your storage keys.
-- **Keys saved from the taskbar app** are encrypted by the account server
-  (AES-256-GCM), which means that server could read them. Keys stored by
-  `r2b setup` are encrypted on your computer under a password you choose
-  before they leave it, and the server keeps a blob it cannot read.
-  Forgetting that password is not a data-loss event — it guards the stored
-  keys, not your files.
+  knows your email, the names of your computers, and a proof of your PIN.
+- **Keys saved to the account** are encrypted on your computer before they
+  leave it (XChaCha20-Poly1305), under a key made from your PIN (Argon2id)
+  and a share the server hands out only after a correct PIN. The server keeps
+  ciphertext it cannot open on its own. A six-digit PIN is a small space, so
+  what stops guessing is the lockout, and the fact that trying PINs offline
+  would take both the server's database and its secrets.
+- **Exported key files** are encrypted the same way, under a passphrase of at
+  least 8 characters.
 - **On disk**, the R2 secret is encrypted with DPAPI on Windows; on macOS and
   Linux the file is `0600` in a `0700` directory, and `setup` tells you which
   of the two you got.

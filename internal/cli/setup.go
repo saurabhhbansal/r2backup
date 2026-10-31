@@ -2,10 +2,8 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"runtime"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -22,11 +20,6 @@ import (
 // whole command -- the same reason `relink` asks rather than telling you to
 // come back with a different one.
 const passwordAttempts = 3
-
-// minPasswordLen is the floor on the vault password. It guards a blob that
-// is already behind an emailed sign-in code, so this is a guard against
-// "abc", not an attempt at a password policy.
-const minPasswordLen = 8
 
 // newSetupCmd builds `setup`: the one command that gets a computer working.
 //
@@ -49,10 +42,11 @@ func newSetupCmd(opts *Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "setup",
 		Short: "Get this computer ready to back up",
-		Long: "Asks for your email, sends you a six-digit code, and then either\n" +
-			"picks up the R2 keys you saved from another computer or takes them\n" +
-			"now and saves them for the next one.\n\n" +
-			"The saved copy is encrypted here, with a password you choose. The\n" +
+		Long: "Use r2b on this computer alone, or sign in with an email, the\n" +
+			"six-digit code sent to it and your PIN. Signed in, it either picks up\n" +
+			"the storage keys you saved from another computer or takes them now\n" +
+			"and saves them for the next one.\n\n" +
+			"The saved copy is encrypted here, with a key made from your PIN. The\n" +
 			"server keeps a blob it cannot read.",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !interactive() && opts.In == nil {
@@ -65,7 +59,7 @@ func newSetupCmd(opts *Options) *cobra.Command {
 			defer a.close()
 			if provider != "" {
 				if _, ok := remote.ParseProvider(provider); !ok {
-					return fmt.Errorf("unknown provider %q: use drime or r2", provider)
+					return fmt.Errorf("unknown provider %q: use drime, r2, b2, s3 or s3-custom", provider)
 				}
 			}
 			return runSetup(cmd.Context(), a, opts, keysOnly, provider)
@@ -74,7 +68,7 @@ func newSetupCmd(opts *Options) *cobra.Command {
 	cmd.Flags().BoolVar(&keysOnly, "keys", false,
 		"enter storage keys directly, even if a saved copy exists (use after rotating them)")
 	cmd.Flags().StringVar(&provider, "provider", "",
-		"where backups go: drime or r2 (asked if not given)")
+		"where backups go: drime, r2, b2, s3 or s3-custom (asked if not given)")
 	return cmd
 }
 
@@ -82,7 +76,7 @@ func runSetup(ctx context.Context, a *app, opts *Options, keysOnly bool, provide
 	p := newPrompter(opts)
 	client := accountClient()
 
-	token, err := signIn(ctx, p, client)
+	sess, err := signIn(ctx, p, client)
 	if err != nil {
 		return err
 	}
@@ -93,8 +87,8 @@ func runSetup(ctx context.Context, a *app, opts *Options, keysOnly bool, provide
 	// set of credentials, and someone saying --provider drime is choosing
 	// where this computer goes, not asking to unlock the R2 keys another
 	// computer saved -- for which they may not even remember the password.
-	if token != "" && !keysOnly && provider == "" {
-		done, err := pullCredentials(ctx, a, p, client, token)
+	if sess != nil && !keysOnly && provider == "" {
+		done, err := pullCredentials(ctx, a, p, client, sess)
 		if err != nil {
 			return friendlyAccountErr(err)
 		}
@@ -110,7 +104,6 @@ func runSetup(ctx context.Context, a *app, opts *Options, keysOnly bool, provide
 			if err := checkConnection(ctx, a, p); err != nil {
 				return err
 			}
-			_ = client.RegisterDevice(ctx, token, machineName(), runtime.GOOS)
 			return finish(ctx, a, opts, p)
 		}
 	}
@@ -133,82 +126,160 @@ func runSetup(ctx context.Context, a *app, opts *Options, keysOnly bool, provide
 		return err
 	}
 
-	if token != "" {
-		if err := offerToStore(ctx, p, client, token, c); err != nil {
+	if sess != nil {
+		if err := offerToStore(ctx, a, p, client, sess, c); err != nil {
 			return err
 		}
-		_ = client.RegisterDevice(ctx, token, machineName(), runtime.GOOS)
 	}
 	return finish(ctx, a, opts, p)
 }
 
-// signIn returns a usable account token, asking for an email address and a
-// code if there isn't one cached already. An empty return means the user
-// declined an account, which is a supported answer and not an error.
-func signIn(ctx context.Context, p *prompter, client *account.Client) (string, error) {
-	// A token this machine already holds is worth trying first: it saves the
+// signIn returns a usable session, asking for an email address, the code
+// sent to it and the PIN if this computer is not signed in already. A nil
+// session means the person chose to use r2backup without an account -- a
+// supported answer, and the first one offered, not an error.
+func signIn(ctx context.Context, p *prompter, client *account.Client) (*account.Session, error) {
+	// Already signed in here: carry on without asking, which skips the
 	// round trip through email entirely on a re-run, which is what `setup
-	// --keys` after rotating R2 keys is.
+	// --keys` after rotating keys is.
 	if tok, err := account.LoadToken(); err == nil && tok != "" {
-		if ok, err := tokenWorks(ctx, client, tok); err != nil {
-			return "", friendlyAccountErr(err)
-		} else if ok {
-			fmt.Fprintln(p.out, "Already signed in on this computer.")
-			return tok, nil
+		ok, err := tokenWorks(ctx, client, tok)
+		switch {
+		case errors.Is(err, account.ErrPINRequired):
+			fmt.Fprintln(p.out, "Your account now has a PIN after the email code. Choose one to carry on.")
+			pin, err := askNewPIN(p)
+			if err != nil {
+				return nil, err
+			}
+			s, err := client.SetupPIN(ctx, tok, pin)
+			if err != nil {
+				return nil, pinStepErr(err)
+			}
+			if err := finishSignIn(ctx, s); err != nil {
+				return nil, err
+			}
+			return s, nil
+		case err != nil:
+			return nil, friendlyAccountErr(err)
+		case ok:
+			if key, err := account.LoadSealKey(); err == nil {
+				fmt.Fprintln(p.out, "Already signed in on this computer.")
+				return &account.Session{Token: tok, SealKey: key}, nil
+			}
 		}
-		// Expired or revoked. Say so and sign in again rather than failing
-		// with an authorization error the user cannot act on.
+		// Expired, revoked, or missing its key. Say so and sign in again
+		// rather than failing with an error the user cannot act on.
 		fmt.Fprintln(p.out, "Your sign-in has expired.")
 		_ = account.ClearToken()
 	}
 
-	fmt.Fprintln(p.out, "An account lets your other computers pick up these credentials")
-	fmt.Fprintln(p.out, "without you typing them again. It is optional.")
+	fmt.Fprintln(p.out, "You can use r2backup on this computer alone: your storage keys stay")
+	fmt.Fprintln(p.out, "here, and `r2b keys export` moves them to another computer.")
+	fmt.Fprintln(p.out, "Or sign in with an email address (hosted, for personal use), and your")
+	fmt.Fprintln(p.out, "other computers pick the keys up after an email code and your PIN.")
 	fmt.Fprintln(p.out)
-	email, err := p.ask("Email address (or press enter to skip)")
+	email, err := p.ask("Email address (or press enter to use without an account)")
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	email = strings.ToLower(email)
 	if email == "" {
-		fmt.Fprintln(p.out, "\nNo account. This computer's credentials stay on this computer.")
-		return "", nil
+		_ = setAccountMode(accountModeLocal)
+		fmt.Fprintln(p.out, "\nNo account. This computer's keys stay on this computer.")
+		return nil, nil
 	}
 
 	if err := client.RequestCode(ctx, email); err != nil {
-		return "", err
+		return nil, err
 	}
 	fmt.Fprintf(p.out, "\nA six-digit code is on its way to %s. It expires in 10 minutes.\n", email)
 
+	var ch *account.PINChallenge
 	for attempt := 1; ; attempt++ {
 		code, err := p.askRequired("Code")
 		if err != nil {
-			return "", err
+			return nil, err
 		}
-		token, err := client.Verify(ctx, email, code)
+		ch, err = client.Verify(ctx, email, code)
 		if err == nil {
-			if err := account.SaveToken(token); err != nil {
-				return "", err
-			}
-			return token, nil
+			break
 		}
 		if !errors.Is(err, account.ErrInvalidCode) {
-			return "", err
+			return nil, friendlyAccountErr(err)
 		}
 		if attempt >= passwordAttempts {
-			return "", errors.New("that code is not right, or it has expired. Run setup again for a new one")
+			return nil, errors.New("that code is not right, or it has expired. Run setup again for a new one")
 		}
 		fmt.Fprintln(p.out, "  That code is not right. Check the email and try again.")
 	}
+
+	var s *account.Session
+	if !ch.PINSet {
+		fmt.Fprintln(p.out, "\nChoose a six-digit PIN. You enter it after the email code on every")
+		fmt.Fprintln(p.out, "computer, and it locks the keys your account keeps: the server cannot")
+		fmt.Fprintln(p.out, "read them.")
+		pin, err := askNewPIN(p)
+		if err != nil {
+			return nil, err
+		}
+		if s, err = client.SetupPIN(ctx, ch.PINToken, pin); err != nil {
+			return nil, pinStepErr(err)
+		}
+	} else {
+		for {
+			pin, err := p.secret("PIN")
+			if err != nil {
+				return nil, err
+			}
+			s, err = client.VerifyPIN(ctx, ch, pin)
+			if err == nil {
+				break
+			}
+			var wrong *account.WrongPINError
+			if errors.As(err, &wrong) || account.ValidPIN(pin) != nil {
+				fmt.Fprintf(p.out, "  %s.\n", err.Error())
+				continue
+			}
+			return nil, pinStepErr(err)
+		}
+	}
+	if err := finishSignIn(ctx, s); err != nil {
+		return nil, err
+	}
+	_ = setAccountMode(accountModeAccount)
+	return s, nil
 }
 
-// tokenWorks reports whether a cached token is still accepted. A vault that
-// does not exist yet is a fine answer -- it means the token is good and the
-// account is empty, which is exactly the first-computer case.
+// askNewPIN asks for a new PIN twice.
+func askNewPIN(p *prompter) (string, error) {
+	for {
+		first, err := p.secret("PIN (6 digits)")
+		if err != nil {
+			return "", err
+		}
+		if err := account.ValidPIN(first); err != nil {
+			fmt.Fprintf(p.out, "  %s.\n", err.Error())
+			continue
+		}
+		again, err := p.secret("Again")
+		if err != nil {
+			return "", err
+		}
+		if first != again {
+			fmt.Fprintln(p.out, "  Those did not match. Try again.")
+			continue
+		}
+		return first, nil
+	}
+}
+
+// tokenWorks reports whether a cached token is still accepted.
+// ErrPINRequired is returned as is: a session from before PINs works once it
+// has one.
 func tokenWorks(ctx context.Context, client *account.Client, token string) (bool, error) {
-	_, err := client.GetVault(ctx, token)
+	_, err := client.ListDevices(ctx, token)
 	switch {
-	case err == nil, errors.Is(err, account.ErrNotFound):
+	case err == nil:
 		return true, nil
 	case errors.Is(err, account.ErrUnauthorized):
 		return false, nil
@@ -217,54 +288,38 @@ func tokenWorks(ctx context.Context, client *account.Client, token string) (bool
 	}
 }
 
-// pullCredentials fetches and unlocks the stored credentials. It reports
-// false, nil when there is nothing stored yet -- the first computer on an
-// account -- which is a normal path, not a failure.
-func pullCredentials(ctx context.Context, a *app, p *prompter, client *account.Client, token string) (bool, error) {
-	vault, err := client.GetVault(ctx, token)
-	if errors.Is(err, account.ErrNotFound) {
-		fmt.Fprintln(p.out, "\nThis is the first computer on this account, so I need your")
-		fmt.Fprintln(p.out, "Cloudflare R2 keys once. Every computer after this one picks")
-		fmt.Fprintln(p.out, "them up automatically.")
+// pullCredentials fetches the keys the account keeps. It reports false, nil
+// when there is nothing stored yet -- the first computer on an account --
+// which is a normal path, not a failure.
+func pullCredentials(ctx context.Context, a *app, p *prompter, client *account.Client, s *account.Session) (bool, error) {
+	k, err := client.GetKeys(ctx, s.Token, s.SealKey)
+	switch {
+	case errors.Is(err, account.ErrNotFound), err == nil && k.Primary == nil:
+		fmt.Fprintln(p.out, "\nThis is the first computer on this account, so I need your storage")
+		fmt.Fprintln(p.out, "keys once. Every computer after this one picks them up automatically.")
 		return false, nil
-	}
-	if err != nil {
+	case errors.Is(err, account.ErrDecryptFailed):
+		fmt.Fprintln(p.out, "\nThe keys saved to this account were locked with an earlier PIN, so I")
+		fmt.Fprintln(p.out, "need them once more.")
+		return false, nil
+	case err != nil:
 		return false, err
 	}
-
-	fmt.Fprintln(p.out, "\nFound the credentials you saved from another computer.")
-	for attempt := 1; ; attempt++ {
-		pass, err := p.secret("Password (the one you chose there)")
-		if err != nil {
-			return false, err
-		}
-		plain, derr := account.Decrypt(pass, vault)
-		if derr == nil {
-			var c creds.Credentials
-			if err := json.Unmarshal(plain, &c); err != nil {
-				return false, fmt.Errorf("the saved credentials could not be read: %w", err)
-			}
-			if err := a.creds.Save(c); err != nil {
-				return false, err
-			}
-			fmt.Fprintf(p.out, "\nUnlocked: bucket %q.\n", c.Bucket)
-			// Keys pulled from the vault land in the same store, under the
-			// same OS protection, as keys typed in by hand -- so the README's
-			// promise that setup names the protection has to hold here too,
-			// not only on the path where the secret came off the keyboard.
-			printProtection(p, a)
-			return true, nil
-		}
-		if attempt >= passwordAttempts {
-			// Worth spelling out, because "wrong password" on a backup tool
-			// reads like lost data and is not: the password guards the stored
-			// copy of the keys, not one byte of anyone's files.
-			return false, errors.New("that password does not open the saved credentials.\n" +
-				"  Nothing is lost if you have forgotten it -- it protects the stored keys,\n" +
-				"  not your files. Run `r2b setup --keys` and enter your R2 keys instead")
-		}
-		fmt.Fprintln(p.out, "  That password does not open it. Try again.")
+	if err := a.creds.Save(*k.Primary); err != nil {
+		return false, err
 	}
+	if k.Second != nil && !a.mirror.Exists() {
+		_ = a.mirror.Save(*k.Second)
+	}
+	if k.Source != nil && !a.source.Exists() {
+		_ = a.source.Save(*k.Source)
+	}
+	fmt.Fprintf(p.out, "\nFound the keys you saved from another computer: %s.\n", destLabel(*k.Primary))
+	// Keys pulled from the account land in the same store, under the same
+	// OS protection, as keys typed in by hand -- so the README's promise that
+	// setup names the protection has to hold here too.
+	printProtection(p, a)
+	return true, nil
 }
 
 // printProtection names whatever is actually guarding the secret that was
@@ -282,72 +337,35 @@ func printProtection(p *prompter, a *app) {
 }
 
 // offerToStore saves c to the account for other computers -- but asks first
-// when the account already holds credentials. There is room for one set, and
-// replacing what another computer saved (R2 keys, say, with this computer's
-// Drime token) would leave every computer set up after this one pointing
-// somewhere different from the ones before it.
-func offerToStore(ctx context.Context, p *prompter, client *account.Client, token string, c creds.Credentials) error {
-	_, err := client.GetVault(ctx, token)
+// when the account already holds keys. There is room for one set, and
+// replacing what another computer saved would leave every computer set up
+// after this one pointing somewhere different from the ones before it.
+func offerToStore(ctx context.Context, a *app, p *prompter, client *account.Client, s *account.Session, c creds.Credentials) error {
+	existing, err := client.GetKeys(ctx, s.Token, s.SealKey)
 	switch {
-	case errors.Is(err, account.ErrNotFound):
-		return pushCredentials(ctx, p, client, token, c)
+	case errors.Is(err, account.ErrNotFound), errors.Is(err, account.ErrDecryptFailed),
+		err == nil && existing.Primary == nil:
 	case err != nil:
 		return friendlyAccountErr(err)
-	}
-	fmt.Fprintln(p.out, "\nYour account already has credentials saved by another computer.")
-	fmt.Fprintf(p.out, "Replacing them with these (%s) changes what new computers pick up.\n", providerLabel(c))
-	replace, err := confirm(p, "Replace them? [y/N]", false)
-	if err != nil {
-		return err
-	}
-	if !replace {
-		fmt.Fprintln(p.out, "Kept what was saved. This computer uses the new ones.")
-		return nil
-	}
-	return pushCredentials(ctx, p, client, token, c)
-}
-
-// pushCredentials encrypts the credentials here and stores the result, so the
-// next computer needs only the email address.
-func pushCredentials(ctx context.Context, p *prompter, client *account.Client, token string, c creds.Credentials) error {
-	fmt.Fprintln(p.out, "\nNow choose a password. Your other computers will ask for it, and")
-	fmt.Fprintln(p.out, "it is what keeps the stored copy unreadable to the server.")
-
-	var pass string
-	for {
-		first, err := p.secret("Password")
+	default:
+		fmt.Fprintln(p.out, "\nYour account already has keys saved by another computer.")
+		fmt.Fprintf(p.out, "Replacing them with these (%s) changes what new computers pick up.\n", destLabel(c))
+		replace, err := confirm(p, "Replace them? [y/N]", false)
 		if err != nil {
 			return err
 		}
-		if len(first) < minPasswordLen {
-			fmt.Fprintf(p.out, "  Use at least %d characters.\n", minPasswordLen)
-			continue
+		if !replace {
+			fmt.Fprintln(p.out, "Kept what was saved. This computer uses the new ones.")
+			return nil
 		}
-		again, err := p.secret("Again")
-		if err != nil {
-			return err
-		}
-		if first != again {
-			fmt.Fprintln(p.out, "  Those did not match. Try again.")
-			continue
-		}
-		pass = first
-		break
 	}
-
-	plain, err := json.Marshal(c)
-	if err != nil {
-		return err
+	k := localStoredKeys(a)
+	k.Primary = &c
+	if err := client.PutKeys(ctx, s.Token, s.SealKey, k); err != nil {
+		return friendlyAccountErr(err)
 	}
-	vault, err := account.Encrypt(pass, plain)
-	if err != nil {
-		return err
-	}
-	if err := client.PutVault(ctx, token, vault); err != nil {
-		return err
-	}
-	fmt.Fprintln(p.out, "\nStored. On your next computer, run `r2b setup` and give it the")
-	fmt.Fprintln(p.out, "same email address -- it will pick these up by itself.")
+	fmt.Fprintln(p.out, "\nSaved to your account, locked with your PIN. On your next computer, run")
+	fmt.Fprintln(p.out, "`r2b setup` with the same email address and PIN.")
 	return nil
 }
 
@@ -409,23 +427,112 @@ func askForKeys(ctx context.Context, p *prompter) (creds.Credentials, error) {
 }
 
 // askForDestination asks where backups should go, then for what that place
-// needs.
+// needs, then whether to bundle small files there.
 func askForDestination(ctx context.Context, p *prompter, provider string) (creds.Credentials, error) {
 	if provider == "" {
 		fmt.Fprintln(p.out)
 		fmt.Fprintln(p.out, "Where should backups go?")
-		fmt.Fprintln(p.out, "  1. Drime          -- needs one API token")
-		fmt.Fprintln(p.out, "  2. Cloudflare R2  -- needs an account, a bucket and a key pair")
-		i, err := askIndex(p, "Choose 1 or 2", 2)
+		fmt.Fprintln(p.out, "  1. Drime                  -- needs one API token")
+		fmt.Fprintln(p.out, "  2. Cloudflare R2          -- an account, a bucket and a key pair")
+		fmt.Fprintln(p.out, "  3. Backblaze B2           -- a bucket, its region and an application key")
+		fmt.Fprintln(p.out, "  4. Amazon S3              -- a bucket, its region and an access key")
+		fmt.Fprintln(p.out, "  5. Other S3-compatible    -- an endpoint URL, a bucket and a key pair")
+		i, err := askIndex(p, "Choose 1 to 5", 5)
 		if err != nil {
 			return creds.Credentials{}, err
 		}
-		provider = []string{"drime", "r2"}[i]
+		provider = []string{"drime", "r2", "b2", "s3", "s3-custom"}[i]
 	}
-	if pv, _ := remote.ParseProvider(provider); pv == remote.ProviderDrime {
-		return askForDrime(p)
+	pv, _ := remote.ParseProvider(provider)
+	var c creds.Credentials
+	var err error
+	switch pv {
+	case remote.ProviderDrime:
+		c, err = askForDrime(p)
+	case remote.ProviderR2:
+		c, err = askForKeys(ctx, p)
+	default:
+		c, err = askForS3(p, string(pv))
 	}
-	return askForKeys(ctx, p)
+	if err != nil {
+		return c, err
+	}
+	c.Bundle, err = askBundle(p, c)
+	return c, err
+}
+
+// askBundle asks whether small files are packed into archives at this
+// destination. Yes by default where storage charges by the request.
+func askBundle(p *prompter, c creds.Credentials) (bool, error) {
+	fmt.Fprintln(p.out)
+	if c.IsDrime() {
+		fmt.Fprintln(p.out, "Pack small files into zip archives before upload? Fewer, bigger uploads;")
+		fmt.Fprintln(p.out, "Drime does not charge by the request, so most people leave this off.")
+		return confirm(p, "Pack small files? [y/N]", false)
+	}
+	fmt.Fprintf(p.out, "%s counts every upload against a monthly allowance. Packing small files\n", c.Label())
+	fmt.Fprintln(p.out, "into zip archives first turns thousands of uploads into a handful, and")
+	fmt.Fprintln(p.out, "restores, trash and the second copy work the same. Without it, the bucket")
+	fmt.Fprintln(p.out, "holds one plain object per file.")
+	return confirm(p, "Pack small files? [Y/n]", true)
+}
+
+// askForS3 takes the keys for Backblaze B2, Amazon S3 or another
+// S3-compatible service.
+func askForS3(p *prompter, kind string) (creds.Credentials, error) {
+	c := creds.Credentials{Provider: kind}
+	fmt.Fprintln(p.out)
+	switch kind {
+	case creds.ProviderB2:
+		fmt.Fprintln(p.out, "In Backblaze: B2 Cloud Storage > Buckets for the bucket and its endpoint")
+		fmt.Fprintln(p.out, "(s3.<region>.backblazeb2.com), then Application Keys for a key pair.")
+	case creds.ProviderS3:
+		fmt.Fprintln(p.out, "In the AWS console: the S3 bucket and its region, and an IAM access key")
+		fmt.Fprintln(p.out, "allowed to read, write, list and delete in it.")
+	default:
+		fmt.Fprintln(p.out, "Any service that speaks S3: MinIO, Wasabi, a NAS. You need its endpoint URL.")
+		url, err := p.askRequired("Endpoint URL (https://...)")
+		if err != nil {
+			return c, err
+		}
+		c.Endpoint = strings.TrimRight(strings.TrimSpace(url), "/")
+	}
+	bucket, err := p.askRequired("Bucket name")
+	if err != nil {
+		return c, err
+	}
+	c.Bucket = bucket
+	switch kind {
+	case creds.ProviderB2:
+		if c.Region, err = p.askRequired("Region (from the endpoint, us-west-004 say)"); err != nil {
+			return c, err
+		}
+	case creds.ProviderS3:
+		if c.Region, err = p.askRequired("Region (eu-west-1, say)"); err != nil {
+			return c, err
+		}
+	default:
+		if c.Region, err = p.ask("Region (press enter if it has none)"); err != nil {
+			return c, err
+		}
+	}
+	label := "Access key ID"
+	if kind == creds.ProviderB2 {
+		label = "keyID"
+	}
+	if c.AccessKeyID, err = p.askRequired(label); err != nil {
+		return c, err
+	}
+	secretLabel := "Secret access key"
+	if kind == creds.ProviderB2 {
+		secretLabel = "applicationKey"
+	}
+	if c.SecretAccessKey, err = p.secret(secretLabel); err != nil {
+		return c, err
+	}
+	c.AccessKeyID, c.SecretAccessKey = strings.TrimSpace(c.AccessKeyID), strings.TrimSpace(c.SecretAccessKey)
+	c.Region = strings.TrimSpace(c.Region)
+	return c, c.Valid()
 }
 
 // askForDrime takes a Drime API token. That is the whole of Drime's setup:
@@ -458,7 +565,7 @@ func checkConnection(ctx context.Context, a *app, p *prompter) error {
 		return fmt.Errorf("credentials saved, but the bucket could not be read: %w", err)
 	}
 	fmt.Fprintln(p.out, "Connection works.")
-	if d, ok := a.client.(*drime.Client); ok {
+	if d, ok := baseStore(a.client).(*drime.Client); ok {
 		if u, err := d.SpaceUsage(ctx); err == nil && u.Available > 0 {
 			fmt.Fprintf(p.out, "Drime space: %s used of %s.\n", progress.FormatBytes(u.Used), progress.FormatBytes(u.Available))
 		}

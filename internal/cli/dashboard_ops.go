@@ -2,13 +2,11 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/saurabhhbansal/r2backup/internal/config"
 	"github.com/saurabhhbansal/r2backup/internal/cost"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -299,6 +297,11 @@ func (d *dashboard) Account(ctx context.Context) (ui.AccountView, error) {
 			v.Reachable = true
 			return v, nil
 		}
+		if errors.Is(err, account.ErrPINRequired) {
+			v.SignedIn, v.Reachable, v.NeedsPIN = true, true, true
+			v.Email = account.EmailFromToken(token)
+			return v, nil
+		}
 		v.Err = "Could not reach the account service: " + err.Error()
 		return v, nil
 	}
@@ -314,7 +317,9 @@ func (d *dashboard) Account(ctx context.Context) (ui.AccountView, error) {
 			LastSeen: time.Unix(dev.LastSeen, 0), This: dev.DeviceName == me,
 		})
 	}
-	if _, err := c.GetVault(ctx, token); err == nil {
+	if key, err := account.LoadSealKey(); err != nil {
+		v.NeedsPIN = errors.Is(err, account.ErrPINRequired)
+	} else if _, err := c.GetKeys(ctx, token, key); err == nil {
 		v.VaultStored = true
 	} else if !errors.Is(err, account.ErrNotFound) {
 		v.Err = friendlyAccountErr(err).Error()
@@ -326,101 +331,9 @@ func (d *dashboard) SignInStart(ctx context.Context, email string) error {
 	return accountClient().RequestCode(ctx, email)
 }
 
-func (d *dashboard) SignInVerify(ctx context.Context, email, code string) error {
-	token, err := accountClient().Verify(ctx, email, code)
-	if err != nil {
-		if errors.Is(err, account.ErrInvalidCode) {
-			return errors.New("that code is not right, or it has expired")
-		}
-		return err
-	}
-	if err := account.SaveToken(token); err != nil {
-		return err
-	}
-	_ = accountClient().RegisterDevice(ctx, token, machineName(), runtime.GOOS)
-	return nil
-}
-
-func (d *dashboard) SignOut(ctx context.Context) error { return account.ClearToken() }
-
-func (d *dashboard) UnlockVault(ctx context.Context, password string) error {
-	token, err := requireAccountToken()
-	if err != nil {
-		return err
-	}
-	vault, err := accountClient().GetVault(ctx, token)
-	if err != nil {
-		if errors.Is(err, account.ErrNotFound) {
-			return errors.New("no credentials are stored for this account yet")
-		}
-		return friendlyAccountErr(err)
-	}
-	plain, err := account.Decrypt(password, vault)
-	if err != nil {
-		// Worth spelling out: "wrong password" on a backup tool reads like
-		// lost data and is not. It guards the stored copy of the keys, not
-		// one byte of anyone's files.
-		return errors.New("that password does not open the saved credentials. Nothing is lost if you have " +
-			"forgotten it -- it protects the stored keys, not your files. Press k to enter your R2 keys instead")
-	}
-	var c creds.Credentials
-	if err := json.Unmarshal(plain, &c); err != nil {
-		return fmt.Errorf("the saved credentials could not be read: %w", err)
-	}
-	a := d.app
-	if err := a.creds.Save(c); err != nil {
-		return err
-	}
-	// The client cached from whatever credentials were in place before this
-	// unlock -- if any -- was built from those, not from the ones just
-	// unlocked. Drop it so checkBucketReachable below reconnects with the
-	// credentials that were actually just saved instead of reusing the old
-	// client and testing nothing.
-	d.forgetClient()
-	return checkBucketReachable(ctx, a)
-}
-
-func (d *dashboard) StoreVault(ctx context.Context, password string) error {
-	token, err := requireAccountToken()
-	if err != nil {
-		return err
-	}
-	a, err := d.connected(ctx)
-	if err != nil {
-		return err
-	}
-	c, err := a.creds.Load()
-	if err != nil {
-		return errors.New("there are no credentials on this computer to save yet")
-	}
-	plain, err := json.Marshal(c)
-	if err != nil {
-		return err
-	}
-	// Checked before they are pushed, never after. Storing keys that do not
-	// work hands every later machine the same broken setup, and the failure
-	// surfaces there rather than here where it can still be corrected.
-	if err := checkBucketReachable(ctx, a); err != nil {
-		return err
-	}
-	vault, err := account.Encrypt(password, plain)
-	if err != nil {
-		return err
-	}
-	return accountClient().PutVault(ctx, token, vault)
-}
-
 func (d *dashboard) SaveKeys(ctx context.Context, k ui.Keys) error {
 	a := d.app
-	c := creds.Credentials{
-		AccountID:       strings.TrimSpace(k.AccountID),
-		AccessKeyID:     strings.TrimSpace(k.AccessKeyID),
-		SecretAccessKey: strings.TrimSpace(k.Secret),
-		Bucket:          strings.TrimSpace(k.Bucket),
-	}
-	if t := strings.TrimSpace(k.DrimeToken); t != "" {
-		c = creds.Credentials{Provider: creds.ProviderDrime, DrimeToken: t}
-	}
+	c := credsFromKeys(k)
 	if err := c.Valid(); err != nil {
 		return err
 	}
@@ -517,4 +430,28 @@ func (d *dashboard) ResumeBudget(ctx context.Context) error {
 	}
 	s.BudgetResumedMonth = cost.MonthKey(time.Now())
 	return config.SaveSettings(s)
+}
+
+// credsFromKeys turns what a person typed into credentials. A Drime token
+// means Drime whatever else is filled in.
+func credsFromKeys(k ui.Keys) creds.Credentials {
+	if t := strings.TrimSpace(k.DrimeToken); t != "" || k.Provider == creds.ProviderDrime {
+		return creds.Credentials{Provider: creds.ProviderDrime, DrimeToken: t,
+			DrimeRoot: strings.Trim(strings.TrimSpace(k.DrimeFolder), "/"), Bundle: k.Bundle}
+	}
+	c := creds.Credentials{
+		Provider:        strings.TrimSpace(k.Provider),
+		AccountID:       strings.TrimSpace(k.AccountID),
+		AccessKeyID:     strings.TrimSpace(k.AccessKeyID),
+		SecretAccessKey: strings.TrimSpace(k.Secret),
+		Bucket:          strings.TrimSpace(k.Bucket),
+		Region:          strings.TrimSpace(k.Region),
+		Endpoint:        strings.TrimRight(strings.TrimSpace(k.Endpoint), "/"),
+		VirtualHost:     k.VirtualHost,
+		Bundle:          k.Bundle,
+	}
+	if c.Provider == creds.ProviderR2 {
+		c.Provider = "" // as every R2 credentials file has always been written
+	}
+	return c
 }

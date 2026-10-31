@@ -3,11 +3,10 @@ package cli
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"strings"
 	"time"
 
+	"github.com/saurabhhbansal/r2backup/internal/creds"
 	"github.com/saurabhhbansal/r2backup/internal/ui"
 )
 
@@ -33,22 +32,11 @@ var keysChange = map[string]bool{"connect": true, "mirrorSetup": true, "mirrorFo
 func (t *trayBackend) call(ctx context.Context, method string, raw json.RawMessage) (any, error) {
 	switch method {
 	case "connect":
-		var a struct {
-			Provider    string `json:"provider"`
-			Token       string `json:"token"`
-			AccountID   string `json:"accountId"`
-			AccessKeyID string `json:"accessKeyId"`
-			Secret      string `json:"secret"`
-			Bucket      string `json:"bucket"`
-		}
+		var a destArgs
 		if err := decodeArgs(raw, &a); err != nil {
 			return nil, err
 		}
-		k := ui.Keys{AccountID: a.AccountID, AccessKeyID: a.AccessKeyID, Secret: a.Secret, Bucket: a.Bucket}
-		if a.Provider == "drime" {
-			k = ui.Keys{DrimeToken: a.Token}
-		}
-		err := t.d.SaveKeys(ctx, k)
+		err := t.d.SaveKeys(ctx, a.keys())
 		t.invalidate()
 		if err == nil {
 			t.endCF() // the account and bucket it found are in the keys now
@@ -88,25 +76,12 @@ func (t *trayBackend) call(ctx context.Context, method string, raw json.RawMessa
 		if err := decodeArgs(raw, &a); err != nil {
 			return nil, err
 		}
-		return nil, t.d.SignInVerify(ctx, a.Email, a.Code)
-
-	case "unlock":
-		var a struct {
-			Password string `json:"password"`
-		}
-		if err := decodeArgs(raw, &a); err != nil {
+		set, err := t.d.SignInVerify(ctx, a.Email, a.Code)
+		if err != nil {
 			return nil, err
 		}
-		err := t.d.UnlockVault(ctx, a.Password)
-		t.invalidate()
-		if err != nil {
-			// The terminal's wording points at one of its own keys; the
-			// panel has no such key, and says what the person can do here.
-			if i := strings.Index(err.Error(), " Press k"); i >= 0 {
-				err = errors.New(err.Error()[:i] + " Go back and enter your keys instead.")
-			}
-		}
-		return nil, err
+		// The PIN comes next: enter it (pinSet) or choose one.
+		return map[string]bool{"pinSet": set}, nil
 
 	case "signOut":
 		err := t.d.SignOut(ctx)
@@ -185,4 +160,31 @@ func accountJSON(v ui.AccountView) accountOut {
 		})
 	}
 	return out
+}
+
+// destArgs is a destination as the panel sends it, for connect and
+// mirrorSetup alike.
+type destArgs struct {
+	// Provider: "drime", "r2", "b2", "s3" or "s3-custom".
+	Provider    string `json:"provider"`
+	Token       string `json:"token"`       // Drime API token
+	DrimeFolder string `json:"drimeFolder"` // Drime folder, "" for r2backup
+	AccountID   string `json:"accountId"`   // R2
+	AccessKeyID string `json:"accessKeyId"`
+	Secret      string `json:"secret"`
+	Bucket      string `json:"bucket"`
+	Region      string `json:"region"`   // B2, Amazon S3, custom
+	Endpoint    string `json:"endpoint"` // custom
+	VirtualHost bool   `json:"virtualHost"`
+	// Bundle packs files into archives before upload.
+	Bundle bool `json:"bundle"`
+}
+
+func (a destArgs) keys() ui.Keys {
+	k := ui.Keys{Provider: a.Provider, AccountID: a.AccountID, AccessKeyID: a.AccessKeyID, Secret: a.Secret,
+		Bucket: a.Bucket, Region: a.Region, Endpoint: a.Endpoint, VirtualHost: a.VirtualHost, Bundle: a.Bundle}
+	if a.Provider == creds.ProviderDrime {
+		k = ui.Keys{Provider: a.Provider, DrimeToken: a.Token, DrimeFolder: a.DrimeFolder, Bundle: a.Bundle}
+	}
+	return k
 }

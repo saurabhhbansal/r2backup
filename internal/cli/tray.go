@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/saurabhhbansal/r2backup/internal/creds"
 	"github.com/saurabhhbansal/r2backup/internal/index"
 	"github.com/saurabhhbansal/r2backup/internal/runstate"
 	"github.com/saurabhhbansal/r2backup/internal/sets"
@@ -332,6 +333,14 @@ func (t *trayBackend) StorageURL() string {
 	}
 	if c.IsDrime() {
 		return "https://app.drime.cloud/drive"
+	}
+	switch c.Kind() {
+	case creds.ProviderB2:
+		return "https://secure.backblaze.com/b2_buckets.htm"
+	case creds.ProviderS3:
+		return "https://s3.console.aws.amazon.com/s3/buckets/" + c.Bucket
+	case creds.ProviderCustom:
+		return ""
 	}
 	if c.AccountID != "" && c.Bucket != "" {
 		return "https://dash.cloudflare.com/" + c.AccountID + "/r2/default/buckets/" + c.Bucket

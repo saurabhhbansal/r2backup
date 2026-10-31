@@ -3,7 +3,6 @@ package cli
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,21 +41,6 @@ func bucketWithABackupInIt(t *testing.T) (*remote.Client, creds.Credentials) {
 	}
 }
 
-// storeVault puts c on the fake worker, encrypted the way the first computer
-// would have encrypted it.
-func storeVault(t *testing.T, w *fakeWorker, pass string, c creds.Credentials) {
-	t.Helper()
-	plain, err := json.Marshal(c)
-	if err != nil {
-		t.Fatal(err)
-	}
-	v, err := account.Encrypt(pass, plain)
-	if err != nil {
-		t.Fatal(err)
-	}
-	w.vault = v
-}
-
 // TestSetupOnASecondComputer runs the real `setup` command, through cobra,
 // with nothing on the machine at all: no credentials, no sets.json, no index.
 // An email address, a code and a password are the only things carried over
@@ -66,8 +50,8 @@ func TestSetupOnASecondComputer(t *testing.T) {
 	_, c := bucketWithABackupInIt(t)
 	w, stop := newFakeWorker(t)
 	defer stop()
-	storeVault(t, w, "hunter2hunter2", c)
 	t.Setenv("R2BACKUP_DATA_DIR", t.TempDir())
+	storeKeys(t, account.StoredKeys{Primary: &c})
 
 	var out, errOut bytes.Buffer
 	opts := &Options{
@@ -84,8 +68,7 @@ func TestSetupOnASecondComputer(t *testing.T) {
 
 	got := out.String()
 	for _, want := range []string{
-		"Found the credentials you saved from another computer",
-		"Unlocked",
+		"Found the keys you saved from another computer",
 		// The README promises that setup says which of the two protections a
 		// computer got, on every path in, not only the one where the keys
 		// were typed by hand.
