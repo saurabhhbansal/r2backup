@@ -21,7 +21,6 @@ import (
 // come back with a different one.
 const passwordAttempts = 3
 
-
 // newSetupCmd builds `setup`: the one command that gets a computer working.
 //
 // It used to be three. `setup` took R2 keys, `login <email>` signed in and

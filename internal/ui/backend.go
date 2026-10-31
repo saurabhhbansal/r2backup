@@ -147,7 +147,7 @@ type AccountView struct {
 	VaultStored bool
 	// NeedsPIN is a session from before PINs: nothing works until one is set.
 	NeedsPIN bool
-	Devices     []DeviceView
+	Devices  []DeviceView
 	// Reachable is false when the account service could not be contacted.
 	// The tab says so rather than presenting "not signed in", which is a
 	// different thing and leads somewhere different.

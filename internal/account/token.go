@@ -2,8 +2,8 @@ package account
 
 import (
 	"encoding/base64"
-	"errors"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"

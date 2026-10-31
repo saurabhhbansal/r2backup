@@ -199,21 +199,21 @@ func masked(s string) string {
 }
 
 type accountConfigOut struct {
-	SignedIn bool         `json:"signedIn"`
-	Email    string       `json:"email,omitempty"`
-	Machine  string       `json:"machine"`
-	Primary  *storeOut    `json:"primary"`
-	Second   *storeOut    `json:"second"`
-	Auto     bool         `json:"auto"` // copy to the second after every backup
-	Saved    bool         `json:"saved"`
+	SignedIn bool      `json:"signedIn"`
+	Email    string    `json:"email,omitempty"`
+	Machine  string    `json:"machine"`
+	Primary  *storeOut `json:"primary"`
+	Second   *storeOut `json:"second"`
+	Auto     bool      `json:"auto"` // copy to the second after every backup
+	Saved    bool      `json:"saved"`
 	// NeedsPIN is a sign-in from before PINs: the panel asks for one
 	// (setPin) before anything else.
 	NeedsPIN bool `json:"needsPin"`
 	// Mode is "account" when signed in, "local" when using r2backup without
 	// an account, "" when neither has been chosen yet.
-	Mode string `json:"mode"`
-	Err      string       `json:"err,omitempty"`
-	Devices  []deviceJSON `json:"devices"`
+	Mode    string       `json:"mode"`
+	Err     string       `json:"err,omitempty"`
+	Devices []deviceJSON `json:"devices"`
 }
 
 // accountConfig is everything the account screen shows.

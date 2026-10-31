@@ -139,7 +139,7 @@ func (m *memStore) ListMultipartUploads(context.Context, string) ([]remote.Multi
 	return nil, nil
 }
 func (m *memStore) AbortUpload(context.Context, string, string) error { return nil }
-func (m *memStore) Bucket() string                                   { return "mem" }
+func (m *memStore) Bucket() string                                    { return "mem" }
 
 func (m *memStore) has(key string) bool {
 	m.mu.Lock()
