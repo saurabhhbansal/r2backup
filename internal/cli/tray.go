@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/saurabhhbansal/r2backup/internal/account"
 	"github.com/saurabhhbansal/r2backup/internal/creds"
 	"github.com/saurabhhbansal/r2backup/internal/index"
 	"github.com/saurabhhbansal/r2backup/internal/runstate"
@@ -179,6 +180,11 @@ func (t *trayBackend) summarize(views []ui.SetView, ov ui.Overview, now time.Tim
 	}
 	st := tray.Summarize(views, ov, runs, now)
 	st.Email, st.SignedIn = signedInHere(now)
+	st.Mode = accountMode()
+	if st.SignedIn {
+		_, err := account.LoadSealKey()
+		st.NeedsPIN = errors.Is(err, account.ErrPINRequired)
+	}
 	if mc, err := t.d.app.mirror.Load(); err == nil {
 		st.Second = destLabel(mc)
 	}

@@ -38,7 +38,7 @@ const (
 // State is everything the panel draws, sent to it as JSON.
 type State struct {
 	Configured  bool   `json:"configured"`
-	Provider    string `json:"provider"`    // "drime" or "r2"
+	Provider    string `json:"provider"`    // drime, r2, b2, s3 or s3-custom
 	Destination string `json:"destination"` // "Drime · r2backup", "my-bucket"
 	Machine     string `json:"machine"`
 	Version     string `json:"version"`
@@ -46,6 +46,12 @@ type State struct {
 	// the panel can show who is signed in, and ask for it when nobody is.
 	SignedIn bool   `json:"signedIn"`
 	Email    string `json:"email,omitempty"`
+	// Mode is "account" when signed in, "local" when r2backup is used
+	// without an account, "" before either is chosen: the panel asks.
+	Mode string `json:"mode"`
+	// NeedsPIN is a sign-in from before PINs, which has to set one before
+	// anything else works.
+	NeedsPIN bool `json:"needsPin,omitempty"`
 	// Second is where the second copy goes, "" when there is none.
 	Second string `json:"second,omitempty"`
 
@@ -207,7 +213,7 @@ func status(st State, ov ui.Overview, n, bad, never int, last time.Time, now tim
 	switch {
 	case !st.Configured:
 		return Status{Kind: KindSetup, Title: "Not set up yet",
-			Detail: "Connect Drime or Cloudflare R2 to start backing up."}
+			Detail: "Connect Drime or S3 storage to start backing up."}
 	case st.Running != nil:
 		d := "Working out what changed"
 		if st.Running.Percent > 0 {
