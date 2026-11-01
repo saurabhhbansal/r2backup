@@ -77,6 +77,13 @@ func (t *trayBackend) trashDelete(ctx context.Context, set, key string, where de
 	if err != nil {
 		return 0, err
 	}
+	// In a bundled backup this delete is an edit to its index, which this
+	// long-lived client may have read before a scheduled backup -- another
+	// process -- changed it. Flushing drops that copy, so the edit is made
+	// to the index as it is now; flushing after saves it.
+	if err := remote.FlushStore(ctx, a.client); err != nil {
+		return 0, err
+	}
 	entries, err := trash.New(a.client, trash.Clock{}).List(ctx, s.Prefix, s.RetentionDays)
 	if err != nil {
 		return 0, err
@@ -91,6 +98,9 @@ func (t *trayBackend) trashDelete(ctx context.Context, set, key string, where de
 		return 0, nil
 	}
 	if err := a.client.DeleteBatch(ctx, keys); err != nil {
+		return 0, err
+	}
+	if err := remote.FlushStore(ctx, a.client); err != nil {
 		return 0, err
 	}
 	// The second copy holds the same keys: a copy is key for key.

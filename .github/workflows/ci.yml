@@ -45,6 +45,16 @@ jobs:
           if [ -n "$unformatted" ]; then
             echo "not gofmt'd:"; echo "$unformatted"; exit 1
           fi
+      # MinIO no longer publishes binaries (dl.min.io answers 410 Gone), so
+      # the integration tests' harness builds a pinned release from source
+      # (test/minio). Cached per OS; built once here rather than by every
+      # test package at the same moment.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/r2backup-test
+          key: minio-${{ runner.os }}-${{ hashFiles('test/minio/download.go') }}
+      - name: MinIO for the integration tests
+        run: go test ./test/minio -run TestBinary -count=1 -timeout 20m
       # -timeout is explicit because Go's default is 600s PER PACKAGE, and
       # test/e2e on Windows under -race sits right on that line:
       # TestTwentyThousandFileTree alone is ~485s there. A release was blocked
@@ -80,6 +90,16 @@ jobs:
           if [ -n "$unformatted" ]; then
             echo "not gofmt'd:"; echo "$unformatted"; exit 1
           fi
+      # MinIO no longer publishes binaries (dl.min.io answers 410 Gone), so
+      # the integration tests' harness builds a pinned release from source
+      # (test/minio). Cached per OS; built once here rather than by every
+      # test package at the same moment.
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/r2backup-test
+          key: minio-${{ runner.os }}-${{ hashFiles('test/minio/download.go') }}
+      - name: MinIO for the integration tests
+        run: go test ./test/minio -run TestBinary -count=1 -timeout 20m
       # A skipped test is a failed build. Nothing quietly does-not-run.
       # -timeout is explicit because Go's default is 600s PER PACKAGE, and
       # test/e2e on Windows under -race sits right on that line:

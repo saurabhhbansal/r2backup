@@ -182,6 +182,13 @@ func Decrypt(passphrase string, ev *EncryptedVault) ([]byte, error) {
 	if ev == nil {
 		return nil, fmt.Errorf("account: nil vault")
 	}
+	// The parameters travel with the blob, so a damaged or edited one could
+	// ask Argon2 for zero passes (a panic), terabytes of memory, or a nonce
+	// XChaCha20 cannot take (another panic). Anything outside what a real
+	// vault could have been sealed with is a damaged vault.
+	if !sane(ev) {
+		return nil, ErrDecryptFailed
+	}
 
 	key := deriveKey(passphrase, ev.Salt, ev.KDFParams)
 
@@ -195,6 +202,23 @@ func Decrypt(passphrase string, ev *EncryptedVault) ([]byte, error) {
 		return nil, ErrDecryptFailed
 	}
 	return plaintext, nil
+}
+
+// Bounds on a vault's own cost parameters, generous beside DefaultKDFParams
+// and PINKDFParams.
+const (
+	maxKDFTime      = 64
+	maxKDFMemoryKiB = 1 << 20 // 1 GiB
+)
+
+func sane(ev *EncryptedVault) bool {
+	p := ev.KDFParams
+	return len(ev.Nonce) == chacha20poly1305.NonceSizeX &&
+		len(ev.Salt) >= 8 &&
+		p.KeyLen == chacha20poly1305.KeySize &&
+		p.Time >= 1 && p.Time <= maxKDFTime &&
+		p.Threads >= 1 &&
+		p.MemoryKiB >= 8*uint32(p.Threads) && p.MemoryKiB <= maxKDFMemoryKiB
 }
 
 // EncryptedVault's []byte fields round-trip through encoding/json as
