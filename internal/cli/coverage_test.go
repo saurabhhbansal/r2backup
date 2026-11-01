@@ -127,6 +127,36 @@ var tuiSurface = map[string]surface{
 	"r2b account":         {Keys: []string{"5"}, Where: "the Account mode"},
 	"r2b account devices": {Keys: []string{"5"}, Where: "Account lists the computers signed in, this one marked"},
 	"r2b account logout":  {Keys: []string{"o"}, Where: "Account: o signs out"},
+	"r2b account login":   {Keys: []string{"i"}, Where: "Account: i signs in with an email code and the PIN"},
+	"r2b account reset-pin": {NA: "resetting a forgotten PIN is in the taskbar panel's sign-in (Forgot PIN?), " +
+		"in r2b setup and here; the terminal interface does not offer it yet."},
+	"r2b account save-keys": {NA: "saving keys to the account is in the taskbar panel's account screen and here; " +
+		"the terminal interface does not offer it yet."},
+	"r2b account rename": {NA: "renaming this computer is in the taskbar panel's account screen and here; " +
+		"the terminal interface does not offer it yet."},
+
+	"r2b backups": {Keys: []string{"c"}, Where: "Folders: c lists every backup in the bucket"},
+	"r2b backups delete": {NA: "deleting a backup no folder here uses is in the taskbar panel's Backups screen and here; " +
+		"the terminal interface does not offer it yet."},
+	"r2b backups delete --machine":          {NA: "part of r2b backups delete."},
+	"r2b backups delete --keep-second-copy": {NA: "part of r2b backups delete."},
+	"r2b remove --keep-second-copy": {NA: "the terminal interface does not keep a second copy yet; " +
+		"the taskbar panel asks the same question when you delete a backup."},
+
+	"r2b edit --retention": {NA: "how long deleted files are kept is in the taskbar panel's folder settings and here; " +
+		"the terminal interface sets it only when a folder is added."},
+
+	"r2b trash recover":      {Keys: []string{"enter"}, Where: "Trash: enter recovers the highlighted file"},
+	"r2b trash recover --to": {Keys: []string{"enter"}, Where: "Trash: enter asks where to put it"},
+	"r2b trash rm": {NA: "deleting a trashed file for good is in the taskbar panel's Recover deleted files and here; " +
+		"the terminal interface does not offer it yet."},
+	"r2b trash empty": {NA: "part of the same; the terminal interface does not offer it yet."},
+
+	"r2b pack": {NA: "packing small files is a switch per destination in the taskbar panel's account screen and here; " +
+		"the terminal interface does not offer it yet."},
+	"r2b pack --second-copy": {NA: "part of r2b pack."},
+	"r2b usage":              {Keys: []string{"3"}, Where: "the Cost mode: what is stored and what it costs"},
+	"r2b mirror off":         {NA: "part of r2b mirror, which the interface does not yet offer."},
 }
 
 func TestEveryCommandAndFlagIsReachableFromTheInterface(t *testing.T) {

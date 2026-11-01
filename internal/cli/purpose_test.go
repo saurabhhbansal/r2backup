@@ -326,7 +326,7 @@ func TestSetupAsksThePurpose(t *testing.T) {
 			t.Errorf("S3 storage only mentioned Drime after the question:\n%s", after)
 		}
 	}
-	bothLines := []string{"1", "tok", "", "4", "https://minio.local:9000", "bucket", "", "key", "secret", ""}
+	bothLines := []string{"1", "tok", "", "", "4", "https://minio.local:9000", "bucket", "", "key", "secret", "", ""}
 	s3Lines := []string{"2", "2", "bucket", "us-west-004", "key", "secret", ""}
 
 	for _, tc := range []struct {
@@ -380,7 +380,7 @@ func TestSetupPurposeFlags(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	a, out := runSetupWith(t, f, "", "tok", "", "bucket", "us-west-004", "key", "secret", "")
+	a, out := runSetupWith(t, f, "", "tok", "", "", "bucket", "us-west-004", "key", "secret", "")
 	if strings.Contains(out, purposeQuestion) || strings.Contains(out, "Where should the second copy go?") {
 		t.Errorf("asked what the flags answered:\n%s", out)
 	}

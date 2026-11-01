@@ -13,6 +13,7 @@ import (
 	"github.com/saurabhhbansal/r2backup/internal/drime"
 	"github.com/saurabhhbansal/r2backup/internal/progress"
 	"github.com/saurabhhbansal/r2backup/internal/remote"
+	"github.com/saurabhhbansal/r2backup/internal/ui"
 )
 
 // passwordAttempts is how many times a wrong vault password is forgiven
@@ -143,6 +144,22 @@ func runSetup(ctx context.Context, a *app, opts *Options, f setupFlags) error {
 	// set of credentials, and someone saying --provider drime is choosing
 	// where this computer goes, not asking to unlock the R2 keys another
 	// computer saved -- for which they may not even remember the password.
+	//
+	// A computer that already has keys keeps them, as the panel's sign-in
+	// does: its folders are backed up there. What it lacks comes from the
+	// account, and an account with nothing saved takes this computer's.
+	if sess != nil && !keysOnly && provider == "" && a.creds.Exists() {
+		if err := reportKeysSync(ctx, backendFor(opts, a), p.out); err != nil {
+			return err
+		}
+		if err := setupCheck(ctx, a, p); err != nil {
+			return err
+		}
+		if pp := currentPurpose(a); pp != "" {
+			fmt.Fprintf(p.out, "Using r2backup for: %s.\n", purposeTitle(pp))
+		}
+		return setupFinish(ctx, a, opts, p)
+	}
 	if sess != nil && !keysOnly && provider == "" {
 		done, err := pullCredentials(ctx, a, p, client, sess)
 		if err != nil {
@@ -162,6 +179,23 @@ func runSetup(ctx context.Context, a *app, opts *Options, f setupFlags) error {
 			}
 			if pp := currentPurpose(a); pp != "" {
 				fmt.Fprintf(p.out, "Using r2backup for: %s.\n", purposeTitle(pp))
+			}
+			return setupFinish(ctx, a, opts, p)
+		}
+	}
+
+	// Moving where backups go asks first, as the panel's Change… does: what
+	// is already there stays there.
+	if old, err := a.creds.Load(); err == nil && !keysOnly && provider == "" {
+		move, err := decide(opts, p, "\nBack up somewhere else? New backups go to the new place. What’s in "+
+			destLabel(old)+" stays.\nContinue? [y/N]", false)
+		if err != nil {
+			return err
+		}
+		if !move {
+			fmt.Fprintf(p.out, "Backups still go to %s.\n", destLabel(old))
+			if err := setupCheck(ctx, a, p); err != nil {
+				return err
 			}
 			return setupFinish(ctx, a, opts, p)
 		}
@@ -290,23 +324,9 @@ func signIn(ctx context.Context, p *prompter, client *account.Client) (*account.
 	}
 	fmt.Fprintf(p.out, "\nA six-digit code is on its way to %s. It expires in 10 minutes.\n", email)
 
-	var ch *account.PINChallenge
-	for attempt := 1; ; attempt++ {
-		code, err := p.askRequired("Code")
-		if err != nil {
-			return nil, err
-		}
-		ch, err = client.Verify(ctx, email, code)
-		if err == nil {
-			break
-		}
-		if !errors.Is(err, account.ErrInvalidCode) {
-			return nil, friendlyAccountErr(err)
-		}
-		if attempt >= passwordAttempts {
-			return nil, errors.New("that code is not right, or it has expired. Run setup again for a new one")
-		}
-		fmt.Fprintln(p.out, "  That code is not right. Check the email and try again.")
+	ch, err := askCode(ctx, p, client, email)
+	if err != nil {
+		return nil, err
 	}
 
 	var s *account.Session
@@ -323,9 +343,20 @@ func signIn(ctx context.Context, p *prompter, client *account.Client) (*account.
 		}
 	} else {
 		for {
-			pin, err := p.secret("PIN")
+			pin, err := p.secret("PIN (or press enter if you forgot it)")
 			if err != nil {
 				return nil, err
+			}
+			if pin == "" {
+				// Forgot it: a reset, after a fresh email code.
+				reset, err := forgotPIN(ctx, p, client, email)
+				if err != nil {
+					return nil, err
+				}
+				if reset == nil {
+					continue // kept the PIN after all
+				}
+				return reset, nil
 			}
 			s, err = client.VerifyPIN(ctx, ch, pin)
 			if err == nil {
@@ -343,6 +374,74 @@ func signIn(ctx context.Context, p *prompter, client *account.Client) (*account.
 		return nil, err
 	}
 	_ = setAccountMode(accountModeAccount)
+	return s, nil
+}
+
+// askCode asks for the email code, forgiving a typo or two.
+func askCode(ctx context.Context, p *prompter, client *account.Client, email string) (*account.PINChallenge, error) {
+	for attempt := 1; ; attempt++ {
+		code, err := p.askRequired("Code")
+		if err != nil {
+			return nil, err
+		}
+		ch, err := client.Verify(ctx, email, strings.ReplaceAll(code, " ", ""))
+		if err == nil {
+			return ch, nil
+		}
+		if !errors.Is(err, account.ErrInvalidCode) {
+			return nil, friendlyAccountErr(err)
+		}
+		if attempt >= passwordAttempts {
+			return nil, errors.New("that code is not right, or it has expired. Run setup again for a new one")
+		}
+		fmt.Fprintln(p.out, "  That code is not right. Check the email and try again.")
+	}
+}
+
+// forgotPINWarning is what the panel's "Reset your PIN?" screen says.
+const forgotPINWarning = "This deletes the keys saved to your account. They were locked with the\n" +
+	"old PIN, so nobody can open them now. Your other computers are signed out,\n" +
+	"too. Backups in your storage are not touched: connect again with your\n" +
+	"storage keys or a key file."
+
+// forgotPIN resets a forgotten PIN after a fresh email code, as the panel's
+// "Forgot PIN?" does. It returns nil, nil when the person changes their mind.
+// The session it returns is saved and this computer registered, but nothing
+// is saved to the account: the caller does that.
+func forgotPIN(ctx context.Context, p *prompter, client *account.Client, email string) (*account.Session, error) {
+	fmt.Fprintln(p.out, "\nReset your PIN?")
+	fmt.Fprintln(p.out, forgotPINWarning)
+	ok, err := confirm(p, "Email me a code? [y/N]", false)
+	if err != nil || !ok {
+		return nil, err
+	}
+	if err := client.RequestCode(ctx, email); err != nil {
+		return nil, friendlyAccountErr(err)
+	}
+	fmt.Fprintf(p.out, "Sent to %s. Then you choose a new PIN.\n", email)
+	ch, err := askCode(ctx, p, client, email)
+	if err != nil {
+		return nil, err
+	}
+	fmt.Fprintln(p.out, "\nChoose a new PIN. It locks the keys your account keeps.")
+	pin, err := askNewPIN(p)
+	if err != nil {
+		return nil, err
+	}
+	var s *account.Session
+	if !ch.PINSet {
+		// Nothing to reset: the account never had one.
+		if s, err = client.SetupPIN(ctx, ch.PINToken, pin); err != nil {
+			return nil, pinStepErr(err)
+		}
+		if err := finishSignIn(ctx, s); err != nil {
+			return nil, err
+		}
+	} else if s, err = resetPIN(ctx, nil, ch.PINToken, pin); err != nil {
+		return nil, err
+	}
+	_ = setAccountMode(accountModeAccount)
+	fmt.Fprintln(p.out, "New PIN set. Your other computers are signed out.")
 	return s, nil
 }
 
@@ -633,6 +732,13 @@ func askForS3(p *prompter, kind string) (creds.Credentials, error) {
 	if c.SecretAccessKey, err = p.secret(secretLabel); err != nil {
 		return c, err
 	}
+	if kind == creds.ProviderCustom {
+		// Path-style unless the service wants the bucket in the hostname,
+		// as the panel's "Bucket in the hostname" switch.
+		if c.VirtualHost, err = confirm(p, "Bucket in the hostname, for addresses like bucket.s3.example.com? [y/N]", false); err != nil {
+			return c, err
+		}
+	}
 	c.AccessKeyID, c.SecretAccessKey = strings.TrimSpace(c.AccessKeyID), strings.TrimSpace(c.SecretAccessKey)
 	c.Region = strings.TrimSpace(c.Region)
 	return c, c.Valid()
@@ -644,7 +750,7 @@ func askForDrime(p *prompter) (creds.Credentials, error) {
 	fmt.Fprintln(p.out)
 	fmt.Fprintln(p.out, "Make a Drime API token: open Drime, then Settings > Developer > Create token.")
 	fmt.Fprintln(p.out, "  https://app.drime.cloud/account-settings")
-	fmt.Fprintln(p.out, "Backups go in a folder called \"r2backup\" in your Drime, which you can browse there.")
+	fmt.Fprintln(p.out, "Backups go in a folder in your Drime, \"r2backup\" unless you name another, which you can browse there.")
 	fmt.Fprintln(p.out)
 	token, err := p.secret("Drime API token")
 	if err != nil {
@@ -654,7 +760,12 @@ func askForDrime(p *prompter) (creds.Credentials, error) {
 	if token == "" {
 		return creds.Credentials{}, errors.New("no token entered")
 	}
-	return creds.Credentials{Provider: creds.ProviderDrime, DrimeToken: token}, nil
+	folder, err := p.ask("Folder in Drime (press enter for r2backup)")
+	if err != nil {
+		return creds.Credentials{}, err
+	}
+	// The same tidying the panel's form gets (credsFromKeys).
+	return credsFromKeys(ui.Keys{Provider: creds.ProviderDrime, DrimeToken: token, DrimeFolder: folder}), nil
 }
 
 // checkConnection proves the credentials work before anything is built on

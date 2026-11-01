@@ -125,22 +125,31 @@ func (d *dashboard) ResetPIN(ctx context.Context, pin string) error {
 	if err != nil {
 		return err
 	}
-	s, err := accountClient().ResetPIN(ctx, ch.PINToken, pin)
-	if err != nil {
-		return pinStepErr(err)
+	if _, err := resetPIN(ctx, d.app, ch.PINToken, pin); err != nil {
+		return err
 	}
 	d.endSignIn()
+	return nil
+}
+
+// resetPIN is the reset itself, for the panel and the terminal alike. With a
+// nil app nothing is saved to the account afterwards: the caller does that.
+func resetPIN(ctx context.Context, a *app, pinToken, pin string) (*account.Session, error) {
+	s, err := accountClient().ResetPIN(ctx, pinToken, pin)
+	if err != nil {
+		return nil, pinStepErr(err)
+	}
 	if err := finishSignIn(ctx, s); err != nil {
-		return err
+		return nil, err
 	}
 	// The account has nothing now. This computer's keys, if it has any, are
 	// the obvious thing to keep there. Not saving them is not a failed reset:
 	// the PIN is changed and this computer signed in, and the account screen
 	// offers to save them again.
-	if localStoredKeys(d.app).Primary != nil {
-		_ = d.PushKeys(ctx)
+	if a != nil && localStoredKeys(a).Primary != nil {
+		_ = pushLocalKeys(ctx, a)
 	}
-	return nil
+	return s, nil
 }
 
 // SetPIN gives a computer signed in before PINs its PIN, without a new email
@@ -191,12 +200,14 @@ func localStoredKeys(a *app) account.StoredKeys {
 // PushKeys saves this computer's storage keys to the account, sealed with the
 // PIN. They are checked first: keys that do not work would hand every later
 // computer the same broken setup.
-func (d *dashboard) PushKeys(ctx context.Context) error {
+func (d *dashboard) PushKeys(ctx context.Context) error { return pushLocalKeys(ctx, d.app) }
+
+func pushLocalKeys(ctx context.Context, a *app) error {
 	token, key, err := accountSession()
 	if err != nil {
 		return err
 	}
-	k := localStoredKeys(d.app)
+	k := localStoredKeys(a)
 	if k.Primary == nil {
 		return errors.New("there are no storage keys on this computer to save yet")
 	}

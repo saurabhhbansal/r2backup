@@ -187,6 +187,9 @@ func newKeysCmd(opts *Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// Signed in, the account keeps them for the next computer, as
+			// after the panel's import. Not signed in, there is nowhere to.
+			_ = backendFor(opts, a).pushKeys(cmd.Context())
 			if got.Primary != "" {
 				fmt.Fprintf(opts.Out, "Backups go to %s.\n", got.Primary)
 			}

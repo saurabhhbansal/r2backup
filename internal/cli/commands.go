@@ -734,14 +734,27 @@ func offerSchedule(opts *Options, every int) {
 // mirror are moved to trash on the way out, so they stay recoverable for the
 // set's retention window exactly like a deleted file.
 func newEditCmd(opts *Options) *cobra.Command {
-	return &cobra.Command{
+	var retention int
+	cmd := &cobra.Command{
 		Use:   "edit <set>",
-		Short: "Change what is included in a set",
+		Short: "Change what is included in a set, or how long deleted files are kept",
 		Long: "Reopens the folder picker with the current selection, then backs up\n" +
 			"with whatever you choose. Newly excluded files move to trash, so\n" +
-			"they stay recoverable.",
+			"they stay recoverable.\n\n" +
+			"With --retention, changes how long deleted files are kept instead:\n" +
+			"7, 14, 30, 60, 90, 180 or 365 days, as in the panel.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.Flags().Changed("retention") {
+				return withBackend(opts, func(t *trayBackend) error {
+					if _, err := t.Call(cmd.Context(), "folderRetention",
+						mustJSON(map[string]any{"name": args[0], "days": retention})); err != nil {
+						return err
+					}
+					fmt.Fprintf(opts.Out, "Deleted files in %s are kept for %d days.\n", args[0], retention)
+					return nil
+				})
+			}
 			if !interactive() {
 				return errors.New("edit opens the folder picker, which needs a terminal")
 			}
@@ -793,6 +806,9 @@ func newEditCmd(opts *Options) *cobra.Command {
 			return finishEdit(cmd.Context(), a, opts, s, chosen)
 		},
 	}
+	cmd.Flags().IntVar(&retention, "retention", sets.DefaultRetentionDays,
+		"days to keep deleted files: 7, 14, 30, 60, 90, 180 or 365 (skips the picker)")
+	return cmd
 }
 
 // finishEdit saves the excludes chosen in the picker, reports the change in
@@ -886,7 +902,7 @@ func diffExcludes(before, after []string) (added, removed []string) {
 // recoverable option is the default, which keeps the live mirror intact and
 // restorable.
 func newRemoveCmd(opts *Options) *cobra.Command {
-	var purge bool
+	var purge, keepSecond bool
 	cmd := &cobra.Command{
 		Use:   "remove <set>",
 		Short: "Stop backing up a folder",
@@ -930,7 +946,18 @@ func newRemoveCmd(opts *Options) *cobra.Command {
 			}
 
 			var deleted remote.PrefixDeletion
+			where := wherePrimary
+			t := backendFor(opts, a)
 			if purge {
+				// The panel's two questions: the name typed back, then
+				// whether the second copy goes too.
+				p := newPrompter(opts)
+				if err := confirmPurge(opts, p, s.Name); err != nil {
+					return err
+				}
+				if where, err = whereToDelete(opts, p, t, keepSecond); err != nil {
+					return err
+				}
 				if err := a.connect(cmd.Context()); err != nil {
 					return err
 				}
@@ -943,6 +970,17 @@ func newRemoveCmd(opts *Options) *cobra.Command {
 				deleted, err = a.client.DeletePrefix(cmd.Context(), s.KeyScope())
 				if err != nil {
 					return fmt.Errorf("%q was not removed: %w", s.Name, err)
+				}
+				// Without this the second copy keeps a deleted folder for
+				// ever: a copy never removes a folder the source stops listing.
+				scope := s.KeyScope()
+				if err := t.alsoFromSecond(cmd.Context(), where, func(st remote.Store) error {
+					_, err := st.DeletePrefix(cmd.Context(), scope)
+					return err
+				}); err != nil {
+					fmt.Fprintln(opts.Err, err)
+				} else if where.both() && a.mirror.Exists() {
+					fmt.Fprintln(opts.Out, "Deleted from the second copy too.")
 				}
 			}
 
@@ -1038,7 +1076,33 @@ func newRemoveCmd(opts *Options) *cobra.Command {
 	}
 	cmd.Flags().BoolVar(&purge, "purge", false,
 		"also delete this set's objects from the bucket, permanently and unrecoverably")
+	cmd.Flags().BoolVar(&keepSecond, "keep-second-copy", false,
+		"with --purge, delete only where backups go; the second copy keeps it")
 	return cmd
+}
+
+// confirmPurge is the panel's "Delete the backup of …?": the folder's name
+// typed back, which is harder to do by accident than a flag. --yes answers it
+// for a script; --no, or nobody there to type, deletes nothing.
+func confirmPurge(opts *Options, p *prompter, name string) error {
+	fmt.Fprintf(p.out, "Delete the backup of %s?\nEvery version is deleted. This can’t be undone. Files on this computer stay.\n", name)
+	switch opts.Decision() {
+	case AlwaysYes:
+		return nil
+	case AlwaysNo:
+		return errors.New("nothing was deleted")
+	}
+	if opts.In == nil && !interactive() {
+		return errNeedsYes
+	}
+	v, err := p.ask(fmt.Sprintf("Type %s to delete it", name))
+	if err != nil {
+		return err
+	}
+	if strings.TrimSpace(v) != name {
+		return errors.New("that is not the name, so nothing was deleted")
+	}
+	return nil
 }
 
 // LauncherName is the window-less companion beside r2backup on Windows.
@@ -1323,6 +1387,7 @@ func newTrashCmd(opts *Options) *cobra.Command {
 			return nil
 		},
 	})
+	cmd.AddCommand(trashSubcommands(opts)...)
 	return cmd
 }
 

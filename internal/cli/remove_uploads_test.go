@@ -182,7 +182,7 @@ func TestPurgeAbortsAnUploadTheIndexNeverKnewAbout(t *testing.T) {
 	// standing in for the upload no local record has any idea about.
 	bareMultipartUpload(t, cfg, key)
 
-	out, err := runRemove(t, "Big", "--purge")
+	out, err := runRemove(t, "Big", "--purge", "--yes")
 	if err != nil {
 		t.Fatalf("remove --purge: %v\noutput:\n%s", err, out)
 	}
