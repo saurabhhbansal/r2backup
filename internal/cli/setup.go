@@ -250,9 +250,19 @@ func runSetup(ctx context.Context, a *app, opts *Options, f setupFlags) error {
 		return err
 	}
 
-	if purpose == purposeBoth {
+	switch purpose {
+	case purposeBoth:
 		if err := setUpSecondCopy(ctx, a, p, f.second); err != nil {
 			return err
+		}
+	case purposeS3:
+		// S3 storage only, on a computer set up before: a Drime second copy
+		// left from then stops, as switching in the panel does.
+		if mc, err := a.mirror.Load(); err == nil && mc.IsDrime() {
+			if err := forgetSecond(a); err != nil {
+				return err
+			}
+			fmt.Fprintf(p.out, "No more copies to %s. What is there stays.\n", destLabel(mc))
 		}
 	}
 

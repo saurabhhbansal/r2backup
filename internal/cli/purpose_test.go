@@ -453,3 +453,29 @@ func TestSetupPurposeCommand(t *testing.T) {
 		t.Fatal("both with no second copy was accepted")
 	}
 }
+
+// Setup run again on a computer with a second copy asks about it at most
+// once: kept for the first purpose, dropped (if on Drime) for S3 only.
+func TestSetupAgainAsksAboutTheSecondCopyOnce(t *testing.T) {
+	noStorage(t)
+	_, stop := newFakeWorker(t)
+	defer stop()
+	t.Setenv(config.EnvDataDir, t.TempDir())
+	a, err := openApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = a.creds.Save(b2Keys)
+	_ = a.mirror.Save(drimeKeys)
+	_ = setMirrorAuto(true)
+	a.close()
+
+	// Move: yes; S3 storage only; Other S3 storage.
+	a, out := runSetupWith(t, setupFlags{}, "", "y", "2", "4", "https://minio.local:9000", "bucket", "", "key", "secret", "", "")
+	if strings.Contains(out, "Where should the second copy go?") || strings.Contains(out, "second copy stays on") {
+		t.Errorf("asked about the second copy:\n%s", out)
+	}
+	if a.mirror.Exists() || !strings.Contains(out, "No more copies to Drime") {
+		t.Errorf("the Drime second copy stayed for S3 storage only:\n%s", out)
+	}
+}
