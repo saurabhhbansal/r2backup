@@ -61,6 +61,10 @@ type Settings struct {
 	// this computer only (moved with an exported key file), "account" synced
 	// through the hosted account, or "" before anyone has chosen.
 	AccountMode string `json:"account_mode,omitempty"`
+	// Purpose is what this computer is using r2backup for, chosen while
+	// getting started: "both" (Drime with a second copy on S3-compatible
+	// storage) or "s3" (S3 storage only). "" before anyone has chosen.
+	Purpose string `json:"purpose,omitempty"`
 
 	// MirrorSources are Drime folders copied to S3 storage for someone who
 	// backs up to Drime with another app. See internal/cli/mirror_sources.go.

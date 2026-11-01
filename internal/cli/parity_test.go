@@ -629,7 +629,7 @@ func TestSetupAgainAsksBeforeMovingBackups(t *testing.T) {
 	}
 	defer a.close()
 	opts := conversation("", "n")
-	if err := runSetup(context.Background(), a, opts, false, ""); err != nil {
+	if err := runSetup(context.Background(), a, opts, setupFlags{}); err != nil {
 		t.Fatalf("%v\n%s", err, said(opts))
 	}
 	if !strings.Contains(said(opts), "Back up somewhere else?") || !strings.Contains(said(opts), "Backups still go to Backblaze B2 · main") {
@@ -652,7 +652,7 @@ func TestSetupSignInKeepsTheKeysAlreadyHere(t *testing.T) {
 	}
 	defer a.close()
 	opts := conversation("me@example.com", "123456", testPIN)
-	if err := runSetup(context.Background(), a, opts, false, ""); err != nil {
+	if err := runSetup(context.Background(), a, opts, setupFlags{}); err != nil {
 		t.Fatalf("%v\n%s", err, said(opts))
 	}
 	if c, _ := a.creds.Load(); c.Bucket != "main" {

@@ -190,6 +190,10 @@ func localStoredKeys(a *app) account.StoredKeys {
 	if c, err := a.source.Load(); err == nil {
 		k.Source = &c
 	}
+	k.Purpose = storedPurpose()
+	if k.Purpose == "" {
+		k.Purpose = inferPurpose(k.Primary, k.Second)
+	}
 	return k
 }
 
@@ -246,5 +250,6 @@ func (d *dashboard) PullKeys(ctx context.Context) error {
 	if remote.Source != nil && !a.source.Exists() {
 		_ = a.source.Save(*remote.Source)
 	}
+	adoptPurpose(remote.Purpose)
 	return nil
 }

@@ -93,6 +93,9 @@ type keysSyncOut struct {
 	Pushed  bool   `json:"pushed"`  // this computer's keys went to the account
 	Primary string `json:"primary"` // where backups go now, "" for nowhere yet
 	Second  string `json:"second"`
+	// Purpose is what this computer is now set up for ("both", "s3"), ""
+	// when it still has to be asked.
+	Purpose string `json:"purpose"`
 	Err     string `json:"err,omitempty"`
 }
 
@@ -144,6 +147,11 @@ func (t *trayBackend) syncKeys(ctx context.Context) (keysSyncOut, error) {
 			}
 		}
 	}
+	if remote != nil && out.Pulled {
+		// The purpose comes along with the keys, so this computer is not
+		// asked again.
+		adoptPurpose(remote.Purpose)
+	}
 	if (remote == nil || remote.Primary == nil) && local.Primary != nil {
 		if err := accountClient().PutKeys(ctx, token, key, local); err == nil {
 			out.Pushed = true
@@ -155,6 +163,7 @@ func (t *trayBackend) syncKeys(ctx context.Context) (keysSyncOut, error) {
 	if local.Second != nil {
 		out.Second = destLabel(*local.Second)
 	}
+	out.Purpose = currentPurpose(a)
 	t.invalidate()
 	return out, nil
 }
@@ -211,14 +220,17 @@ type accountConfigOut struct {
 	NeedsPIN bool `json:"needsPin"`
 	// Mode is "account" when signed in, "local" when using r2backup without
 	// an account, "" when neither has been chosen yet.
-	Mode    string       `json:"mode"`
+	Mode string `json:"mode"`
+	// Purpose is what this computer is using r2backup for: "both" (Drime
+	// with a second copy) or "s3" (S3 storage only), "" before it is chosen.
+	Purpose string       `json:"purpose"`
 	Err     string       `json:"err,omitempty"`
 	Devices []deviceJSON `json:"devices"`
 }
 
 // accountConfig is everything the account screen shows.
 func (t *trayBackend) accountConfig(ctx context.Context) (accountConfigOut, error) {
-	out := accountConfigOut{Machine: machineName(), Devices: []deviceJSON{}, Mode: accountMode()}
+	out := accountConfigOut{Machine: machineName(), Devices: []deviceJSON{}, Mode: accountMode(), Purpose: currentPurpose(t.d.app)}
 	local := t.localKeys()
 	if local.Primary != nil {
 		out.Primary = describeStore(*local.Primary)
@@ -269,7 +281,7 @@ func (t *trayBackend) accountConfig(ctx context.Context) (accountConfigOut, erro
 
 func sameKeys(a, b account.StoredKeys) bool {
 	return reflect.DeepEqual(a.Primary, b.Primary) && reflect.DeepEqual(a.Second, b.Second) &&
-		reflect.DeepEqual(a.Source, b.Source)
+		reflect.DeepEqual(a.Source, b.Source) && a.Purpose == b.Purpose
 }
 
 // accountCall serves the account screen.
@@ -338,6 +350,35 @@ func (t *trayBackend) accountCall(ctx context.Context, method string, raw []byte
 		res, err := t.syncKeys(ctx)
 		return res, true, err
 
+	// What this computer is using r2backup for: asked right after getting
+	// started, and changed from the account screen. When the purpose needs
+	// a destination first, nothing is saved and Need says which; the panel
+	// sets it up (connect, mirrorSetup) and asks again.
+	case "purposeGet":
+		return map[string]string{"purpose": currentPurpose(t.d.app)}, true, nil
+
+	case "purposeSet":
+		var a struct {
+			Purpose string `json:"purpose"`
+		}
+		if err := decodeArgs(raw, &a); err != nil {
+			return nil, true, err
+		}
+		t.mu.Lock()
+		running := t.mj != nil && !t.mj.done
+		t.mu.Unlock()
+		if running {
+			return nil, true, errors.New("a copy is running. Wait for it to finish, or stop it first")
+		}
+		res, err := t.applyPurpose(a.Purpose)
+		if err != nil {
+			return nil, true, err
+		}
+		if res.Saved {
+			_ = t.pushKeys(ctx)
+		}
+		return res, true, nil
+
 	// Use r2backup on this computer alone: keys stay here.
 	case "useLocal":
 		t.invalidate()
@@ -382,4 +423,15 @@ func (t *trayBackend) accountCall(ctx context.Context, method string, raw []byte
 		return map[string]string{"machine": machineName()}, true, nil
 	}
 	return nil, false, nil
+}
+
+// applyPurpose is applyPurpose for the panel: a client connected to where
+// backups went before is dropped when they move.
+func (t *trayBackend) applyPurpose(p string) (purposeResult, error) {
+	res, err := applyPurpose(t.d.app, p)
+	if res.Moved != "" {
+		t.d.forgetClient()
+	}
+	t.invalidate()
+	return res, err
 }

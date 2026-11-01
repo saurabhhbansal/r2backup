@@ -46,6 +46,10 @@ var tuiSurface = map[string]surface{
 	"r2b setup":            {Keys: []string{"i", "d", "k"}, Where: "Account: sign in, download saved keys, enter R2 keys"},
 	"r2b setup --keys":     {Keys: []string{"k"}, Where: "Account: k enters R2 keys whether or not a saved copy exists"},
 	"r2b setup --provider": {Keys: []string{"k", "D"}, Where: "Account: k enters R2 keys, D a Drime token instead"},
+	"r2b setup --purpose": {NA: "answers setup's purpose question for a script; the taskbar panel asks it while getting started " +
+		"and changes it under Account."},
+	"r2b setup --second": {NA: "part of r2b setup --purpose, for a script."},
+	"r2b setup purpose":  {NA: "what r2backup is used for is chosen and changed in the taskbar panel (getting started, then Account) and here."},
 
 	"r2b keys": {NA: "moving keys by file is in the taskbar panel's Settings and here on the command line; " +
 		"a terminal window has no file picker to choose where the file goes."},

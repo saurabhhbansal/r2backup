@@ -478,7 +478,8 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
     <b id="c-title">Where backups go</b>
   </header>
   <main>
-    <div class="pane" data-pane="choose"><div id="c-kinds"></div></div>
+    <div class="pane" data-pane="choose"><p class="lead" id="c-lead" hidden></p><div id="c-kinds"></div>
+      <div class="links"><button class="textbtn" id="c-skip" hidden>Not now</button></div></div>
 
     <div class="pane" data-pane="form" hidden>
       <div class="cfbox" id="c-cf" data-k="r2" data-only="primary">
@@ -779,6 +780,16 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
       <button class="primary danger" id="g-forgot-go"><span>Email me a code</span></button>
       <div class="links"><button class="textbtn" id="g-forgot-back">Back</button></div>
     </div>
+    <div class="pane" data-gpane="purpose" hidden>
+      <h2 id="g-purpose-t">What are you using r2backup for?</h2>
+      <div class="group" id="g-purpose" role="radiogroup" aria-labelledby="g-purpose-t">
+        <button class="opt" data-purpose="both" role="radio" aria-checked="false"><div class="dot-r"></div><div><b>Primary + second copy</b><span>Back up to Drime and keep a second copy on S3-compatible storage (R2, B2, Amazon S3, custom).</span></div></button>
+        <button class="opt" data-purpose="s3" role="radio" aria-checked="false"><div class="dot-r"></div><div><b>S3 storage only</b><span>Back up straight to S3-compatible storage, no Drime.</span></div></button>
+      </div>
+      <div class="err-line" id="g-purpose-err" hidden></div>
+      <button class="primary" id="g-purpose-go" disabled><span>Continue</span></button>
+      <p class="hint center">You can change this later under Account.</p>
+    </div>
   </main>
   <div class="gate-foot"><button class="textbtn" id="g-quit">Quit</button></div>
 </section>
@@ -884,7 +895,9 @@ function render(state) {
   // Choosing how keys are kept comes first, and so does a PIN an older
   // sign-in still needs.
   if (needGate(state)) showGate(state.needsPin ? "set" : "start");
-  else if ($("sheet-signin").classList.contains("open") && !G.manual) closeGate();
+  // The purpose step comes after signing in or choosing no account, on the
+  // same screen; it stays until answered.
+  else if ($("sheet-signin").classList.contains("open") && !G.manual && G.view !== "purpose") closeGate();
   $("b-restore").disabled = $("b-trash").disabled = !state.configured;
   // Signed in, another computer gets the keys by signing in. A file is for
   // computers that will not.
@@ -1054,13 +1067,13 @@ const KEYLINK = {
   b2: { t: "Create an application key", url: "https://secure.backblaze.com/app_keys.htm" },
   s3: { t: "Create an access key", url: "https://console.aws.amazon.com/iam/home#/security_credentials" },
 };
-const DC = { which: "primary", kind: "", then: null, direct: false, pane: "choose" };
+const DC = { which: "primary", kind: "", then: null, direct: false, pane: "choose", skip: null };
 
 // The kinds as a list to choose from, one marked with a chip.
-function kindList(suggest, mark) {
+function kindList(suggest, mark, s3only) {
   const item = (k) => '<button class="item link" data-kind="' + k + '"><div class="t"><b>' + esc(KINDS[k].name) +
     (k === suggest ? '<span class="chip">' + esc(mark) + "</span>" : "") + "</b><span>" + esc(KINDS[k].sub) + "</span></div></button>";
-  return '<div class="group">' + item("drime") + '</div><div class="sect">S3-compatible storage</div><div class="group">' +
+  return (s3only ? "" : '<div class="group">' + item("drime") + "</div>") + '<div class="sect">S3-compatible storage</div><div class="group">' +
     ["r2", "b2", "s3", "s3-custom"].map(item).join("") + "</div>";
 }
 function bindKinds(box, f) { box.querySelectorAll("[data-kind]").forEach((b) => { b.onclick = () => f(b.dataset.kind); }); }
@@ -1096,17 +1109,29 @@ function chooseKind(k) {
 }
 // openConnect opens the picker for where backups go (which "primary") or the
 // second copy ("second"). A kind skips the list; then runs once it is saved.
-function openConnect(kind, then, which) {
-  DC.which = which || "primary"; DC.then = then || null; DC.direct = !!kind;
+// o.s3only lists S3-compatible storage alone; o.lead is a line above the
+// list; o.skip offers "Not now", which runs it instead.
+function openConnect(kind, then, which, o) {
+  o = o || {};
+  DC.which = which || "primary"; DC.then = then || null; DC.direct = !!kind; DC.skip = o.skip || null;
   document.querySelectorAll("#sheet-connect input").forEach((i) => { i.value = ""; });
-  const suggest = DC.which === "second" ? (S && S.provider === "drime" ? "r2" : "drime") : "drime";
-  $("c-kinds").innerHTML = kindList(suggest, DC.which === "second" ? "Suggested" : "Recommended");
+  const suggest = o.s3only ? "" : DC.which === "second" ? (S && S.provider === "drime" ? "r2" : "drime") : "drime";
+  $("c-kinds").innerHTML = kindList(suggest, DC.which === "second" ? "Suggested" : "Recommended", !!o.s3only);
+  $("c-lead").textContent = o.lead || ""; $("c-lead").hidden = !o.lead;
+  $("c-skip").hidden = !o.skip;
   bindKinds($("c-kinds"), chooseKind);
   openSheet("sheet-connect");
   if (kind) chooseKind(kind); else showPane("choose");
 }
 const openSecond = (kind, then) => openConnect(kind, then, "second");
-const actions = { connect: () => openConnect(), cost: () => openAccount("cost"), "restore-set": (name) => openRestore(name), add: () => openAdd(), "restore-other": () => openRestore() };
+// Connecting starts from what the computer is for: asked first if nobody has
+// said yet.
+async function startConnect() {
+  let p = "";
+  try { p = (await call("purposeGet")).purpose; } catch (e) { /* asked below */ }
+  if (p) purposeSetup(p); else showGate("purpose", true);
+}
+const actions = { connect: () => startConnect(),cost: () => openAccount("cost"), "restore-set": (name) => openRestore(name), add: () => openAdd(), "restore-other": () => openRestore() };
 
 // Done: the folders list takes over, which is where a new person goes next.
 function connected(msg) {
@@ -1137,6 +1162,7 @@ $("c-back").onclick = () => {
   if (DC.pane === "form" && !DC.direct) showPane("choose");
   else { DC.then = null; closeSheet("sheet-connect"); }
 };
+$("c-skip").onclick = () => { const f = DC.skip; DC.then = null; DC.skip = null; closeSheet("sheet-connect"); if (f) f(); };
 $("c-drime-open").onclick = () => send("open", "https://app.drime.cloud/account-settings");
 $("c-keylink").onclick = async () => {
   try {
@@ -1888,11 +1914,18 @@ function acDraw() {
     (account ? '<button class="mini" id="ac-out">Sign out</button>' : '<button class="mini" id="ac-in">Sign in…</button>') + "</div></div>";
   if (a.err) html += '<div class="alert"><div class="t"><p>' + esc(a.err) + "</p></div></div>";
 
+  const pur = a.purpose || "";
+  html += '<div class="sect" id="ac-pur-t">Using r2backup for</div><div class="group" role="radiogroup" aria-labelledby="ac-pur-t">' +
+    ["both", "s3"].map((k) => '<button class="opt" data-acpurpose="' + k + '" role="radio" aria-checked="' + (pur === k) + '"><div class="dot-r"></div><div><b>' +
+      esc(PURPOSE[k].title) + "</b><span>" + esc(PURPOSE[k].text) + "</span></div></button>").join("") + "</div>";
+
   html += '<div class="sect">Where backups go</div><div class="group">' + (p ? destBlock(p, "primary")
     : '<div class="item"><div class="t"><b>Not connected</b></div><button class="mini" id="ac-p-change">Connect…</button></div>') + "</div>";
 
-  html += '<div class="sect">Second copy</div><div class="group">';
-  if (s) {
+  // S3 storage only has no second copy to offer.
+  const showSecond = pur !== "s3" || !!s;
+  if (showSecond) html += '<div class="sect">Second copy</div><div class="group">';
+  if (!showSecond) { /* nothing to show */ } else if (s) {
     html += destBlock(s, "second") +
       '<div class="item"><div class="t"><b>Copy after every backup</b></div><button class="toggle" id="ac-auto" role="switch" aria-checked="' + !!a.auto + '" aria-label="Copy after every backup"></button></div>' +
       '<button class="item link" id="ac-copy"><div class="t"><b>Copy now…</b></div></button>' +
@@ -1901,7 +1934,7 @@ function acDraw() {
     html += '<div class="item"><div class="t"><b>None</b><span>' + (p ? "Keep your backups with a second company too." : "Connect where backups go first.") + "</span></div>" +
       '<button class="mini" id="ac-s-change"' + (p ? "" : " disabled") + ">Set up…</button></div>";
   }
-  html += "</div>";
+  if (showSecond) html += "</div>";
 
   if (p && account && !a.needsPin) {
     html += a.saved
@@ -1918,6 +1951,7 @@ function acDraw() {
   if (p) html += '<div class="sect">Usage and cost</div><div id="ac-cost"><div class="note">Loading…</div></div>';
   m.innerHTML = html;
 
+  m.querySelectorAll("[data-acpurpose]").forEach((b) => { b.onclick = () => { if (b.dataset.acpurpose !== pur) changePurpose(b.dataset.acpurpose); }; });
   $("ac-p-change").onclick = () => changePrimary();
   // Change… on the second copy picks a new place; it replaces the old one.
   if ($("ac-s-change")) $("ac-s-change").onclick = () => openSecond(null, openAccount);
@@ -1993,11 +2027,12 @@ function seen(iso) {
 // Moving where backups go asks first: what is already there stays there.
 function changePrimary() {
   const p = AC.info && AC.info.primary;
-  if (!p) { openConnect(null, openAccount); return; }
+  const o = { s3only: !!AC.info && AC.info.purpose === "s3" };
+  if (!p) { openConnect(null, openAccount, "primary", o); return; }
   ask({
     title: "Back up somewhere else?", go: "Continue", danger: false,
     text: "New backups go to the new place. What’s in " + p.label + " stays.",
-    run: async () => { openConnect(null, openAccount); },
+    run: async () => { openConnect(null, openAccount, "primary", o); },
   });
 }
 $("ac-back").onclick = () => closeSheet("sheet-account");
@@ -2011,14 +2046,14 @@ $("b-account").onclick = () => openAccount();
 // flow: "signin" (enter or choose the PIN), "reset" (forgot it), "set" (a
 // sign-in from before PINs). manual: opened from the account screen by
 // someone using r2backup without an account, so it can be closed again.
-const G = { email: "", flow: "signin", first: "", manual: false, view: "" };
+const G = { email: "", flow: "signin", first: "", manual: false, view: "", purpose: "" };
 const needGate = (st) => !!st.needsPin || (!st.signedIn && st.mode !== "local");
 
 function gShow(v) {
   G.view = v;
   document.querySelectorAll("#sheet-signin [data-gpane]").forEach((p) => { p.hidden = p.dataset.gpane !== v; });
-  ["g-email-err", "g-code-err", "g-pin-err", "g-new-err", "g-forgot-err"].forEach((id) => showErr(id, ""));
-  const f = document.querySelector('#sheet-signin [data-gpane="' + v + '"] input');
+  ["g-email-err", "g-code-err", "g-pin-err", "g-new-err", "g-forgot-err", "g-purpose-err"].forEach((id) => showErr(id, ""));
+  const f = document.querySelector('#sheet-signin [data-gpane="' + v + '"] input, #sheet-signin [data-gpane="' + v + '"] .opt');
   if (f) setTimeout(() => f.focus(), 0);
   else { const b = document.querySelector('#sheet-signin [data-gpane="' + v + '"] .primary'); if (b) setTimeout(() => b.focus(), 0); }
 }
@@ -2036,7 +2071,9 @@ function showGate(view, manual) {
     $("g-email").value = G.email || (S && S.email) || "";
     openSheet("sheet-signin");
   }
-  if (view === "set") newPin("set"); else { G.flow = "signin"; gShow("start"); }
+  if (view === "set") newPin("set");
+  else if (view === "purpose") askPurpose();
+  else { G.flow = "signin"; gShow("start"); }
 }
 function closeGate() { G.manual = false; G.view = ""; closeSheet("sheet-signin"); }
 
@@ -2070,16 +2107,22 @@ $("g-local").onclick = () => working($("g-local"), "One moment…", async () => 
   showErr("g-email-err", "");
   try { await call("useLocal"); } catch (e) { showErr("g-email-err", e.message); return; }
   if (S) S.mode = "local";
-  closeGate();
   AC.info = null;
-  if (S && !S.configured) { openConnect(); toast("Keys stay on this computer. Choose where backups go."); }
-  else toast("Using r2backup without an account.");
+  // Nothing connected yet: what it is for comes next, on this same screen.
+  if (S && !S.configured) { askPurpose(); toast("Keys stay on this computer."); return; }
+  closeGate();
+  toast("Using r2backup without an account.");
 });
 $("g-resend").onclick = async () => {
   try { if (await sendCode("g-code-err")) toast("New code sent."); } catch (e) { showErr("g-code-err", e.message); }
 };
 $("g-change").onclick = () => { G.flow = "signin"; gShow("start"); };
-$("g-quit").onclick = () => { if (G.manual) { closeGate(); openAccount(); } else send("quit"); };
+$("g-quit").onclick = () => {
+  if (!G.manual) { send("quit"); return; }
+  const fromAccount = G.view !== "purpose";
+  closeGate();
+  if (fromAccount) openAccount();
+};
 
 // Six digits typed is as good as pressing the button.
 const autoGo = (input, btn) => { $(input).oninput = () => { if (/^\d{6}$/.test($(input).value.trim()) && !$(btn).disabled) $(btn).click(); }; };
@@ -2164,13 +2207,97 @@ $("g-forgot-go").onclick = () => working($("g-forgot-go"), "Sending…", async (
 function signedIn(r) {
   const flow = G.flow;
   if (S) { S.signedIn = true; S.needsPin = false; S.mode = "account"; S.email = G.email || S.email; }
-  closeGate();
   AC.info = null;
+  // Nothing came from the account: what this computer is for comes next,
+  // on this same screen. Keys that did come bring their purpose with them.
+  if (S && !S.configured && !(r && r.primary)) {
+    toast(r && r.err ? r.err : flow === "reset" ? "New PIN set. Your other computers are signed out." : "Signed in.");
+    askPurpose();
+    return;
+  }
+  closeGate();
   if (flow === "reset") toast("New PIN set. Your other computers are signed out.");
   else if (r && r.primary) toast("Signed in. Backups go to " + r.primary + ".");
   else if (r && r.err) toast(r.err);
   else toast(flow === "set" ? "PIN set." : "Signed in.");
-  if (S && !S.configured && !(r && r.primary)) openConnect();
+}
+
+// --- what r2backup is for ----------------------------------------------------------------------
+// Asked right after getting started, with an account or without one. It
+// decides what comes next: Drime and then a second copy on S3-compatible
+// storage, or S3-compatible storage alone. Changed later under Account.
+
+const PURPOSE = {
+  both: { title: "Primary + second copy", text: "Back up to Drime and keep a second copy on S3-compatible storage (R2, B2, Amazon S3, custom)." },
+  s3: { title: "S3 storage only", text: "Back up straight to S3-compatible storage, no Drime." },
+};
+const gPurposeOpts = () => [...document.querySelectorAll("#g-purpose [data-purpose]")];
+function pickPurpose(p) {
+  G.purpose = p;
+  gPurposeOpts().forEach((b) => b.setAttribute("aria-checked", b.dataset.purpose === p));
+  $("g-purpose-go").disabled = !p;
+}
+function askPurpose() { pickPurpose(""); gShow("purpose"); }
+gPurposeOpts().forEach((b, i, all) => {
+  b.onclick = () => pickPurpose(b.dataset.purpose);
+  b.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const n = all[(i + (e.key === "ArrowDown" ? 1 : all.length - 1)) % all.length];
+      n.focus(); pickPurpose(n.dataset.purpose);
+    }
+  });
+});
+$("g-purpose-go").onclick = () => working($("g-purpose-go"), "One moment…", async () => {
+  showErr("g-purpose-err", "");
+  const p = G.purpose;
+  try { await call("purposeSet", { purpose: p }); } catch (e) { showErr("g-purpose-err", e.message); return; }
+  closeGate();
+  purposeSetup(p);
+});
+
+// purposeSetup asks for what a purpose needs: Drime, then the second copy on
+// S3 storage; or the S3 storage backups go to.
+function purposeSetup(p) {
+  const done = () => findRemoteBackups();
+  if (p === "s3") {
+    openConnect(null, done, "primary", { s3only: true, lead: "Choose the S3-compatible storage backups go to." });
+    return;
+  }
+  openConnect("drime", () => openConnect(null, done, "second", {
+    s3only: true, lead: "Now the second copy. Choose the S3-compatible storage it goes to.",
+    skip: () => { toast("No second copy for now. Add one under Account."); done(); },
+  }));
+}
+
+// changePurpose switches between the two from the account screen. Whatever
+// a purpose still needs is set up first; what is already in storage stays.
+function changePurpose(to) {
+  const a = AC.info || {}, p = a.primary, s = a.second;
+  const again = async () => {
+    try { await call("purposeSet", { purpose: to }); toast("Using r2backup for: " + PURPOSE[to].title + "."); }
+    catch (e) { toast(e.message); }
+    openAccount();
+  };
+  const apply = async () => {
+    const r = await call("purposeSet", { purpose: to });
+    if (r.need === "second") { openSecond(null, again); return ""; }
+    if (r.need === "s3") {
+      openConnect(null, again, "primary", { s3only: true, lead: "Choose the S3-compatible storage backups go to. What’s in Drime stays." });
+      return "";
+    }
+    await openAccount();
+    return r.moved ? "Backups go to " + r.moved + " now." : "Using r2backup for: " + PURPOSE[to].title + ".";
+  };
+  // Nothing to move or drop: no Drime here.
+  if (to === "both" || (p && p.provider !== "drime" && !(s && s.provider === "drime"))) {
+    apply().then((msg) => { if (msg) toast(msg); }, (e) => toast(e.message));
+    return;
+  }
+  let text = "Next, choose the S3 storage backups go to. What’s in Drime stays.";
+  if (p && p.provider === "drime" && s && s.provider !== "drime") text = "Backups go to " + s.label + " from now on, with no second copy. What’s in Drime stays. If the copy there is behind, copy now first.";
+  else if (s && s.provider === "drime") text = "Nothing more is copied to " + s.label + ". What’s there stays.";
+  ask({ title: "Use S3 storage only?", go: "Continue", danger: false, text, run: apply });
 }
 
 ["g-email", "g-code", "g-pin", "g-new"].forEach((id) => $(id).addEventListener("keydown", (e) => {
