@@ -32,8 +32,17 @@ func baseStore(s remote.Store) remote.Store {
 	return s
 }
 
+// testStore lets tests hand back an in-memory store for a set of
+// credentials. It is nil outside tests.
+var testStore func(creds.Credentials) (remote.Store, bool)
+
 // openBaseStore builds the client itself.
 func openBaseStore(ctx context.Context, c creds.Credentials, resume remote.ResumeStore) (remote.Store, error) {
+	if testStore != nil {
+		if s, ok := testStore(c); ok {
+			return s, nil
+		}
+	}
 	if c.IsDrime() {
 		client, err := drime.New(ctx, drime.Config{
 			Token:       c.DrimeToken,

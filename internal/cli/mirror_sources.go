@@ -277,6 +277,9 @@ func newMirrorDrimeCmd(opts *Options) *cobra.Command {
 			if err := addDrimeSource(cmd.Context(), a, token, src); err != nil {
 				return err
 			}
+			if token != "" {
+				_ = backendFor(opts, a).pushKeys(cmd.Context()) // as the panel's drimeSourceAdd
+			}
 			dest, _ := s3Destination(a)
 			fmt.Fprintf(opts.Out, "Copying %s to %s. To copy it now: r2b mirror drime run\n", args[0], destLabel(dest))
 			return nil

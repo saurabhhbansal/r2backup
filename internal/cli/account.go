@@ -80,8 +80,18 @@ func (e *accountResponseErr) Unwrap() error { return e.err }
 func newAccountCmd(opts *Options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "account",
-		Short: "The computers signed in to your account",
+		Short: "Your account, where backups go, and the computers",
+		Long: "With no subcommand, shows what the panel's account screen does: how\n" +
+			"this computer keeps its keys, where backups go and the second copy,\n" +
+			"whether the keys are saved to your account, and the computers.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withBackend(opts, func(t *trayBackend) error {
+				return printAccount(cmd.Context(), t, opts.Out)
+			})
+		},
 	}
+	cmd.AddCommand(accountSubcommands(opts)...)
 
 	// requireToken reads the cached sign-in. LoadToken reports "nobody has
 	// signed in here" as ("", nil), not as an error, so checking only err
@@ -127,12 +137,21 @@ func newAccountCmd(opts *Options) *cobra.Command {
 
 	cmd.AddCommand(&cobra.Command{
 		Use:   "logout",
-		Short: "Forget the sign-in on this computer",
+		Short: "Sign out on this computer",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// The panel asks "Sure?" before signing out; so does this.
+			ok, err := decide(opts, newPrompter(opts), "Sign out on this computer? [y/N]", false)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				fmt.Fprintln(opts.Out, "Still signed in.")
+				return nil
+			}
 			if err := account.ClearToken(); err != nil {
 				return err
 			}
-			fmt.Fprintln(opts.Out, "Signed out. Your R2 credentials and backups are untouched.")
+			fmt.Fprintln(opts.Out, "Signed out. Your storage keys and backups are untouched.")
 			return nil
 		},
 	})

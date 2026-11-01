@@ -129,17 +129,57 @@ is missing, the app says so instead of quietly not starting.
 
 ## The terminal
 
-On any platform:
+On Linux and macOS — and on Windows too — `r2b` does everything the taskbar
+panel does, with the same defaults, the same wording and the same questions
+before anything is deleted.
 
 ```sh
-r2b setup              # pick Drime or R2, sign in and store your keys
+r2b setup              # without an account or with one, then where backups go
 r2b add ~/Documents    # choose what goes in, then it backs up and schedules itself
 r2b                    # open the dashboard
 ```
 
+`setup` starts where the panel does. Press enter at the email prompt to use
+r2backup **without an account**: the keys stay on this computer, and
+`r2b keys export <file>` moves them to another one. Or give your email, the
+6-digit code sent to it and your PIN (or choose one, the first time). Forgot
+it? Press enter at the PIN prompt, or run `r2b account reset-pin`. Then choose
+Drime, Cloudflare R2, Backblaze B2, Amazon S3 or another S3 endpoint, and
+whether to pack small files there.
+
 `add` shows the folder as a tree with everything ticked. Untick what you do
 not want, press enter, and it takes care of the rest — including offering to
 run every 30 minutes from then on.
+
+What the panel does, and the command that does it:
+
+| in the panel | in the terminal |
+|---|---|
+| Use without an account · sign in · Forgot PIN? | `r2b setup` · `r2b account login` · `r2b account reset-pin` |
+| Export keys · Import keys | `r2b keys export <file>` · `r2b keys import <file>` |
+| Settings → Account | `r2b account` |
+| Where backups go → Change… | `r2b setup --keys` (or `--provider drime\|r2\|b2\|s3\|s3-custom`) |
+| Pack small files | `r2b pack on\|off` (`--second-copy` for the second copy) |
+| Second copy · Copy after every backup · Copy now · Stop | `r2b mirror setup` · `r2b mirror auto on\|off` · `r2b mirror` · `r2b mirror off` |
+| Drime folders | `r2b mirror drime add\|ls\|run\|rm` |
+| Keys not saved → Save now | `r2b account save-keys` |
+| Rename this computer · the computers | `r2b account rename <name>` · `r2b account devices` |
+| Add a folder · what it includes · keep deleted files | `r2b add <folder>` · `r2b edit <set>` · `r2b edit <set> --retention <days>` |
+| Back up automatically, and how often | `r2b schedule --every <minutes>` · `--remove` |
+| Back up now, with progress | `r2b backup [set]` · `r2b status --watch` |
+| Backups (every computer's) · delete one | `r2b backups` · `r2b backups delete <name>` |
+| Restore | `r2b restore <set>` (`--machine` for another computer's) |
+| Deleted files · recover · delete forever · empty | `r2b trash ls` · `r2b trash recover <set> <path>` · `r2b trash rm <set> <path>` · `r2b trash empty` |
+| Stop backing up · and delete the backup | `r2b remove <set>` · `r2b remove <set> --purge` |
+| Usage and cost · monthly limit | `r2b usage` · `r2b budget set <amount>` |
+| Check for updates · update | `r2b update --check` · `r2b update` |
+
+Deleting asks first, as the panel does: `remove --purge` wants the folder's
+name typed back, and with a second copy every delete asks whether it goes from
+both places (the default) or only from where backups go
+(`--keep-second-copy`). For scripts, `--yes` answers yes and `--no` takes the
+safe path; with neither and no terminal, a command that would ask stops
+instead.
 
 <div align="center">
 <br>
@@ -179,23 +219,26 @@ scripts use.
 
 | command | |
 |---|---|
-| `r2b setup` | Get this computer ready. `--keys` to re-enter your keys |
-| `r2b add <folder>` | Choose what to include, then back it up |
-| `r2b edit <set>` | Change what a folder includes |
+| `r2b setup` | Get this computer ready. `--keys` to re-enter your keys, `--provider` to name where |
+| `r2b add <folder>` | Choose what to include, then back it up. `--name`, `--retention`, `--all` |
+| `r2b edit <set>` | Change what a folder includes. `--retention <days>` for how long deleted files are kept |
 | `r2b backup [set]` | Back up now — all folders, or one |
 | `r2b restore <set>` | Bring a folder back. `--to`, `--only`, `--verify`, `--deleted`, `--machine` |
 | `r2b status` | What ran, when, and what is next. `--watch` follows a run |
 | `r2b ls [set]` | What is stored |
-| `r2b trash ls [set]` | What is recoverable, and until when |
+| `r2b backups` | Every backup in your storage, by computer. `delete <name>` |
+| `r2b trash` | Deleted files. `ls`, `recover <set> <path>`, `rm <set> <path>`, `empty` |
 | `r2b schedule` | Automatic runs. `--every`, `--remove`, `--repair` |
 | `r2b rename` · `r2b relink` | Rename a set · point one at a folder that moved |
 | `r2b remove <set>` | Stop backing a folder up. `--purge` deletes the copy too |
-| `r2b budget` | What this is costing. `set <amount>`, `off`, `continue` |
-| `r2b account` | The computers signed in. `devices`, `logout` |
+| `r2b usage` | What is stored, and what it costs this month |
+| `r2b budget` | The monthly limit. `set <amount>`, `off`, `continue` |
+| `r2b account` | Your account, storage and computers. `login`, `reset-pin`, `save-keys`, `rename`, `devices`, `logout` |
 | `r2b keys` | Move your storage keys without an account. `export <file>`, `import <file>` |
-| `r2b mirror` | Copy backups to a second place. `setup`, `auto on`, `--reverse`, `--dry-run` |
+| `r2b pack on\|off` | Pack small files at where backups go, or `--second-copy` |
+| `r2b mirror` | The second copy. `setup`, `auto on\|off`, `off`, `--reverse`, `--dry-run` |
 | `r2b mirror drime` | Copy Drime folders another app backs up to, to S3 storage. `add`, `ls`, `run`, `rm` |
-| `r2b update` | Update to the latest release |
+| `r2b update` | Update to the latest release. `--check` only looks |
 
 ## How it works
 
@@ -326,7 +369,11 @@ r2b mirror setup       # choose the second place; offers to mirror after every b
 r2b mirror             # copy now: only what changed since last time
 r2b mirror --dry-run   # say what would be copied, change nothing
 r2b mirror --reverse   # copy back from the mirror, e.g. after losing the main one
+r2b mirror off         # stop keeping a second copy; what is there stays
 ```
+
+Copying back never removes anything from where backups go, in the panel or
+the terminal.
 
 It copies store to store, not from your folder, so any computer set up for
 both can run it, and `--everything` covers every computer's backups. Files
