@@ -26,10 +26,10 @@ const (
 // The wording both the panel and `r2b setup` use for the question.
 const (
 	purposeQuestion  = "What are you using r2backup for?"
-	purposeBothTitle = "Primary + second copy"
-	purposeBothText  = "Back up to Drime and keep a second copy on S3-compatible storage (R2, B2, Amazon S3, custom)."
+	purposeBothTitle = "Drime, with a second copy"
+	purposeBothText  = "Back up to Drime, and keep a second copy on S3-compatible storage: Cloudflare R2, Backblaze B2, Amazon S3 or another."
 	purposeS3Title   = "S3 storage only"
-	purposeS3Text    = "Back up straight to S3-compatible storage, no Drime."
+	purposeS3Text    = "Back up straight to S3-compatible storage, without Drime."
 )
 
 // What a purpose still needs before it holds.
