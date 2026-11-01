@@ -150,6 +150,27 @@ func TestPanelAsksAnOldSignInForAPIN(t *testing.T) {
 	}
 }
 
+// An old sign-in on a computer whose account got its PIN on another one: the
+// PIN cannot be set again, and the way on is a new email code. The panel goes
+// back to the email screen on errors that say so.
+func TestPanelOldSignInWhenTheAccountHasAPIN(t *testing.T) {
+	tb := trayForTest(t)
+	w, stop := newFakeWorker(t)
+	defer stop()
+	w.pinSet = true
+	w.legacyToken = fakeToken(`{"sub":"me@example.com","exp":4000000000}`)
+	if err := account.SaveToken(w.legacyToken); err != nil {
+		t.Fatal(err)
+	}
+	if st := tb.summarize(nil, ui.Overview{}, time.Now()); !st.NeedsPIN {
+		t.Fatal("an old sign-in is not asked for a PIN")
+	}
+	_, err := call(t, tb, "setPin", map[string]string{"pin": testPIN})
+	if err == nil || !strings.Contains(err.Error(), "new email code") {
+		t.Fatalf("setPin on an account with a PIN: %v", err)
+	}
+}
+
 func TestPanelWithoutAnAccount(t *testing.T) {
 	tb := trayForTest(t)
 	if st := tb.summarize(nil, ui.Overview{}, time.Now()); st.Mode != "" || st.SignedIn {

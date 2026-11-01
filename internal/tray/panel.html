@@ -2026,7 +2026,7 @@ function showGate(view, manual) {
     closeModal();
     G.manual = !!manual;
     $("g-quit").textContent = G.manual ? "Cancel" : "Quit";
-    $("g-email").value = G.email || "";
+    $("g-email").value = G.email || (S && S.email) || "";
     openSheet("sheet-signin");
   }
   if (view === "set") newPin("set"); else { G.flow = "signin"; gShow("start"); }
