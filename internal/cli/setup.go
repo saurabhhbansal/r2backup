@@ -38,7 +38,7 @@ const passwordAttempts = 3
 // nothing about it is needed to back up or restore a single byte.
 func newSetupCmd(opts *Options) *cobra.Command {
 	var keysOnly bool
-	var provider string
+	var provider, purpose, second string
 	cmd := &cobra.Command{
 		Use:   "setup",
 		Short: "Get this computer ready to back up",
@@ -57,22 +57,78 @@ func newSetupCmd(opts *Options) *cobra.Command {
 				return err
 			}
 			defer a.close()
-			if provider != "" {
-				if _, ok := remote.ParseProvider(provider); !ok {
-					return fmt.Errorf("unknown provider %q: use drime, r2, b2, s3 or s3-custom", provider)
-				}
+			f, err := parseSetupFlags(provider, purpose, second)
+			if err != nil {
+				return err
 			}
-			return runSetup(cmd.Context(), a, opts, keysOnly, provider)
+			f.keysOnly = keysOnly
+			return runSetup(cmd.Context(), a, opts, f)
 		},
 	}
 	cmd.Flags().BoolVar(&keysOnly, "keys", false,
 		"enter storage keys directly, even if a saved copy exists (use after rotating them)")
 	cmd.Flags().StringVar(&provider, "provider", "",
 		"where backups go: drime, r2, b2, s3 or s3-custom (asked if not given)")
+	cmd.Flags().StringVar(&purpose, "purpose", "",
+		"what r2backup is for here: both (Drime plus a second copy on S3 storage) or s3 (S3 storage only); asked if not given")
+	cmd.Flags().StringVar(&second, "second", "",
+		"with --purpose both, where the second copy goes: r2, b2, s3 or s3-custom (asked if not given)")
+	cmd.AddCommand(newPurposeCmd(opts))
 	return cmd
 }
 
-func runSetup(ctx context.Context, a *app, opts *Options, keysOnly bool, provider string) error {
+// setupFlags are what `setup` was told on its command line.
+type setupFlags struct {
+	keysOnly bool
+	provider string // where backups go, "" to ask
+	purpose  string // purposeBoth, purposeS3, or "" to ask
+	second   string // S3 kind for the second copy, "" to ask
+}
+
+// parseSetupFlags checks the flags agree with each other before anything is
+// asked: a script that says --purpose s3 --provider drime is a mistake to
+// point out, not a question to answer.
+func parseSetupFlags(provider, purpose, second string) (setupFlags, error) {
+	f := setupFlags{provider: provider, second: second}
+	if provider != "" {
+		if _, ok := remote.ParseProvider(provider); !ok {
+			return f, fmt.Errorf("unknown provider %q: use drime, r2, b2, s3 or s3-custom", provider)
+		}
+	}
+	if second != "" {
+		pv, ok := remote.ParseProvider(second)
+		if !ok || pv == remote.ProviderDrime {
+			return f, fmt.Errorf("unknown --second %q: use r2, b2, s3 or s3-custom", second)
+		}
+	}
+	if purpose != "" {
+		pp, ok := parsePurpose(purpose)
+		if !ok {
+			return f, fmt.Errorf("unknown --purpose %q: use both or s3", purpose)
+		}
+		f.purpose = pp
+	}
+	switch {
+	case f.purpose == purposeS3 && provider == creds.ProviderDrime:
+		return f, errors.New("--purpose s3 backs up to S3 storage, not Drime: leave out --provider drime, or use --purpose both")
+	case f.purpose == purposeBoth && provider != "" && provider != creds.ProviderDrime:
+		return f, errors.New("--purpose both backs up to Drime first: use --provider drime, or leave --provider out")
+	case second != "" && f.purpose != purposeBoth:
+		return f, errors.New("--second goes with --purpose both: S3 storage only has no second copy")
+	}
+	return f, nil
+}
+
+// Seams for tests, which have no Drime to reach: proving the main
+// destination works, the second copy, and looking for backups at the end.
+var (
+	setupCheck  = checkConnection
+	secondCheck = reachable
+	setupFinish = finish
+)
+
+func runSetup(ctx context.Context, a *app, opts *Options, f setupFlags) error {
+	keysOnly, provider := f.keysOnly, f.provider
 	p := newPrompter(opts)
 	client := accountClient()
 
@@ -101,14 +157,48 @@ func runSetup(ctx context.Context, a *app, opts *Options, keysOnly bool, provide
 			// ended by telling the user this computer "can now reach" a
 			// bucket it had never once contacted, and the truth arrived at
 			// their first backup instead.
-			if err := checkConnection(ctx, a, p); err != nil {
+			if err := setupCheck(ctx, a, p); err != nil {
 				return err
 			}
-			return finish(ctx, a, opts, p)
+			if pp := currentPurpose(a); pp != "" {
+				fmt.Fprintf(p.out, "Using r2backup for: %s.\n", purposeTitle(pp))
+			}
+			return setupFinish(ctx, a, opts, p)
 		}
 	}
 
-	c, err := askForDestination(ctx, p, provider)
+	// What this computer is for decides what is asked next: Drime and then
+	// the second copy, or S3 storage alone. --provider on its own keeps the
+	// one question it always answered, and setup --keys keeps the purpose
+	// already chosen.
+	purpose := f.purpose
+	if purpose == "" && provider == "" {
+		if keysOnly {
+			purpose = storedPurpose()
+		}
+		if purpose == "" {
+			var err error
+			if purpose, err = askPurpose(p); err != nil {
+				return err
+			}
+		}
+	}
+	if purpose != "" {
+		if err := savePurpose(purpose); err != nil {
+			return err
+		}
+	}
+
+	var c creds.Credentials
+	switch purpose {
+	case purposeBoth:
+		fmt.Fprintln(p.out, "\nFirst Drime, where backups go.")
+		c, err = askForKind(ctx, p, creds.ProviderDrime)
+	case purposeS3:
+		c, err = askForS3Destination(ctx, p, provider, "Where should backups go?")
+	default:
+		c, err = askForDestination(ctx, p, provider)
+	}
 	if err != nil {
 		return err
 	}
@@ -122,8 +212,14 @@ func runSetup(ctx context.Context, a *app, opts *Options, keysOnly bool, provide
 	// computers, never after. Pushing a set of keys that do not work would
 	// hand every later machine the same broken setup, and the failure would
 	// surface there rather than here, where it can still be retyped.
-	if err := checkConnection(ctx, a, p); err != nil {
+	if err := setupCheck(ctx, a, p); err != nil {
 		return err
+	}
+
+	if purpose == purposeBoth {
+		if err := setUpSecondCopy(ctx, a, p, f.second); err != nil {
+			return err
+		}
 	}
 
 	if sess != nil {
@@ -131,7 +227,7 @@ func runSetup(ctx context.Context, a *app, opts *Options, keysOnly bool, provide
 			return err
 		}
 	}
-	return finish(ctx, a, opts, p)
+	return setupFinish(ctx, a, opts, p)
 }
 
 // signIn returns a usable session, asking for an email address, the code
@@ -314,6 +410,7 @@ func pullCredentials(ctx context.Context, a *app, p *prompter, client *account.C
 	if k.Source != nil && !a.source.Exists() {
 		_ = a.source.Save(*k.Source)
 	}
+	adoptPurpose(k.Purpose)
 	fmt.Fprintf(p.out, "\nFound the keys you saved from another computer: %s.\n", destLabel(*k.Primary))
 	// Keys pulled from the account land in the same store, under the same
 	// OS protection, as keys typed in by hand -- so the README's promise that
@@ -443,6 +540,12 @@ func askForDestination(ctx context.Context, p *prompter, provider string) (creds
 		}
 		provider = []string{"drime", "r2", "b2", "s3", "s3-custom"}[i]
 	}
+	return askForKind(ctx, p, provider)
+}
+
+// askForKind asks for what one kind of storage needs, then whether to pack
+// small files there.
+func askForKind(ctx context.Context, p *prompter, provider string) (creds.Credentials, error) {
 	pv, _ := remote.ParseProvider(provider)
 	var c creds.Credentials
 	var err error
@@ -586,4 +689,76 @@ func finish(ctx context.Context, a *app, opts *Options, p *prompter) error {
 	}
 	fmt.Fprintln(p.out, "Next: r2b add <folder>")
 	return nil
+}
+
+// askPurpose asks what this computer is using r2backup for, in the panel's
+// words.
+func askPurpose(p *prompter) (string, error) {
+	fmt.Fprintln(p.out)
+	fmt.Fprintln(p.out, purposeQuestion)
+	fmt.Fprintf(p.out, "  1. %s\n     %s\n", purposeBothTitle, purposeBothText)
+	fmt.Fprintf(p.out, "  2. %s\n     %s\n", purposeS3Title, purposeS3Text)
+	i, err := askIndex(p, "Choose 1 or 2", 2)
+	if err != nil {
+		return "", err
+	}
+	return []string{purposeBoth, purposeS3}[i], nil
+}
+
+// askForS3Destination asks which S3-compatible storage (unless kind says),
+// then for its keys and packing.
+func askForS3Destination(ctx context.Context, p *prompter, kind, question string) (creds.Credentials, error) {
+	if kind == "" {
+		fmt.Fprintln(p.out)
+		fmt.Fprintln(p.out, question)
+		fmt.Fprintln(p.out, "  1. Cloudflare R2          -- an account, a bucket and a key pair")
+		fmt.Fprintln(p.out, "  2. Backblaze B2           -- a bucket, its region and an application key")
+		fmt.Fprintln(p.out, "  3. Amazon S3              -- a bucket, its region and an access key")
+		fmt.Fprintln(p.out, "  4. Other S3-compatible    -- an endpoint URL, a bucket and a key pair")
+		i, err := askIndex(p, "Choose 1 to 4", 4)
+		if err != nil {
+			return creds.Credentials{}, err
+		}
+		kind = []string{"r2", "b2", "s3", "s3-custom"}[i]
+	}
+	return askForKind(ctx, p, kind)
+}
+
+// setUpSecondCopy asks for the S3 storage the second copy goes to, checks
+// it, and copies each backup there after it finishes. A second copy already
+// set up (setup --keys after rotating the main keys) is kept.
+func setUpSecondCopy(ctx context.Context, a *app, p *prompter, kind string) error {
+	if mc, err := a.mirror.Load(); err == nil && kind == "" {
+		fmt.Fprintf(p.out, "\nThe second copy stays on %s. To change it: r2b mirror setup\n", destLabel(mc))
+		return nil
+	}
+	main, err := a.creds.Load()
+	if err != nil {
+		return err
+	}
+	for attempt := 1; ; attempt++ {
+		c, err := askForS3Destination(ctx, p, kind, "Where should the second copy go?")
+		if err != nil {
+			return err
+		}
+		if samePlace(main, c) {
+			return errors.New("that is where your backups already go. A second copy has to be somewhere else")
+		}
+		fmt.Fprintln(p.out, "Checking the second copy...")
+		err = secondCheck(ctx, c)
+		if err == nil {
+			if err := a.mirror.Save(c); err != nil {
+				return err
+			}
+			if err := setMirrorAuto(true); err != nil {
+				return err
+			}
+			fmt.Fprintf(p.out, "Second copy: %s. Each backup is copied there once it finishes.\n", destLabel(c))
+			return nil
+		}
+		if attempt >= passwordAttempts {
+			return fmt.Errorf("the second copy could not be reached: %w. Add it later with r2b mirror setup", err)
+		}
+		fmt.Fprintf(p.out, "  %s. Try again.\n", err.Error())
+	}
 }

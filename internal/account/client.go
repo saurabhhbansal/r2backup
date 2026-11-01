@@ -108,6 +108,9 @@ type StoredKeys struct {
 	Primary *creds.Credentials `json:"primary,omitempty"`
 	Second  *creds.Credentials `json:"second,omitempty"`
 	Source  *creds.Credentials `json:"source,omitempty"`
+	// Purpose is what the person uses r2backup for ("both" or "s3"), so a
+	// new computer does not ask again. Older copies leave it out.
+	Purpose string `json:"purpose,omitempty"`
 }
 
 // RegisterDevice records that name (running os) is one of this account's

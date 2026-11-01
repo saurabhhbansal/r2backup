@@ -124,6 +124,7 @@ func importKeys(ctx context.Context, a *app, path, passphrase string) (importedK
 	if accountMode() == "" {
 		_ = setAccountMode(accountModeLocal)
 	}
+	adoptPurpose(k.Purpose)
 	return out, nil
 }
 
