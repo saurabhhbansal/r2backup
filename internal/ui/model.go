@@ -447,14 +447,17 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// for stored credentials rather than making them find another key.
 		return m, tea.Batch(m.loadAccount(), m.afterSignIn())
 
-	case unlockNeededMsg:
-		m.askUnlock()
+	case pinNeededMsg:
+		m.askPIN(msg.set)
 		return m, nil
 
-	case unlockFailedMsg:
+	case pinFailedMsg:
 		m.err = msg.err
-		m.askUnlock()
+		m.askPIN(msg.set)
 		return m, nil
+
+	case unlockNeededMsg:
+		return m, m.pullKeys()
 
 	case updateMsg:
 		if !msg.applied && msg.version != "" {

@@ -80,8 +80,11 @@ func FlushStore(ctx context.Context, s Store) error {
 type Provider string
 
 const (
-	ProviderR2    Provider = "r2"
-	ProviderDrime Provider = "drime"
+	ProviderR2     Provider = "r2"
+	ProviderDrime  Provider = "drime"
+	ProviderB2     Provider = "b2"
+	ProviderS3     Provider = "s3"
+	ProviderCustom Provider = "s3-custom"
 )
 
 // Label is the provider's name as a person would write it.
@@ -89,6 +92,12 @@ func (p Provider) Label() string {
 	switch p {
 	case ProviderDrime:
 		return "Drime"
+	case ProviderB2:
+		return "Backblaze B2"
+	case ProviderS3:
+		return "Amazon S3"
+	case ProviderCustom:
+		return "S3-compatible storage"
 	default:
 		return "Cloudflare R2"
 	}
@@ -102,6 +111,12 @@ func ParseProvider(s string) (Provider, bool) {
 		return ProviderR2, true
 	case "drime", "Drime", "DRIME":
 		return ProviderDrime, true
+	case "b2", "B2", "backblaze", "Backblaze":
+		return ProviderB2, true
+	case "s3", "S3", "aws", "AWS", "amazon":
+		return ProviderS3, true
+	case "s3-custom", "custom", "s3-compatible", "minio":
+		return ProviderCustom, true
 	}
 	return "", false
 }

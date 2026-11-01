@@ -142,10 +142,12 @@ type Overview struct {
 type AccountView struct {
 	SignedIn bool
 	Email    string
-	// VaultStored reports whether credentials are saved for other machines
+	// VaultStored reports whether storage keys are saved for other machines
 	// to pick up.
 	VaultStored bool
-	Devices     []DeviceView
+	// NeedsPIN is a session from before PINs: nothing works until one is set.
+	NeedsPIN bool
+	Devices  []DeviceView
 	// Reachable is false when the account service could not be contacted.
 	// The tab says so rather than presenting "not signed in", which is a
 	// different thing and leads somewhere different.
@@ -242,13 +244,23 @@ type RestoreResult struct {
 
 // Keys are the four values that make an R2 connection.
 type Keys struct {
+	// Provider is one of the creds provider values: "drime", "r2" (or
+	// empty), "b2", "s3", "s3-custom".
+	Provider    string
 	AccountID   string
 	AccessKeyID string
 	Secret      string
 	Bucket      string
-	// DrimeToken, when set, means back up to Drime instead, and the R2
+	Region      string
+	Endpoint    string
+	VirtualHost bool
+	// DrimeToken, when set, means back up to Drime instead, and the S3
 	// fields are ignored.
 	DrimeToken string
+	// DrimeFolder is the Drime folder backups go under; empty is "r2backup".
+	DrimeFolder string
+	// Bundle packs files into archives before upload (see internal/bundle).
+	Bundle bool
 }
 
 // Backend is everything the interface needs from the rest of the program.
@@ -326,13 +338,18 @@ type Backend interface {
 	Account(ctx context.Context) (AccountView, error)
 	// SignInStart mails a six-digit code.
 	SignInStart(ctx context.Context, email string) error
-	// SignInVerify exchanges the code for a session and saves it.
-	SignInVerify(ctx context.Context, email, code string) error
+	// SignInVerify checks the code. The PIN comes next: pinSet says whether
+	// the account has one to enter, or needs one chosen.
+	SignInVerify(ctx context.Context, email, code string) (pinSet bool, err error)
+	// SignInPIN finishes signing in with the PIN (or sets the first one) and
+	// saves the session.
+	SignInPIN(ctx context.Context, pin string) error
 	SignOut(ctx context.Context) error
-	// UnlockVault pulls the stored R2 credentials and saves them here.
-	UnlockVault(ctx context.Context, password string) error
-	// StoreVault encrypts this machine's credentials for the next one.
-	StoreVault(ctx context.Context, password string) error
+	// PullKeys fetches the storage keys the account keeps and saves them here.
+	PullKeys(ctx context.Context) error
+	// PushKeys saves this computer's storage keys to the account, sealed with
+	// the PIN.
+	PushKeys(ctx context.Context) error
 	// SaveKeys stores R2 credentials typed in directly, after checking they
 	// reach the bucket.
 	SaveKeys(ctx context.Context, k Keys) error

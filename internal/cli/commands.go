@@ -172,6 +172,12 @@ func newBackupCmd(opts *Options) *cobra.Command {
 			}
 			list, err := a.resolveSets(only)
 			if err != nil {
+				// Nothing backed up here, but Drime folders to copy: a
+				// scheduled run still has that to do.
+				if st, serr := config.LoadSettings(); only == "" && serr == nil && len(st.MirrorSources) > 0 {
+					autoDrimeSources(cmd.Context(), a, opts.Out)
+					return nil
+				}
 				return err
 			}
 			var failed int
@@ -211,6 +217,9 @@ func newBackupCmd(opts *Options) *cobra.Command {
 			// when another set failed: one missing folder is no reason to
 			// leave every other set's second copy behind.
 			autoMirror(cmd.Context(), a, opts.Out, done)
+			if only == "" {
+				autoDrimeSources(cmd.Context(), a, opts.Out)
+			}
 			if failed > 0 {
 				return fmt.Errorf("%d of %d set(s) did not finish", failed, len(list))
 			}

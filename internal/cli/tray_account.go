@@ -55,30 +55,21 @@ func signedInHere(now time.Time) (string, bool) {
 }
 
 // localKeys is what this computer would save to the account.
-func (t *trayBackend) localKeys() account.StoredKeys {
-	var k account.StoredKeys
-	a := t.d.app
-	if c, err := a.creds.Load(); err == nil {
-		k.Primary = &c
-	}
-	if c, err := a.mirror.Load(); err == nil {
-		k.Second = &c
-	}
-	return k
-}
+func (t *trayBackend) localKeys() account.StoredKeys { return localStoredKeys(t.d.app) }
 
-// pushKeys saves this computer's keys to the account. Not signed in is not an
-// error: there is nowhere to save them yet.
+// pushKeys saves this computer's keys to the account. Not signed in -- or
+// using r2backup without an account -- is not an error: there is nowhere to
+// save them.
 func (t *trayBackend) pushKeys(ctx context.Context) error {
-	token, err := account.LoadToken()
-	if err != nil || token == "" {
-		return err
+	token, key, err := accountSession()
+	if err != nil {
+		return nil
 	}
 	k := t.localKeys()
 	if k.Primary == nil {
 		return nil
 	}
-	return friendlyAccountErr(accountClient().PutKeys(ctx, token, k))
+	return friendlyAccountErr(accountClient().PutKeys(ctx, token, key, k))
 }
 
 // reachable opens c and lists it once: keys that do not work are caught
@@ -111,15 +102,17 @@ type keysSyncOut struct {
 // there -- and the account screen offers to save them.
 func (t *trayBackend) syncKeys(ctx context.Context) (keysSyncOut, error) {
 	var out keysSyncOut
-	token, err := requireAccountToken()
+	token, key, err := accountSession()
 	if err != nil {
 		return out, err
 	}
 	a := t.d.app
 	local := t.localKeys()
-	remote, err := accountClient().GetKeys(ctx, token)
+	remote, err := accountClient().GetKeys(ctx, token, key)
 	switch {
-	case errors.Is(err, account.ErrNotFound):
+	case errors.Is(err, account.ErrNotFound), errors.Is(err, account.ErrDecryptFailed):
+		// Nothing saved, or saved under a PIN since reset: either way this
+		// computer's keys are what the account should keep.
 		remote = nil
 	case err != nil:
 		return out, friendlyAccountErr(err)
@@ -136,6 +129,11 @@ func (t *trayBackend) syncKeys(ctx context.Context) (keysSyncOut, error) {
 			local.Primary = remote.Primary
 		}
 	}
+	if remote != nil && remote.Source != nil && local.Source == nil {
+		if err := a.source.Save(*remote.Source); err == nil {
+			local.Source = remote.Source
+		}
+	}
 	if remote != nil && remote.Second != nil && local.Second == nil && local.Primary != nil &&
 		!samePlace(*local.Primary, *remote.Second) {
 		if reachable(ctx, *remote.Second) == nil {
@@ -147,7 +145,7 @@ func (t *trayBackend) syncKeys(ctx context.Context) (keysSyncOut, error) {
 		}
 	}
 	if (remote == nil || remote.Primary == nil) && local.Primary != nil {
-		if err := accountClient().PutKeys(ctx, token, local); err == nil {
+		if err := accountClient().PutKeys(ctx, token, key, local); err == nil {
 			out.Pushed = true
 		}
 	}
@@ -164,21 +162,28 @@ func (t *trayBackend) syncKeys(ctx context.Context) (keysSyncOut, error) {
 // storeOut describes saved keys without giving them away: enough to see
 // they are there and which ones they are.
 type storeOut struct {
-	Provider string `json:"provider"` // drime or r2
-	Label    string `json:"label"`    // "Drime · r2backup", "Cloudflare R2 · my-bucket"
+	Provider string `json:"provider"` // drime, r2, b2, s3 or s3-custom
+	Label    string `json:"label"`    // "Drime · r2backup", "Backblaze B2 · my-bucket"
 	Hint     string `json:"hint"`     // "Token ••••3f2a"
+	// Bundle is whether small files are packed into archives here.
+	Bundle bool `json:"bundle"`
 }
 
 func describeStore(c creds.Credentials) *storeOut {
-	o := &storeOut{Provider: "r2", Label: destLabel(c)}
+	o := &storeOut{Provider: c.Kind(), Label: destLabel(c), Bundle: c.Bundle}
 	if c.IsDrime() {
 		root := c.DrimeRoot
 		if root == "" {
 			root = "r2backup"
 		}
-		o.Provider, o.Hint = "drime", "Folder "+root+" · token "+masked(c.DrimeToken)
+		o.Hint = "Folder " + root + " · token " + masked(c.DrimeToken)
 	} else {
 		o.Hint = "Bucket " + c.Bucket + " · key " + masked(c.AccessKeyID)
+		if ep := c.S3(); c.Kind() == creds.ProviderCustom {
+			o.Hint = ep.URL + " · " + o.Hint
+		} else if ep.Region != "" && ep.Region != "auto" {
+			o.Hint = o.Hint + " · " + ep.Region
+		}
 	}
 	return o
 }
@@ -194,20 +199,26 @@ func masked(s string) string {
 }
 
 type accountConfigOut struct {
-	SignedIn bool         `json:"signedIn"`
-	Email    string       `json:"email,omitempty"`
-	Machine  string       `json:"machine"`
-	Primary  *storeOut    `json:"primary"`
-	Second   *storeOut    `json:"second"`
-	Auto     bool         `json:"auto"` // copy to the second after every backup
-	Saved    bool         `json:"saved"`
-	Err      string       `json:"err,omitempty"`
-	Devices  []deviceJSON `json:"devices"`
+	SignedIn bool      `json:"signedIn"`
+	Email    string    `json:"email,omitempty"`
+	Machine  string    `json:"machine"`
+	Primary  *storeOut `json:"primary"`
+	Second   *storeOut `json:"second"`
+	Auto     bool      `json:"auto"` // copy to the second after every backup
+	Saved    bool      `json:"saved"`
+	// NeedsPIN is a sign-in from before PINs: the panel asks for one
+	// (setPin) before anything else.
+	NeedsPIN bool `json:"needsPin"`
+	// Mode is "account" when signed in, "local" when using r2backup without
+	// an account, "" when neither has been chosen yet.
+	Mode    string       `json:"mode"`
+	Err     string       `json:"err,omitempty"`
+	Devices []deviceJSON `json:"devices"`
 }
 
 // accountConfig is everything the account screen shows.
 func (t *trayBackend) accountConfig(ctx context.Context) (accountConfigOut, error) {
-	out := accountConfigOut{Machine: machineName(), Devices: []deviceJSON{}}
+	out := accountConfigOut{Machine: machineName(), Devices: []deviceJSON{}, Mode: accountMode()}
 	local := t.localKeys()
 	if local.Primary != nil {
 		out.Primary = describeStore(*local.Primary)
@@ -234,10 +245,17 @@ func (t *trayBackend) accountConfig(ctx context.Context) (accountConfigOut, erro
 		}
 		return out, nil
 	}
-	token, _ := account.LoadToken()
-	remote, err := accountClient().GetKeys(ctx, token)
+	if v.NeedsPIN {
+		out.NeedsPIN = true
+		return out, nil
+	}
+	token, key, err := accountSession()
+	if err != nil {
+		return out, nil
+	}
+	remote, err := accountClient().GetKeys(ctx, token, key)
 	switch {
-	case errors.Is(err, account.ErrNotFound):
+	case errors.Is(err, account.ErrNotFound), errors.Is(err, account.ErrDecryptFailed):
 		out.Saved = local.Primary == nil
 	case err != nil:
 		if out.Err == "" {
@@ -250,7 +268,8 @@ func (t *trayBackend) accountConfig(ctx context.Context) (accountConfigOut, erro
 }
 
 func sameKeys(a, b account.StoredKeys) bool {
-	return reflect.DeepEqual(a.Primary, b.Primary) && reflect.DeepEqual(a.Second, b.Second)
+	return reflect.DeepEqual(a.Primary, b.Primary) && reflect.DeepEqual(a.Second, b.Second) &&
+		reflect.DeepEqual(a.Source, b.Source)
 }
 
 // accountCall serves the account screen.
@@ -266,6 +285,89 @@ func (t *trayBackend) accountCall(ctx context.Context, method string, raw []byte
 
 	case "keysPush":
 		return nil, true, t.pushKeys(ctx)
+
+	// Pack small files into archives at a destination, or stop. Backups
+	// already there stay readable either way (see internal/bundle).
+	case "setBundle":
+		var a struct {
+			Which string `json:"which"` // "primary" or "second"
+			On    bool   `json:"on"`
+		}
+		if err := decodeArgs(raw, &a); err != nil {
+			return nil, true, err
+		}
+		store := t.d.app.creds
+		if a.Which == "second" {
+			store = t.d.app.mirror
+		}
+		c, err := store.Load()
+		if err != nil {
+			return nil, true, err
+		}
+		c.Bundle = a.On
+		if err := store.Save(c); err != nil {
+			return nil, true, err
+		}
+		t.d.forgetClient()
+		t.invalidate()
+		_ = t.pushKeys(ctx)
+		return describeStore(c), true, nil
+
+	// The PIN step after signInVerify: the account's PIN, or its first one.
+	case "signInPin", "pinReset", "setPin":
+		var a struct {
+			PIN string `json:"pin"`
+		}
+		if err := decodeArgs(raw, &a); err != nil {
+			return nil, true, err
+		}
+		var err error
+		switch method {
+		case "signInPin":
+			err = t.d.SignInPIN(ctx, a.PIN)
+		case "pinReset": // forgot it: after a fresh email code
+			err = t.d.ResetPIN(ctx, a.PIN)
+		default: // a sign-in from before PINs
+			err = t.d.SetPIN(ctx, a.PIN)
+		}
+		t.invalidate()
+		if err != nil {
+			return nil, true, err
+		}
+		_ = setAccountMode(accountModeAccount)
+		res, err := t.syncKeys(ctx)
+		return res, true, err
+
+	// Use r2backup on this computer alone: keys stay here.
+	case "useLocal":
+		t.invalidate()
+		return nil, true, setAccountMode(accountModeLocal)
+
+	case "keysExport":
+		var a struct {
+			Path       string `json:"path"`
+			Passphrase string `json:"passphrase"`
+		}
+		if err := decodeArgs(raw, &a); err != nil {
+			return nil, true, err
+		}
+		return nil, true, exportKeys(t.d.app, a.Path, a.Passphrase)
+
+	case "keysImport":
+		var a struct {
+			Path       string `json:"path"`
+			Passphrase string `json:"passphrase"`
+		}
+		if err := decodeArgs(raw, &a); err != nil {
+			return nil, true, err
+		}
+		got, err := importKeys(ctx, t.d.app, a.Path, a.Passphrase)
+		t.d.forgetClient()
+		t.invalidate()
+		if err == nil {
+			_ = t.pushKeys(ctx)
+		}
+		return got, true, err
 
 	case "renameMachine":
 		var a struct {

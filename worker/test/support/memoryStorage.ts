@@ -1,4 +1,4 @@
-import type { Storage, OtpRow, VaultRow, DeviceRow, StoredKeysRow } from "../../src/storage";
+import type { Storage, OtpRow, VaultRow, DeviceRow, StoredKeysRow, PinRow, SealedKeysRow } from "../../src/storage";
 import type { RateLimitState } from "../../src/ratelimit";
 
 // An in-memory Storage for tests, so handler logic (including the
@@ -11,6 +11,11 @@ export class MemoryStorage implements Storage {
   vaults = new Map<string, VaultRow>();
   keys = new Map<string, StoredKeysRow>();
   devices = new Map<string, DeviceRow[]>();
+  pins = new Map<string, PinRow>();
+  // pinned makes every account look as if it has PIN version 1, for tests
+  // about other endpoints that only need a valid session.
+  constructor(private readonly opts: { pinned?: boolean } = {}) {}
+  sealed = new Map<string, SealedKeysRow>();
   rateLimits = new Map<string, RateLimitState>();
 
   async upsertUser(email: string, now: number): Promise<void> {
@@ -54,6 +59,50 @@ export class MemoryStorage implements Storage {
 
   async deleteKeys(email: string): Promise<void> {
     this.keys.delete(email);
+  }
+
+  async getPin(email: string): Promise<PinRow | null> {
+    const row = this.pins.get(email);
+    if (!row && this.opts.pinned) {
+      return { salt: "", kdf_params: "{}", verifier: "", version: 1, failures: 0, locked_until: 0, updated_at: 0 };
+    }
+    return row ? { ...row } : null;
+  }
+
+  async putPin(email: string, row: PinRow): Promise<void> {
+    this.pins.set(email, { ...row });
+  }
+
+  async notePinFailure(email: string): Promise<number> {
+    const row = this.pins.get(email);
+    if (!row) return 0;
+    row.failures += 1;
+    return row.failures;
+  }
+
+  async setPinLock(email: string, lockedUntil: number): Promise<void> {
+    const row = this.pins.get(email);
+    if (row) row.locked_until = lockedUntil;
+  }
+
+  async clearPinFailures(email: string): Promise<void> {
+    const row = this.pins.get(email);
+    if (row) {
+      row.failures = 0;
+      row.locked_until = 0;
+    }
+  }
+
+  async getSealedKeys(email: string): Promise<SealedKeysRow | null> {
+    return this.sealed.get(email) ?? null;
+  }
+
+  async putSealedKeys(email: string, row: SealedKeysRow): Promise<void> {
+    this.sealed.set(email, row);
+  }
+
+  async deleteSealedKeys(email: string): Promise<void> {
+    this.sealed.delete(email);
   }
 
   async listDevices(email: string): Promise<DeviceRow[]> {

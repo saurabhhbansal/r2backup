@@ -11,7 +11,7 @@ function makeContext(storage: MemoryStorage, now: number): AppContext {
 }
 
 async function authedRequest(method: string, path: string, email: string, body?: unknown): Promise<Request> {
-  const token = await signJWT({ sub: email, iat: 0, exp: 9_999_999_999 }, SECRET);
+  const token = await signJWT({ sub: email, iat: 0, exp: 9_999_999_999, scope: "full", pv: 1 }, SECRET);
   return new Request(`https://r2backup.flexpod.cc${path}`, {
     method,
     headers: {
@@ -24,13 +24,13 @@ async function authedRequest(method: string, path: string, email: string, body?:
 
 describe("GET /vault", () => {
   it("requires authentication", async () => {
-    const ctx = makeContext(new MemoryStorage(), 100);
+    const ctx = makeContext(new MemoryStorage({ pinned: true }), 100);
     const res = await handleGetVault(new Request("https://r2backup.flexpod.cc/vault"), ctx);
     expect(res.status).toBe(401);
   });
 
   it("404s when nothing has been stored yet", async () => {
-    const ctx = makeContext(new MemoryStorage(), 100);
+    const ctx = makeContext(new MemoryStorage({ pinned: true }), 100);
     const res = await handleGetVault(await authedRequest("GET", "/vault", "a@b.com"), ctx);
     expect(res.status).toBe(404);
   });
@@ -41,7 +41,7 @@ describe("PUT /vault then GET /vault", () => {
   let ctx: AppContext;
 
   beforeEach(() => {
-    storage = new MemoryStorage();
+    storage = new MemoryStorage({ pinned: true });
     ctx = makeContext(storage, 500);
   });
 

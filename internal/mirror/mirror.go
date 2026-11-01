@@ -30,7 +30,8 @@ import (
 type Options struct {
 	Src, Dst remote.Store
 	// Prefixes are what to mirror, each ending in "/". Typically a set's
-	// KeyScope, or "machines/" for everything.
+	// KeyScope, or "machines/" for everything; "" is the whole store, for a
+	// Drime folder copied as it is.
 	Prefixes []string
 	// Delete removes what the destination has and the source does not.
 	Delete bool
@@ -162,8 +163,8 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 
 	var all Plan
 	for _, prefix := range opts.Prefixes {
-		if !strings.HasSuffix(prefix, "/") {
-			return nil, fmt.Errorf("mirror: prefix %q must end in /", prefix)
+		if prefix != "" && !strings.HasSuffix(prefix, "/") {
+			return nil, fmt.Errorf("mirror: prefix %q must end in / (or be empty, for everything)", prefix)
 		}
 		src, err := opts.Src.List(ctx, prefix)
 		if err != nil {

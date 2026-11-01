@@ -289,7 +289,7 @@ func TestPanelRequestsThatNeedSomethingFirst(t *testing.T) {
 		t.Error("mirroring automatically with no second copy set up should be refused")
 	}
 	if _, err := call(t, tb, "mirrorSetup", map[string]string{"provider": "drime", "token": "t"}); err == nil ||
-		!strings.Contains(err.Error(), "connect your storage first") {
+		!strings.Contains(err.Error(), "choose where backups go first") {
 		t.Errorf("a second copy before the first is connected: %v", err)
 	}
 	if err := tb.d.app.creds.Save(creds.Credentials{Provider: creds.ProviderDrime, DrimeToken: "t"}); err != nil {
@@ -298,9 +298,6 @@ func TestPanelRequestsThatNeedSomethingFirst(t *testing.T) {
 	if _, err := call(t, tb, "mirrorSetup", map[string]string{"provider": "drime", "token": " t "}); err == nil ||
 		!strings.Contains(err.Error(), "already go") {
 		t.Errorf("a second copy in the same place: %v", err)
-	}
-	if _, err := call(t, tb, "storeVault", map[string]string{"password": "short"}); err == nil {
-		t.Error("a password under 8 characters should be refused")
 	}
 	out, err := call(t, tb, "mirrorInfo", nil)
 	if err != nil {

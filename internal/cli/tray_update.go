@@ -43,10 +43,6 @@ func (t *trayBackend) maybeCheckUpdate(now time.Time) {
 	}()
 }
 
-// minVaultPassword is the shortest password the panel accepts for the keys
-// it saves to the account, the same floor `r2b setup` sets.
-const minVaultPassword = minPasswordLen
-
 // updateCall serves the panel's update and account requests that are not
 // sign-in itself.
 func (t *trayBackend) updateCall(ctx context.Context, method string, raw []byte) (out any, ok bool, err error) {
@@ -78,17 +74,6 @@ func (t *trayBackend) updateCall(ctx context.Context, method string, raw []byte)
 		// the new one by itself (see tray.watchForUpdate).
 		return map[string]string{"version": v}, true, nil
 
-	case "storeVault":
-		var a struct {
-			Password string `json:"password"`
-		}
-		if err := decodeArgs(raw, &a); err != nil {
-			return nil, true, err
-		}
-		if len(a.Password) < minVaultPassword {
-			return nil, true, errors.New("use at least 8 characters")
-		}
-		return nil, true, t.d.StoreVault(ctx, a.Password)
 	}
 	return nil, false, nil
 }

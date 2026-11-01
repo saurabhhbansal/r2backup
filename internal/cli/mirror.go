@@ -56,7 +56,7 @@ func newMirrorCmd(opts *Options) *cobra.Command {
 	cmd.Flags().BoolVar(&everything, "everything", false, "mirror every computer's backups, not only this one's sets")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "say what would be copied and removed, and change nothing")
 	cmd.Flags().BoolVar(&keep, "keep", false, "never remove anything from the destination")
-	cmd.AddCommand(newMirrorSetupCmd(opts), newMirrorAutoCmd(opts))
+	cmd.AddCommand(newMirrorSetupCmd(opts), newMirrorAutoCmd(opts), newMirrorDrimeCmd(opts))
 	return cmd
 }
 

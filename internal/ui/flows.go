@@ -352,62 +352,70 @@ func (m *Model) askCode(email string) {
 		[]field{{Label: "Code", Placeholder: "123456"}},
 		func(vals []string) (string, tea.Cmd) {
 			return "", func() tea.Msg {
-				if err := m.backend.SignInVerify(m.ctx, email, vals[0]); err != nil {
+				set, err := m.backend.SignInVerify(m.ctx, email, vals[0])
+				if err != nil {
 					return errMsg{err}
 				}
-				return signedInMsg{}
+				return pinNeededMsg{set: set}
 			}
 		}))
 }
+
+// pinNeededMsg follows a correct code: the PIN is the last step.
+type pinNeededMsg struct{ set bool }
 
 type signedInMsg struct{}
 
-// askUnlock runs when signing in finds credentials already stored.
-// askUnlock is reachable from the Account tab as well as straight after
-// signing in. It was only reachable from the sign-in path, so one mistyped
-// password cost a full sign-out and a fresh emailed code.
-func (m *Model) askUnlock() {
-	m.showForm(newForm(
-		"Unlock your saved credentials",
-		"The password you chose on the computer that stored them.",
-		[]field{{Label: "Password", Secret: true}},
-		func(vals []string) (string, tea.Cmd) {
-			pw := vals[0]
-			return "", func() tea.Msg {
-				if err := m.backend.UnlockVault(m.ctx, pw); err != nil {
-					return unlockFailedMsg{err}
-				}
-				return noticeMsg("Unlocked. This computer can reach your bucket.")
+// askPIN is the last step of signing in: the account's PIN, or a new one for
+// an account that has none yet.
+func (m *Model) askPIN(set bool) {
+	title, note := "Enter your PIN", "The six digits you chose for this account."
+	fields := []field{{Label: "PIN", Secret: true}}
+	if !set {
+		title = "Choose a PIN"
+		note = "Six digits. You enter it after the email code, and it locks the keys your account keeps -- the server cannot read them."
+		fields = append(fields, field{Label: "Again", Secret: true})
+	}
+	m.showForm(newForm(title, note, fields, func(vals []string) (string, tea.Cmd) {
+		if !set && vals[0] != vals[1] {
+			return "Those did not match.", nil
+		}
+		if len(vals[0]) != 6 || strings.Trim(vals[0], "0123456789") != "" {
+			return "The PIN is six digits.", nil
+		}
+		return "", func() tea.Msg {
+			if err := m.backend.SignInPIN(m.ctx, vals[0]); err != nil {
+				return pinFailedMsg{err: err, set: set}
 			}
-		}))
+			return signedInMsg{}
+		}
+	}))
 }
 
-// unlockFailedMsg reopens the password form rather than dropping the user
-// back on the tab with an error and no way to try again.
-type unlockFailedMsg struct{ err error }
+// pinFailedMsg reopens the PIN form: a wrong PIN should not cost a new code.
+type pinFailedMsg struct {
+	err error
+	set bool
+}
 
-func (m *Model) askStorePassword() {
-	m.showForm(newForm(
-		"Save these keys for your other computers",
-		"They are encrypted here, under a password you choose. The server keeps a blob it cannot read.",
-		[]field{
-			{Label: "Password", Secret: true},
-			{Label: "Again", Secret: true},
-		},
-		func(vals []string) (string, tea.Cmd) {
-			if vals[0] != vals[1] {
-				return "Those did not match.", nil
-			}
-			if len(vals[0]) < 8 {
-				return "Use at least 8 characters.", nil
-			}
-			return "", func() tea.Msg {
-				if err := m.backend.StoreVault(m.ctx, vals[0]); err != nil {
-					return errMsg{err}
-				}
-				return noticeMsg("Stored. On your next computer, sign in with the same email.")
-			}
-		}))
+// pullKeys fetches the keys the account keeps and saves them here.
+func (m *Model) pullKeys() tea.Cmd {
+	return func() tea.Msg {
+		if err := m.backend.PullKeys(m.ctx); err != nil {
+			return errMsg{err}
+		}
+		return noticeMsg("Done. This computer can reach your storage.")
+	}
+}
+
+// pushKeys saves this computer's keys for the next one.
+func (m *Model) pushKeys() tea.Cmd {
+	return func() tea.Msg {
+		if err := m.backend.PushKeys(m.ctx); err != nil {
+			return errMsg{err}
+		}
+		return noticeMsg("Saved. On your next computer, sign in with the same email and PIN.")
+	}
 }
 
 func (m *Model) askKeys() {
@@ -483,8 +491,8 @@ func yesNo(s string) (bool, error) {
 // backed up for the first time.
 type addedMsg string
 
-// unlockNeededMsg means the account has credentials stored and this computer
-// needs the password to open them.
+// unlockNeededMsg means the account has keys stored and this computer has
+// none yet.
 type unlockNeededMsg struct{}
 
 // afterSignIn decides what a fresh sign-in should do next.
@@ -503,6 +511,6 @@ func (m *Model) afterSignIn() tea.Cmd {
 		if a.VaultStored {
 			return unlockNeededMsg{}
 		}
-		return noticeMsg("Signed in. This is the first computer on the account -- press k to enter your R2 keys, then p to save them for the next one.")
+		return noticeMsg("Signed in. This is the first computer on the account -- press k to enter your storage keys, then p to save them for the next one.")
 	}
 }

@@ -78,6 +78,11 @@ type Config struct {
 	Endpoint string
 	// Bucket is the bucket every operation targets.
 	Bucket string
+	// Region is the region requests are signed for. Empty is R2's "auto".
+	Region string
+	// VirtualHost puts the bucket in the hostname instead of the path, which
+	// Amazon S3 wants. R2, B2 and most self-hosted servers take path-style.
+	VirtualHost bool
 
 	AccessKeyID     string
 	SecretAccessKey string
@@ -191,12 +196,16 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 		return nil, fmt.Errorf("remote: config: bucket is required")
 	}
 	endpoint := cfg.endpoint()
-	if endpoint == "" {
-		return nil, fmt.Errorf("remote: config: account id or endpoint is required")
+	if endpoint == "" && cfg.Region == "" {
+		return nil, fmt.Errorf("remote: config: account id, endpoint or region is required")
+	}
+	signRegion := cfg.Region
+	if signRegion == "" {
+		signRegion = region
 	}
 
 	awsCfg, err := awsconfig.LoadDefaultConfig(ctx,
-		awsconfig.WithRegion(region),
+		awsconfig.WithRegion(signRegion),
 		awsconfig.WithCredentialsProvider(credentials.NewStaticCredentialsProvider(
 			cfg.AccessKeyID, cfg.SecretAccessKey, "",
 		)),
@@ -250,14 +259,17 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 		// would print 60,000 lines of it over the user's progress bar, about
 		// a condition that is expected and harmless here.
 		o.DisableLogOutputChecksumValidationSkipped = true
-		o.BaseEndpoint = aws.String(endpoint)
+		// No endpoint is Amazon S3 itself, found from the region.
+		if endpoint != "" {
+			o.BaseEndpoint = aws.String(endpoint)
+		}
 		// R2 and the MinIO server the tests run against only serve
 		// path-style requests (bucket-in-path). Virtual-hosted-style would
 		// put the bucket name in the hostname, which neither speaks, and
 		// would also require per-bucket DNS/TLS that a self-hosted test
 		// server does not have.
-		o.UsePathStyle = true
-		o.Region = region
+		o.UsePathStyle = !cfg.VirtualHost
+		o.Region = signRegion
 	})
 
 	uploader := manager.NewUploader(s3Client, func(u *manager.Uploader) {

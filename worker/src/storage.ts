@@ -20,6 +20,22 @@ export interface StoredKeysRow {
   updated_at: number;
 }
 
+export interface PinRow {
+  salt: string;
+  kdf_params: string; // JSON, as the client sent it
+  verifier: string;
+  version: number;
+  failures: number;
+  locked_until: number;
+  updated_at: number;
+}
+
+export interface SealedKeysRow {
+  ciphertext: string;
+  nonce: string;
+  updated_at: number;
+}
+
 export interface DeviceRow {
   device_name: string;
   os: string;
@@ -40,6 +56,16 @@ export interface Storage extends RateLimitStore {
   getKeys(email: string): Promise<StoredKeysRow | null>;
   putKeys(email: string, row: StoredKeysRow): Promise<void>;
   deleteKeys(email: string): Promise<void>;
+  getPin(email: string): Promise<PinRow | null>;
+  // Replaces the PIN, failures and lock included.
+  putPin(email: string, row: PinRow): Promise<void>;
+  // Counts one wrong PIN and returns the new total.
+  notePinFailure(email: string): Promise<number>;
+  setPinLock(email: string, lockedUntil: number): Promise<void>;
+  clearPinFailures(email: string): Promise<void>;
+  getSealedKeys(email: string): Promise<SealedKeysRow | null>;
+  putSealedKeys(email: string, row: SealedKeysRow): Promise<void>;
+  deleteSealedKeys(email: string): Promise<void>;
   listDevices(email: string): Promise<DeviceRow[]>;
   upsertDevice(email: string, device: DeviceRow): Promise<void>;
   deleteDevice(email: string, deviceName: string): Promise<void>;
@@ -127,6 +153,68 @@ export class D1Storage implements Storage {
 
   async deleteKeys(email: string): Promise<void> {
     await this.db.prepare("DELETE FROM stored_keys WHERE email = ?").bind(email).run();
+  }
+
+  async getPin(email: string): Promise<PinRow | null> {
+    const row = await this.db
+      .prepare(
+        "SELECT salt, kdf_params, verifier, version, failures, locked_until, updated_at FROM pins WHERE email = ?",
+      )
+      .bind(email)
+      .first<PinRow>();
+    return row ?? null;
+  }
+
+  async putPin(email: string, row: PinRow): Promise<void> {
+    await this.db
+      .prepare(
+        `INSERT INTO pins (email, salt, kdf_params, verifier, version, failures, locked_until, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(email) DO UPDATE SET salt = excluded.salt, kdf_params = excluded.kdf_params,
+           verifier = excluded.verifier, version = excluded.version, failures = excluded.failures,
+           locked_until = excluded.locked_until, updated_at = excluded.updated_at`,
+      )
+      .bind(email, row.salt, row.kdf_params, row.verifier, row.version, row.failures, row.locked_until, row.updated_at)
+      .run();
+  }
+
+  async notePinFailure(email: string): Promise<number> {
+    const row = await this.db
+      .prepare("UPDATE pins SET failures = failures + 1 WHERE email = ? RETURNING failures")
+      .bind(email)
+      .first<{ failures: number }>();
+    return row?.failures ?? 0;
+  }
+
+  async setPinLock(email: string, lockedUntil: number): Promise<void> {
+    await this.db.prepare("UPDATE pins SET locked_until = ? WHERE email = ?").bind(lockedUntil, email).run();
+  }
+
+  async clearPinFailures(email: string): Promise<void> {
+    await this.db.prepare("UPDATE pins SET failures = 0, locked_until = 0 WHERE email = ?").bind(email).run();
+  }
+
+  async getSealedKeys(email: string): Promise<SealedKeysRow | null> {
+    const row = await this.db
+      .prepare("SELECT ciphertext, nonce, updated_at FROM sealed_keys WHERE email = ?")
+      .bind(email)
+      .first<SealedKeysRow>();
+    return row ?? null;
+  }
+
+  async putSealedKeys(email: string, row: SealedKeysRow): Promise<void> {
+    await this.db
+      .prepare(
+        `INSERT INTO sealed_keys (email, ciphertext, nonce, updated_at) VALUES (?, ?, ?, ?)
+         ON CONFLICT(email) DO UPDATE SET ciphertext = excluded.ciphertext, nonce = excluded.nonce,
+           updated_at = excluded.updated_at`,
+      )
+      .bind(email, row.ciphertext, row.nonce, row.updated_at)
+      .run();
+  }
+
+  async deleteSealedKeys(email: string): Promise<void> {
+    await this.db.prepare("DELETE FROM sealed_keys WHERE email = ?").bind(email).run();
   }
 
   async listDevices(email: string): Promise<DeviceRow[]> {

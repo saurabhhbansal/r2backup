@@ -485,8 +485,7 @@ func (m *Model) accountKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.notice = "Sign in first, with i."
 			return m, nil
 		}
-		m.askStorePassword()
-		return m, nil
+		return m, m.pushKeys()
 
 	case key.Matches(msg, keys.Keys):
 		m.askKeys()
@@ -505,8 +504,7 @@ func (m *Model) accountKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.notice = "Nothing is stored for this account yet."
 			return m, nil
 		}
-		m.askUnlock()
-		return m, nil
+		return m, m.pullKeys()
 
 	case key.Matches(msg, keys.Update):
 		return m, m.checkUpdate()

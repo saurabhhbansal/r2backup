@@ -1,53 +1,56 @@
 import type { AppContext } from "../context";
 import { authenticate } from "./middleware";
 import { readJsonBody, jsonResponse, MAX_VAULT_BODY_BYTES } from "../http";
-import { sealKeys, openKeys } from "../crypto";
 
 // The storage keys an account keeps, so a computer signed in with an email
-// code gets them without typing them again. The body is whatever JSON object
-// the client sends (today: the primary storage and the second copy); the
-// server checks only that it is an object of sane size, encrypts it, and
-// hands the same object back. See migrations/0003_stored_keys.sql for what
-// protects it at rest.
+// code and PIN gets them without typing them again.
+//
+// They arrive encrypted by the client, under a key made from the PIN and the
+// share POST /auth/pin hands out (see migrations/0004_pin.sql). The server
+// checks the shape and stores the bytes; it cannot open them.
+//
+//   GET    /keys  -> {sealed: {ciphertext, nonce}, updated_at}
+//   PUT    /keys  {sealed: {ciphertext, nonce}}
+//   DELETE /keys
+
+const MAX_FIELD = 48 * 1024;
+
+function validField(v: unknown): v is string {
+  return typeof v === "string" && v.length > 0 && v.length <= MAX_FIELD && /^[A-Za-z0-9_-]+$/.test(v);
+}
 
 export async function handleGetKeys(request: Request, ctx: AppContext): Promise<Response> {
   const auth = await authenticate(request, ctx);
   if (auth instanceof Response) return auth;
 
-  const row = await ctx.storage.getKeys(auth);
+  const row = await ctx.storage.getSealedKeys(auth);
   if (!row) return jsonResponse({ error: "no keys stored" }, 404);
-  const plain = await openKeys(row, auth, ctx.keysSecret);
-  if (plain === null) {
-    // A rotated secret or a damaged row. Said as "nothing stored": the
-    // client's answer is the same either way -- enter the keys once more.
-    console.error("stored keys did not open");
-    return jsonResponse({ error: "no keys stored" }, 404);
-  }
-  let keys: unknown;
-  try {
-    keys = JSON.parse(plain);
-  } catch {
-    return jsonResponse({ error: "no keys stored" }, 404);
-  }
-  return jsonResponse({ keys, updated_at: row.updated_at }, 200);
+  return jsonResponse({ sealed: { ciphertext: row.ciphertext, nonce: row.nonce }, updated_at: row.updated_at }, 200);
 }
 
 export async function handlePutKeys(request: Request, ctx: AppContext): Promise<Response> {
   const auth = await authenticate(request, ctx);
   if (auth instanceof Response) return auth;
 
-  const body = await readJsonBody<{ keys?: unknown }>(request, MAX_VAULT_BODY_BYTES);
-  if (body === null || typeof body.keys !== "object" || body.keys === null || Array.isArray(body.keys)) {
+  const body = await readJsonBody<{ sealed?: { ciphertext?: unknown; nonce?: unknown } }>(
+    request,
+    MAX_VAULT_BODY_BYTES,
+  );
+  const sealed = body?.sealed;
+  if (!sealed || typeof sealed !== "object" || !validField(sealed.ciphertext) || !validField(sealed.nonce)) {
     return jsonResponse({ error: "invalid request" }, 400);
   }
-  const sealed = await sealKeys(JSON.stringify(body.keys), auth, ctx.keysSecret);
-  await ctx.storage.putKeys(auth, { ...sealed, updated_at: ctx.now() });
+  await ctx.storage.putSealedKeys(auth, { ciphertext: sealed.ciphertext, nonce: sealed.nonce, updated_at: ctx.now() });
+  // The copy from before PINs, which the server could read, goes the moment
+  // one it cannot read takes its place.
+  await ctx.storage.deleteKeys(auth);
   return jsonResponse({ ok: true }, 200);
 }
 
 export async function handleDeleteKeys(request: Request, ctx: AppContext): Promise<Response> {
   const auth = await authenticate(request, ctx);
   if (auth instanceof Response) return auth;
+  await ctx.storage.deleteSealedKeys(auth);
   await ctx.storage.deleteKeys(auth);
   return jsonResponse({ ok: true }, 200);
 }

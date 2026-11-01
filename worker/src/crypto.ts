@@ -6,14 +6,14 @@
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-function base64UrlEncode(data: ArrayBuffer | Uint8Array): string {
+export function base64UrlEncode(data: ArrayBuffer | Uint8Array): string {
   const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
   let binary = "";
   for (const b of bytes) binary += String.fromCharCode(b);
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
-function base64UrlDecode(input: string): Uint8Array {
+export function base64UrlDecode(input: string): Uint8Array {
   const normalized = input.replace(/-/g, "+").replace(/_/g, "/");
   const pad = (4 - (normalized.length % 4)) % 4;
   const binary = atob(normalized + "=".repeat(pad));
@@ -36,6 +36,11 @@ export interface JWTPayload {
   sub: string; // normalised email
   iat: number; // seconds since epoch
   exp: number; // seconds since epoch
+  // "pin": issued after a correct email code, good only for the PIN step.
+  // "full": a session. Absent on sessions from before PINs existed.
+  scope?: "pin" | "full";
+  // The PIN version a full session was issued under; see migrations/0004.
+  pv?: number;
 }
 
 // Signed with a secret from a Worker binding (env.JWT_SECRET), never a
@@ -158,4 +163,30 @@ export function constantTimeEqual(a: string, b: string): boolean {
     diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   }
   return diff === 0;
+}
+
+// --- PIN -------------------------------------------------------------------
+//
+// Two values derived from KEYS_SECRET, each under its own label so neither can
+// stand in for the other or for the AES key above.
+
+async function labelled(secret: string, label: string, message: string): Promise<Uint8Array> {
+  if (!secret) throw new Error("KEYS_SECRET is not set");
+  const sub = await crypto.subtle.sign("HMAC", await hmacKey(secret), encoder.encode(label));
+  const key = await crypto.subtle.importKey("raw", sub, { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  return new Uint8Array(await crypto.subtle.sign("HMAC", key, encoder.encode(message)));
+}
+
+// pinVerifier is what the server keeps in place of the PIN proof. Without
+// KEYS_SECRET a copy of the database cannot test guesses against it.
+export async function pinVerifier(secret: string, email: string, proof: string): Promise<string> {
+  return base64UrlEncode(await labelled(secret, "r2backup pin verifier v1", `${email}
+${proof}`));
+}
+
+// keyShare is the server's half of the key that encrypts an account's storage
+// keys. It is handed out only after a correct PIN, and is useless without the
+// half the client derives from the PIN itself.
+export async function keyShare(secret: string, email: string): Promise<string> {
+  return base64UrlEncode(await labelled(secret, "r2backup key share v1", email));
 }

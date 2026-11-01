@@ -650,6 +650,8 @@ func (p *panel) call(raw string) {
 	switch c.Method {
 	case "pickFolder":
 		out, err = p.pickFolderFor(c.Args)
+	case "pickFile":
+		out, err = p.pickFileFor(c.Args)
 	case "cfSignIn":
 		// The sign-in happens in the browser, which takes focus and so
 		// hides the panel; it comes back when there is an answer to show.
@@ -693,6 +695,20 @@ func (p *panel) pickFolderFor(args json.RawMessage) (any, error) {
 	p.hide()
 	defer p.show()
 	return pickFolder(a.Title, a.Button)
+}
+
+// pickFileFor shows Windows' own save or open dialog for the page: a key
+// file to export to, or one to import. Like the folder picker, the panel is
+// hidden while it is up.
+func (p *panel) pickFileFor(args json.RawMessage) (any, error) {
+	var a fileDialog
+	_ = json.Unmarshal(args, &a)
+	if a.Title == "" {
+		a.Title = "Choose a file"
+	}
+	p.hide()
+	defer p.show()
+	return pickFile(a)
 }
 
 func parseSchedule(arg string) (bool, int) {
@@ -975,6 +991,121 @@ func pickFolder(title, okLabel string) (string, error) {
 	}()
 	r := <-ch
 	return r.path, r.err
+}
+
+// fileDialog is what the page asks of a save or open dialog.
+type fileDialog struct {
+	Save   bool   `json:"save"`   // a save dialog, rather than open
+	Title  string `json:"title"`  // the window's title
+	Button string `json:"button"` // the OK button, "" for Windows' own
+	Name   string `json:"name"`   // the file name a save dialog starts with
+	// Kind and Ext name the one file type offered: "r2backup key file",
+	// "r2bkeys". Empty offers every file.
+	Kind string `json:"kind"`
+	Ext  string `json:"ext"`
+}
+
+// pickFile shows a save or open dialog and returns the chosen path, or ""
+// if it was cancelled.
+func pickFile(d fileDialog) (string, error) {
+	type result struct {
+		path string
+		err  error
+	}
+	ch := make(chan result, 1)
+	go func() {
+		runtime.LockOSThread()
+		defer runtime.UnlockOSThread()
+		path, err := pickFileSTA(d)
+		ch <- result{path, err}
+	}()
+	r := <-ch
+	return r.path, r.err
+}
+
+var (
+	clsidFileSaveDialog = windows.GUID{Data1: 0xC0B4E2F3, Data2: 0xBA21, Data3: 0x4773, Data4: [8]byte{0x8D, 0xBA, 0x33, 0x5E, 0xC9, 0x46, 0xEB, 0x8B}}
+	iidIFileSaveDialog  = windows.GUID{Data1: 0x84BCCD23, Data2: 0x5FDE, Data3: 0x4CDB, Data4: [8]byte{0xAE, 0xA4, 0xAF, 0x64, 0xB8, 0x3D, 0x78, 0xAB}}
+)
+
+// filterSpec is COMDLG_FILTERSPEC: a file type's name and its pattern.
+type filterSpec struct{ name, spec *uint16 }
+
+func pickFileSTA(d fileDialog) (string, error) {
+	if hr, _, _ := pCoInitializeEx.Call(0, 2); int32(hr) < 0 { // COINIT_APARTMENTTHREADED
+		return "", fmt.Errorf("start COM: 0x%08x", uint32(hr))
+	}
+	defer windows.CoUninitialize()
+
+	clsid, iid := &clsidFileOpenDialog, &iidIFileOpenDialog
+	if d.Save {
+		clsid, iid = &clsidFileSaveDialog, &iidIFileSaveDialog
+	}
+	var dlg unsafe.Pointer
+	hr, _, _ := pCoCreateInstance.Call(uintptr(unsafe.Pointer(clsid)), 0, 1, // CLSCTX_INPROC_SERVER
+		uintptr(unsafe.Pointer(iid)), uintptr(unsafe.Pointer(&dlg)))
+	if hr != 0 || dlg == nil {
+		return "", fmt.Errorf("open the file dialog: 0x%08x", uint32(hr))
+	}
+	defer vtbl(dlg, 2) // Release
+
+	// IFileDialog's methods, the same for both kinds.
+	const (
+		mShow, mSetFileTypes, mSetOptions, mSetFileName = 3, 4, 9, 15
+		mSetTitle, mSetOkButtonLabel, mGetResult        = 17, 18, 20
+		mSetDefaultExtension                            = 22
+	)
+	const fosForceFileSystem, fosPathMustExist, fosFileMustExist = 0x40, 0x800, 0x1000
+	opts := uintptr(fosForceFileSystem | fosPathMustExist)
+	if !d.Save {
+		opts |= fosFileMustExist
+	}
+	// No overwrite prompt: an export never replaces a file, and says so.
+	vtbl(dlg, mSetOptions, opts)
+	if d.Ext != "" {
+		kind := d.Kind
+		if kind == "" {
+			kind = d.Ext + " file"
+		}
+		name, _ := windows.UTF16PtrFromString(kind)
+		spec, _ := windows.UTF16PtrFromString("*." + d.Ext)
+		all, _ := windows.UTF16PtrFromString("All files")
+		star, _ := windows.UTF16PtrFromString("*.*")
+		types := []filterSpec{{name, spec}, {all, star}}
+		vtbl(dlg, mSetFileTypes, uintptr(len(types)), uintptr(unsafe.Pointer(&types[0])))
+		ext, _ := windows.UTF16PtrFromString(d.Ext)
+		vtbl(dlg, mSetDefaultExtension, uintptr(unsafe.Pointer(ext)))
+		runtime.KeepAlive(types)
+	}
+	if d.Name != "" {
+		name, _ := windows.UTF16PtrFromString(d.Name)
+		vtbl(dlg, mSetFileName, uintptr(unsafe.Pointer(name)))
+	}
+	title, _ := windows.UTF16PtrFromString(d.Title)
+	vtbl(dlg, mSetTitle, uintptr(unsafe.Pointer(title)))
+	if d.Button != "" {
+		ok, _ := windows.UTF16PtrFromString(d.Button)
+		vtbl(dlg, mSetOkButtonLabel, uintptr(unsafe.Pointer(ok)))
+	}
+
+	if hr := vtbl(dlg, mShow, 0); hr != 0 {
+		if uint32(hr) == 0x800704C7 { // cancelled
+			return "", nil
+		}
+		return "", fmt.Errorf("file dialog: 0x%08x", uint32(hr))
+	}
+	var item unsafe.Pointer
+	if hr := vtbl(dlg, mGetResult, uintptr(unsafe.Pointer(&item))); hr != 0 || item == nil {
+		return "", fmt.Errorf("file dialog result: 0x%08x", uint32(hr))
+	}
+	defer vtbl(item, 2)
+	var str *uint16
+	const sigdnFileSysPath = 0x80058000
+	if hr := vtbl(item, 5, sigdnFileSysPath, uintptr(unsafe.Pointer(&str))); hr != 0 || str == nil { // GetDisplayName
+		return "", fmt.Errorf("file dialog path: 0x%08x", uint32(hr))
+	}
+	defer windows.CoTaskMemFree(unsafe.Pointer(str))
+	return windows.UTF16PtrToString(str), nil
 }
 
 var (

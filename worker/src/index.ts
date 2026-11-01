@@ -6,6 +6,7 @@ import { handleRequestCode, handleVerify } from "./handlers/auth";
 import { handleGetVault, handlePutVault } from "./handlers/vault";
 import { handleGetKeys, handlePutKeys, handleDeleteKeys } from "./handlers/keys";
 import { handlePostDevice, handleGetDevices } from "./handlers/devices";
+import { handlePinVerify, handlePinSetup, handlePinReset } from "./handlers/pin";
 import { handleHealth } from "./handlers/health";
 import { handleLanding, handleLogo } from "./handlers/site";
 import { jsonResponse } from "./http";
@@ -48,6 +49,15 @@ export default {
       }
       if (url.pathname === "/auth/verify" && request.method === "POST") {
         return await handleVerify(request, ctx);
+      }
+      if (url.pathname === "/auth/pin" && request.method === "POST") {
+        return await handlePinVerify(request, ctx);
+      }
+      if (url.pathname === "/auth/pin/setup" && request.method === "POST") {
+        return await handlePinSetup(request, ctx);
+      }
+      if (url.pathname === "/auth/pin/reset" && request.method === "POST") {
+        return await handlePinReset(request, ctx);
       }
       if (url.pathname === "/vault" && request.method === "GET") {
         return await handleGetVault(request, ctx);

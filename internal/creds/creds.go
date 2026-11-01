@@ -33,17 +33,31 @@ const (
 
 // Credentials are what is needed to reach a bucket.
 type Credentials struct {
-	// Provider says which kind of storage these are for: ProviderR2 (or
-	// empty) or ProviderDrime.
+	// Provider says which kind of storage these are for: ProviderDrime, or
+	// one of the S3-compatible kinds -- ProviderR2 (or empty), ProviderB2,
+	// ProviderS3, ProviderCustom. See s3.go.
 	Provider string `json:"provider,omitempty"`
 
 	AccountID       string `json:"account_id"`
 	AccessKeyID     string `json:"access_key_id"`
 	SecretAccessKey string `json:"secret_access_key"`
 	Bucket          string `json:"bucket"`
-	// Endpoint overrides the derived R2 endpoint, or Drime's base URL. Tests
-	// point it at a local server; users never set it.
+	// Endpoint overrides the derived R2 or B2 endpoint, or Drime's base URL;
+	// tests point it at a local server. For ProviderCustom it is the
+	// endpoint the person entered.
 	Endpoint string `json:"endpoint,omitempty"`
+	// Region is the region to sign for: B2's "us-west-004", Amazon's
+	// "eu-west-1". R2 has none ("auto").
+	Region string `json:"region,omitempty"`
+	// VirtualHost puts the bucket in the hostname for a custom endpoint that
+	// wants it. Path-style is the default; Amazon S3 always uses this.
+	VirtualHost bool `json:"virtual_host,omitempty"`
+
+	// Bundle packs files into archives before they go up, so a folder of
+	// many small files costs a handful of write operations instead of one
+	// per file. It is a property of the destination: everything backed up
+	// to it is bundled, or nothing is. See internal/bundle.
+	Bundle bool `json:"bundle,omitempty"`
 
 	// DrimeToken is a Drime API token (Settings > Developer in Drime).
 	DrimeToken string `json:"drime_token,omitempty"`
@@ -66,13 +80,10 @@ func (c Credentials) Valid() error {
 		}
 		return nil
 	}
-	if c.Provider != "" && c.Provider != ProviderR2 {
+	if !knownProvider(c.Provider) {
 		return fmt.Errorf("unknown storage provider %q", c.Provider)
 	}
-	var missing []string
-	if c.AccountID == "" && c.Endpoint == "" {
-		missing = append(missing, "account id")
-	}
+	missing := c.validS3()
 	if c.AccessKeyID == "" {
 		missing = append(missing, "access key id")
 	}
@@ -150,16 +161,22 @@ func (s *Store) Save(c Credentials) error {
 	if err != nil {
 		return fmt.Errorf("encode credentials: %w", err)
 	}
-	sealed, err := s.protector.protect(plain)
+	return writeSealed(s.path, s.protector, plain)
+}
+
+// writeSealed protects plain and writes it to path, atomically and never
+// readable by anyone else, not even for an instant.
+func writeSealed(path string, p protector, plain []byte) error {
+	sealed, err := p.protect(plain)
 	if err != nil {
-		return fmt.Errorf("protect credentials with %s: %w", s.protector.name(), err)
+		return fmt.Errorf("protect secret with %s: %w", p.name(), err)
 	}
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
-		return fmt.Errorf("create directory for %q: %w", s.path, err)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return fmt.Errorf("create directory for %q: %w", path, err)
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(s.path), ".creds-*.tmp")
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".creds-*.tmp")
 	if err != nil {
-		return fmt.Errorf("create temp file beside %q: %w", s.path, err)
+		return fmt.Errorf("create temp file beside %q: %w", path, err)
 	}
 	name := tmp.Name()
 	defer os.Remove(name)
@@ -176,8 +193,8 @@ func (s *Store) Save(c Credentials) error {
 	if err := tmp.Close(); err != nil {
 		return fmt.Errorf("close %q: %w", name, err)
 	}
-	if err := os.Rename(name, s.path); err != nil {
-		return fmt.Errorf("replace %q: %w", s.path, err)
+	if err := os.Rename(name, path); err != nil {
+		return fmt.Errorf("replace %q: %w", path, err)
 	}
 	return nil
 }
@@ -218,4 +235,43 @@ func (s *Store) Delete() error {
 func (s *Store) Exists() bool {
 	info, err := os.Stat(s.path)
 	return err == nil && info.Size() > 0
+}
+
+// Secret is one small value kept under the same protection as the
+// credentials: the key that opens the keys an account keeps, for one.
+type Secret struct {
+	path      string
+	protector protector
+}
+
+// OpenSecret returns the secret stored at path.
+func OpenSecret(path string) *Secret {
+	return &Secret{path: path, protector: newProtector()}
+}
+
+// Save replaces the secret.
+func (s *Secret) Save(b []byte) error { return writeSealed(s.path, s.protector, b) }
+
+// Load reads the secret. ErrNotFound means none is stored.
+func (s *Secret) Load() ([]byte, error) {
+	sealed, err := os.ReadFile(s.path)
+	if os.IsNotExist(err) || (err == nil && len(sealed) == 0) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read %q: %w", s.path, err)
+	}
+	plain, err := s.protector.unprotect(sealed)
+	if err != nil {
+		return nil, fmt.Errorf("unlock %q with %s: %w", s.path, s.protector.name(), err)
+	}
+	return plain, nil
+}
+
+// Delete forgets the secret.
+func (s *Secret) Delete() error {
+	if err := os.Remove(s.path); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("delete %q: %w", s.path, err)
+	}
+	return nil
 }
