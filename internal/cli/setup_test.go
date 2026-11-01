@@ -36,7 +36,7 @@ type fakeWorker struct {
 	proof  string
 	share  string
 
-	wrong    int               // wrong PINs in a row; five locks the account
+	wrong int // wrong PINs in a row; five locks the account
 
 	sealed   map[string]string // {ciphertext, nonce}; nil when nothing stored
 	devices  []string
