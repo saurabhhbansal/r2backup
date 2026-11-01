@@ -92,20 +92,29 @@ A click opens the panel:
 - **Backups** (the clock icon): every backup in your storage, from every
   computer, to restore from or delete
 - **Deleted files** (the bin icon): what is in the trash and until when
-- **Settings**: your account, automatic backups and how often, Start with
-  Windows, adding a folder, updates
+- **Settings**: your account and storage, automatic backups and how often,
+  Start with Windows, adding a folder, Drime folders, exporting and importing
+  keys, updates
 
 Everything is done in the panel. Nothing sends you to a terminal.
 
-**Signing in.** The panel asks for an email address first and sends a 6-digit
-code to it — there is no password. Your account is under **Settings →
-Account**: choose where backups go (Drime or Cloudflare R2) and a second copy
-(none, Drime or R2); once a key is entered it shows as saved. The keys are kept
-with your account, so another computer signed in with the same email gets them
-without typing them again.
+**Getting started.** The first screen offers **Use without an account**: the
+storage keys stay on this computer, and **Settings → Export keys** writes them
+to an encrypted file for another one. The hosted account (for personal use) is
+the other choice: enter your email, the 6-digit code sent to it, then your PIN
+— or choose one, the first time. The PIN locks the keys the account keeps, so
+another computer signed in with the same email and PIN gets them without typing
+them again. **Forgot PIN?** sends a new code and sets a new PIN; that deletes
+the keys the account kept and signs your other computers out, but leaves your
+backups alone.
 
-**Your computers.** The Account screen lists every computer signed in to your
-account. The pencil next to this one renames it — new folders are filed under
+**Storage.** Choose where backups go under **Settings → Account**: Drime, or
+S3-compatible storage — Cloudflare R2, Backblaze B2, Amazon S3 or any other
+endpoint. Each asks only for its own details, and each has its own **Pack
+small files** switch. A second copy is chosen the same way.
+
+**Your computers.** With an account, the Account screen lists every computer
+signed in to it. The pencil next to this one renames it — new folders are filed under
 the new name, and folders already backed up keep where they are.
 
 **Deleting.** Deleting a backup — a folder's, or one another computer made —
@@ -308,8 +317,8 @@ sync` decides by size alone and skips an edit that keeps the size the same.
 
 ## A second copy
 
-The second copy keeps what is stored in one place in a second — Drime to R2 or
-R2 to Drime — so your files are with two companies, not one. In the panel,
+The second copy keeps what is stored in one place in a second — Drime to S3
+storage, or the other way — so your files are with two companies, not one. In the panel,
 choose it under **Settings → Account → Second copy**; in the terminal:
 
 ```sh
