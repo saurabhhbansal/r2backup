@@ -67,8 +67,10 @@ func NewRoot(opts *Options) *cobra.Command {
 		// not at a terminal all day, and every extra character is one they
 		// get wrong at 11pm.
 		Use:   "r2b",
-		Short: "Back up folders to Cloudflare R2 and restore them anywhere",
-		Long: "r2b mirrors folders to Cloudflare R2 and restores them anywhere.\n\n" +
+		Short: "Back up folders to Drime or S3 storage and restore them anywhere",
+		Long: "r2b backs up folders to Drime, or to S3-compatible storage (Cloudflare\n" +
+			"R2, Backblaze B2, Amazon S3 or your own endpoint), and restores them\n" +
+			"anywhere. It does what the Windows taskbar panel does.\n\n" +
 			"It does one job. There is no sync, no conflict resolution and no\n" +
 			"background service: the OS scheduler runs it and it exits.",
 		Version:       Version,
@@ -128,6 +130,9 @@ func NewRoot(opts *Options) *cobra.Command {
 		newUpdateCmd(opts),
 		newAccountCmd(opts),
 		newKeysCmd(opts),
+		newBackupsCmd(opts),
+		newPackCmd(opts),
+		newUsageCmd(opts),
 	)
 	attachDashboard(root, opts)
 	return root

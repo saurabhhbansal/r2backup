@@ -30,17 +30,21 @@ func newMirrorCmd(opts *Options) *cobra.Command {
 	)
 	cmd := &cobra.Command{
 		Use:   "mirror [set...]",
-		Short: "Copy your backups to a second place (Drime <-> R2)",
-		Long: "Copies backups from where this computer backs up to a second\n" +
-			"destination -- Drime to Cloudflare R2, or R2 to Drime -- so there is\n" +
-			"a copy with a second company. Only what changed is copied, and\n" +
-			"files removed from the backup are removed from the mirror too.\n\n" +
+		Short: "Keep a second copy of your backups somewhere else",
+		Long: "Copies backups from where this computer backs up to a second copy --\n" +
+			"Drime to S3 storage (Cloudflare R2, Backblaze B2, Amazon S3, your own),\n" +
+			"or the other way -- so there is a copy with a second company. Only\n" +
+			"what changed is copied, and files removed from the backup are removed\n" +
+			"from the second copy too. Copying back (--reverse) never removes\n" +
+			"anything from where backups go.\n\n" +
 			"  r2b mirror setup          choose the second destination\n" +
 			"  r2b mirror                mirror every set on this computer\n" +
 			"  r2b mirror Documents      mirror one set\n" +
 			"  r2b mirror --everything   mirror every computer's backups\n" +
 			"  r2b mirror --reverse      copy back from the mirror instead\n" +
-			"  r2b mirror auto on        mirror after every backup, scheduled ones too",
+			"  r2b mirror auto on        mirror after every backup, scheduled ones too\n" +
+			"  r2b mirror off            stop keeping a second copy\n" +
+			"  r2b mirror drime ...      copy Drime folders another app backs up to",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := openApp()
 			if err != nil {
@@ -56,7 +60,7 @@ func newMirrorCmd(opts *Options) *cobra.Command {
 	cmd.Flags().BoolVar(&everything, "everything", false, "mirror every computer's backups, not only this one's sets")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "say what would be copied and removed, and change nothing")
 	cmd.Flags().BoolVar(&keep, "keep", false, "never remove anything from the destination")
-	cmd.AddCommand(newMirrorSetupCmd(opts), newMirrorAutoCmd(opts), newMirrorDrimeCmd(opts))
+	cmd.AddCommand(newMirrorSetupCmd(opts), newMirrorAutoCmd(opts), newMirrorOffCmd(opts), newMirrorDrimeCmd(opts))
 	return cmd
 }
 
@@ -73,6 +77,11 @@ func newMirrorSetupCmd(opts *Options) *cobra.Command {
 			if !interactive() && opts.In == nil {
 				return errors.New("mirror setup needs a terminal")
 			}
+			if provider != "" {
+				if _, ok := remote.ParseProvider(provider); !ok {
+					return fmt.Errorf("unknown provider %q: use drime, r2, b2, s3 or s3-custom", provider)
+				}
+			}
 			a, err := openApp()
 			if err != nil {
 				return err
@@ -81,7 +90,7 @@ func newMirrorSetupCmd(opts *Options) *cobra.Command {
 			return runMirrorSetup(cmd.Context(), a, opts, provider)
 		},
 	}
-	cmd.Flags().StringVar(&provider, "provider", "", "drime or r2 (asked if not given)")
+	cmd.Flags().StringVar(&provider, "provider", "", "drime, r2, b2, s3 or s3-custom (asked if not given)")
 	return cmd
 }
 
@@ -105,19 +114,16 @@ func runMirrorSetup(ctx context.Context, a *app, opts *Options, provider string)
 		return err
 	}
 	fmt.Fprintln(p.out, "Checking the connection...")
-	store, err := openStore(ctx, c, nil)
-	if err != nil {
+	// The panel's own request: refuses the place backups already go, checks
+	// the connection, saves it, and saves the keys to the account.
+	t := backendFor(opts, a)
+	if err := t.mirrorSetup(ctx, c, true); err != nil {
 		return err
 	}
-	if _, err := store.List(ctx, "r2backup/"); err != nil {
-		return fmt.Errorf("could not read the mirror destination: %w", err)
-	}
-	if err := a.mirror.Save(c); err != nil {
-		return err
-	}
-	fmt.Fprintf(p.out, "Mirror set to %s (%s).\n", providerLabel(c), store.Bucket())
+	_ = t.pushKeys(ctx) // as after the panel's mirrorSetup (keysChange)
+	fmt.Fprintf(p.out, "Second copy: %s.\n", destLabel(c))
 
-	auto, err := confirm(p, "Mirror automatically after each backup? [Y/n]", true)
+	auto, err := confirm(p, "Copy after every backup? [Y/n]", true)
 	if err != nil {
 		return err
 	}
@@ -242,7 +248,10 @@ func runMirror(ctx context.Context, a *app, opts *Options, names []string, f mir
 	fmt.Fprintf(opts.Out, "%s %s -> %s (%s)\n", verb, srcName, dstName, dst.Bucket())
 	rep, runErr := mirror.Run(ctx, mirror.Options{
 		Src: src, Dst: dst, Prefixes: prefixes,
-		Delete: !f.keep, DryRun: f.dryRun,
+		// Copying back never removes anything from where backups go, as in
+		// the panel: it is for getting files back, and a second copy that is
+		// behind must not be able to take them away.
+		Delete: !f.keep && !f.reverse, DryRun: f.dryRun,
 		Progress: mirrorProgressPrinter(opts.Out, interactive()),
 	})
 	if rep == nil {

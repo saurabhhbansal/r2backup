@@ -8,11 +8,11 @@ import (
 	"github.com/saurabhhbansal/r2backup/internal/creds"
 )
 
-// Picking Drime asks for one token and nothing else -- no account id, no
+// Picking Drime asks for one token (and, optionally, its folder) -- no account id, no
 // bucket, no key pair, and no browser sign-in to Cloudflare.
 func TestSetupDrimeAsksOnlyForToken(t *testing.T) {
 	var out strings.Builder
-	in := strings.NewReader("1\n  tok-123  \nn\n")
+	in := strings.NewReader("1\n  tok-123  \n\nn\n")
 	p := newPrompter(&Options{Out: &out, In: in})
 	c, err := askForDestination(context.Background(), p, "")
 	if err != nil {
@@ -31,7 +31,7 @@ func TestSetupDrimeAsksOnlyForToken(t *testing.T) {
 
 func TestSetupProviderFlagSkipsQuestion(t *testing.T) {
 	var out strings.Builder
-	p := newPrompter(&Options{Out: &out, In: strings.NewReader("tok\nn\n")})
+	p := newPrompter(&Options{Out: &out, In: strings.NewReader("tok\n\nn\n")})
 	c, err := askForDestination(context.Background(), p, "drime")
 	if err != nil || !c.IsDrime() {
 		t.Fatalf("got %+v %v", c.Redacted(), err)
@@ -55,6 +55,36 @@ func TestSetupB2Preset(t *testing.T) {
 	}
 	if ep := c.S3(); ep.URL != "https://s3.us-west-004.backblazeb2.com" || ep.Region != "us-west-004" || ep.VirtualHost {
 		t.Fatalf("endpoint %+v", ep)
+	}
+}
+
+// The panel's form asks for a Drime folder, and for a custom endpoint
+// whether the bucket goes in the hostname; so does setup.
+func TestSetupAsksTheDrimeFolderAndBucketInHostname(t *testing.T) {
+	var out strings.Builder
+	p := newPrompter(&Options{Out: &out, In: strings.NewReader("tok\n /Backups/Laptop/ \nn\n")})
+	c, err := askForDestination(context.Background(), p, "drime")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.DrimeRoot != "Backups/Laptop" {
+		t.Errorf("Drime folder = %q", c.DrimeRoot)
+	}
+	if !strings.Contains(out.String(), "Folder in Drime") {
+		t.Errorf("never asked for the folder:\n%s", out.String())
+	}
+
+	out.Reset()
+	in := "https://s3.example.com/\nbkt\n\nkey\nsecret\ny\n\n"
+	c, err = askForDestination(context.Background(), newPrompter(&Options{Out: &out, In: strings.NewReader(in)}), "s3-custom")
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	if !c.VirtualHost || c.Endpoint != "https://s3.example.com" || !c.Bundle {
+		t.Fatalf("got %+v", c.Redacted())
+	}
+	if !strings.Contains(out.String(), "Bucket in the hostname") {
+		t.Errorf("never asked about the hostname:\n%s", out.String())
 	}
 }
 
