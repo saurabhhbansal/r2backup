@@ -54,7 +54,7 @@ var plainRules = []plainRule{
 		"This folder is not where it was. Nothing was deleted from your backup. Open the folder to find where it went."},
 	// Nothing connected yet.
 	{regexp.MustCompile(`(?s)no credentials on this machine yet\.?\s*Run: r2b setup`),
-		"Connect your storage first: Settings, then Storage."},
+		"Choose where backups go first: Settings, then Account."},
 	{regexp.MustCompile(`(?s)nothing is being backed up yet\.?\s*Run: r2b add <folder>`),
 		"nothing is being backed up yet. Add a folder first."},
 	{regexp.MustCompile(`(?s)(your sign-in has expired|not signed in on this computer)\.?\s*Run: r2b setup`),

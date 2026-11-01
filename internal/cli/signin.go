@@ -134,8 +134,13 @@ func (d *dashboard) ResetPIN(ctx context.Context, pin string) error {
 		return err
 	}
 	// The account has nothing now. This computer's keys, if it has any, are
-	// the obvious thing to keep there.
-	return d.PushKeys(ctx)
+	// the obvious thing to keep there. Not saving them is not a failed reset:
+	// the PIN is changed and this computer signed in, and the account screen
+	// offers to save them again.
+	if localStoredKeys(d.app).Primary != nil {
+		_ = d.PushKeys(ctx)
+	}
+	return nil
 }
 
 // SetPIN gives a computer signed in before PINs its PIN, without a new email
@@ -146,6 +151,11 @@ func (d *dashboard) SetPIN(ctx context.Context, pin string) error {
 		return err
 	}
 	s, err := accountClient().SetupPIN(ctx, token, pin)
+	if errors.Is(err, account.ErrPINAlreadySet) {
+		// The PIN was set on another computer since this one signed in. An
+		// old session cannot enter it; only the email code leads to that step.
+		return errors.New("your account already has a PIN, set on another computer. Sign in with a new email code to enter it")
+	}
 	if err != nil {
 		return pinStepErr(err)
 	}
