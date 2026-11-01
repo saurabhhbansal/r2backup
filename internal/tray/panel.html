@@ -353,6 +353,7 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
 .or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--line); }
 .warnbox { border: 1px solid color-mix(in srgb, var(--bad) 40%, var(--line)); background: color-mix(in srgb, var(--bad) 7%, var(--card)); border-radius: var(--radius); padding: 12px; margin-bottom: 16px; }
 .warnbox b { display: block; font-weight: 600; margin-bottom: 4px; }
+.notebox { border: 1px solid var(--line); background: var(--card); border-radius: var(--radius); padding: 12px; margin: 0 0 14px; }
 .warnbox p { color: var(--muted); font-size: 12px; }
 .primary.danger { background: var(--bad); color: #fff; }
 .primary.danger:hover { background: color-mix(in srgb, var(--bad) 88%, var(--bg)); }
@@ -458,7 +459,7 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
       <button class="item link" id="b-dfold"><div class="t"><b>Drime folders</b><span>Copy another app’s Drime backups to S3 storage</span></div></button>
     </div>
     <div class="group">
-      <button class="item link" id="b-export"><div class="t"><b>Export keys…</b><span>An encrypted file to set up another computer</span></div></button>
+      <button class="item link" id="b-export"><div class="t"><b>Export keys…</b><span id="b-export-sub">An encrypted file to set up another computer</span></div></button>
       <button class="item link" id="b-import"><div class="t"><b>Import keys…</b></div></button>
     </div>
     <div class="group">
@@ -720,11 +721,12 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
   </header>
   <main>
     <div class="pane">
+      <p class="notebox" id="kf-acct" hidden>You do not need a file to set up another computer: sign in there and your keys come back.</p>
       <p id="kf-lead"></p>
       <div class="field" id="kf-file-f"><span>Key file</span><div class="inline"><div class="pathbox" id="kf-file">No file chosen</div><button class="mini" id="kf-pick">Choose…</button></div></div>
       <label class="field"><span>Passphrase</span><input id="kf-pass" type="password" autocomplete="new-password" spellcheck="false" minlength="8"></label>
       <label class="field" id="kf-pass2-f"><span>Passphrase again</span><input id="kf-pass2" type="password" autocomplete="new-password" spellcheck="false" minlength="8"></label>
-      <p class="hint">At least 8 characters. Without it the file cannot be opened, by anyone.</p>
+      <p class="hint" id="kf-hint"></p>
       <div class="err-line" id="kf-err" hidden></div>
       <button class="primary" id="kf-go"><span>Choose where to save…</span></button>
     </div>
@@ -884,6 +886,11 @@ function render(state) {
   if (needGate(state)) showGate(state.needsPin ? "set" : "start");
   else if ($("sheet-signin").classList.contains("open") && !G.manual) closeGate();
   $("b-restore").disabled = $("b-trash").disabled = !state.configured;
+  // Signed in, another computer gets the keys by signing in. A file is for
+  // computers that will not.
+  $("b-export-sub").textContent = onAccount()
+    ? "Not needed with your account: signing in brings your keys"
+    : "An encrypted file to set up another computer";
 
   const st = $("status");
   st.className = "status k-" + state.status.kind;
@@ -2402,14 +2409,22 @@ $("b-dfold").onclick = () => openDrimeFolders();
 // --- key files: moving storage keys without an account ------------------------------------------
 
 const KF = { mode: "export", path: "" };
+// onAccount is a sign-in that can bring keys to another computer.
+function onAccount() { return !!(S && S.signedIn && !S.needsPin); }
+
 function openKeys(mode) {
   KF.mode = mode; KF.path = "";
   ["kf-pass", "kf-pass2"].forEach((id) => { $(id).value = ""; });
   $("kf-title").textContent = mode === "export" ? "Export keys" : "Import keys";
   $("kf-lead").textContent = mode === "export"
-    ? "Saves where backups go and the second copy to a file, encrypted with a passphrase. Import it on your other computer."
+    ? "Saves where backups go and the second copy to a file, encrypted with a passphrase. Import it on a computer that will not sign in."
     : "Opens a key file made with Export keys. Its keys replace the ones on this computer.";
   $("kf-pass2-f").hidden = mode !== "export";
+  $("kf-acct").hidden = !(mode === "export" && onAccount());
+  // Not the PIN: the account stops guesses after five, a file cannot.
+  $("kf-hint").textContent = mode === "export"
+    ? "At least 8 characters, and not your PIN: anyone with the file can keep guessing. Without it the file cannot be opened, by anyone."
+    : "The passphrase chosen when the file was made.";
   $("kf-pass").autocomplete = mode === "export" ? "new-password" : "current-password";
   $("kf-file-f").hidden = mode === "export";
   $("kf-file").textContent = "No file chosen";
