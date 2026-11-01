@@ -43,7 +43,7 @@ func bucketWithABackupInIt(t *testing.T) (*remote.Client, creds.Credentials) {
 
 // TestSetupOnASecondComputer runs the real `setup` command, through cobra,
 // with nothing on the machine at all: no credentials, no sets.json, no index.
-// An email address, a code and a password are the only things carried over
+// An email address, a code and the PIN are the only things carried over
 // from the first computer, and at the end this one can see what is in the
 // bucket.
 func TestSetupOnASecondComputer(t *testing.T) {
@@ -56,7 +56,7 @@ func TestSetupOnASecondComputer(t *testing.T) {
 	var out, errOut bytes.Buffer
 	opts := &Options{
 		Out: &out, Err: &errOut,
-		In: strings.NewReader("me@example.com\n123456\nhunter2hunter2\n"),
+		In: strings.NewReader("me@example.com\n123456\n" + testPIN + "\n"),
 	}
 	root := NewRoot(opts)
 	root.SetOut(&out)
