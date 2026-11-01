@@ -23,7 +23,8 @@ import (
 //
 //	R2B_PANEL_PREVIEW=127.0.0.1:8765 go test ./internal/cli -run TestPanelPreview -timeout 0
 //
-// The account's email code is 123456. Storage is not reached: connecting
+// The account's email code is 123456 (with R2B_PANEL_PREVIEW_LIVE=1, the
+// real service is used instead). Storage is not reached: connecting
 // saves the keys as typed, and copies run against a timer.
 func TestPanelPreview(t *testing.T) {
 	addr := os.Getenv("R2B_PANEL_PREVIEW")
@@ -31,10 +32,16 @@ func TestPanelPreview(t *testing.T) {
 		t.Skip("set R2B_PANEL_PREVIEW=host:port to preview the panel")
 	}
 	tb := trayForTest(t)
-	w, stop := newFakeWorker(t)
-	defer stop()
-	// The panel reads who is signed in from the session token itself.
-	w.token = fakeToken(`{"sub":"me@example.com","exp":4000000000}`)
+	// R2B_PANEL_PREVIEW_LIVE=1 signs in with the real account service
+	// instead of the fake: a real email arrives, and the account is real.
+	if os.Getenv("R2B_PANEL_PREVIEW_LIVE") != "" {
+		t.Setenv("R2BACKUP_MACHINE", "panel-preview") // how it is listed on the account
+	} else {
+		w, stop := newFakeWorker(t)
+		defer stop()
+		// The panel reads who is signed in from the session token itself.
+		w.token = fakeToken(`{"sub":"me@example.com","exp":4000000000}`)
+	}
 	page, err := os.ReadFile(filepath.Join("..", "tray", "panel.html"))
 	if err != nil {
 		t.Fatal(err)
