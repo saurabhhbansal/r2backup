@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -50,6 +51,10 @@ type Entry struct {
 	// Interval is how often the entry fires. Every platform here renders it
 	// as a fixed repetition, not a specific time of day.
 	Interval time.Duration
+	// DailyAt, as "HH:MM" on a 24-hour clock, makes the entry fire once a day
+	// at that time instead of on a repeating interval; Interval is then
+	// ignored. Only Windows' Task Scheduler supports it so far.
+	DailyAt string
 	// BinaryPath is the absolute path to the r2backup executable to run.
 	BinaryPath string
 	// Args are passed to BinaryPath verbatim, e.g. []string{"run", "--all"}.
@@ -67,11 +72,51 @@ func (e Entry) validate() error {
 	if e.BinaryPath == "" {
 		return errors.New("schedule: Entry.BinaryPath must not be empty")
 	}
+	if e.DailyAt != "" {
+		_, _, err := ParseDailyAt(e.DailyAt)
+		return err
+	}
 	if e.Interval <= 0 {
 		return fmt.Errorf("schedule: Entry.Interval must be positive, got %s", e.Interval)
 	}
 	return nil
 }
+
+// MinIntervalMinutes and MaxIntervalMinutes bound how often a repeating
+// schedule may fire: more often than every five minutes is hammering the
+// storage, and less often than daily is what DailyAt is for.
+const (
+	MinIntervalMinutes = 5
+	MaxIntervalMinutes = 24 * 60
+)
+
+// ValidateIntervalMinutes says what is wrong with a number of minutes between
+// runs, or returns nil.
+func ValidateIntervalMinutes(n int) error {
+	if n < MinIntervalMinutes || n > MaxIntervalMinutes {
+		return fmt.Errorf("pick a time between %d minutes and 24 hours", MinIntervalMinutes)
+	}
+	return nil
+}
+
+// ParseDailyAt reads "HH:MM" (24-hour; "9:05" is fine) and returns the hour
+// and minute.
+func ParseDailyAt(s string) (hour, minute int, err error) {
+	h, m, ok := strings.Cut(strings.TrimSpace(s), ":")
+	if ok {
+		hour, err = strconv.Atoi(h)
+		if err == nil {
+			minute, err = strconv.Atoi(m)
+		}
+	}
+	if !ok || err != nil || len(m) != 2 || hour < 0 || hour > 23 || minute < 0 || minute > 59 {
+		return 0, 0, fmt.Errorf("a time of day looks like 21:30, got %q", s)
+	}
+	return hour, minute, nil
+}
+
+// FormatDailyAt normalises a time of day to "HH:MM".
+func FormatDailyAt(hour, minute int) string { return fmt.Sprintf("%02d:%02d", hour, minute) }
 
 // Status reports what the OS scheduler currently knows about an Entry.
 //
@@ -83,6 +128,8 @@ func (e Entry) validate() error {
 type Status struct {
 	Registered bool
 	Interval   time.Duration
+	// DailyAt is "HH:MM" when the entry fires once a day, and "" otherwise.
+	DailyAt string
 	NextRun    time.Time
 	LastRun    time.Time
 	LastResult string
@@ -97,6 +144,10 @@ type Status struct {
 // ErrUnsupported is wrapped into the error every function in this package
 // returns on a platform with no implementation.
 var ErrUnsupported = errors.New("schedule: platform not supported")
+
+// ErrDailyUnsupported is returned by Install on platforms that can only
+// repeat on an interval.
+var ErrDailyUnsupported = errors.New("running once a day at a set time isn't available on this computer yet; pick how often instead")
 
 // unsupportedError is shared by schedule_unsupported.go's Install, Remove
 // and Current so the three fail identically instead of each hand-rolling a

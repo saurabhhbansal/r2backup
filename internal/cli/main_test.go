@@ -19,6 +19,8 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 	os.Setenv(config.EnvDataDir, dir)
+	// Nothing a test does may register a real scheduled task or sign-in entry.
+	firstRunDefaults = func() {}
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)

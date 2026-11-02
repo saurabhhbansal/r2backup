@@ -592,6 +592,15 @@ func (p *panel) onMessage(raw string) {
 			return "Added " + filepath.Base(path) + ". Backing it up now.", nil
 		})
 	case "schedule":
+		if at, ok := strings.CutPrefix(m.Arg, "daily:"); ok {
+			go p.do(func() (string, error) {
+				if err := p.be.SetScheduleDaily(p.ctx, at); err != nil {
+					return "", err
+				}
+				return "Backing up every day at " + at + ".", nil
+			})
+			break
+		}
 		on, every := parseSchedule(m.Arg)
 		go p.do(func() (string, error) {
 			if err := p.be.SetSchedule(p.ctx, on, every); err != nil {
@@ -955,6 +964,11 @@ func startAtLogin() bool {
 	_, _, err = k.GetStringValue(runValue())
 	return err == nil
 }
+
+// SetStartAtLogin turns starting with Windows on or off. The first setup
+// calls it too, so a new computer starts r2backup at sign-in without being
+// asked to.
+func SetStartAtLogin(on bool) error { return setStartAtLogin(on) }
 
 func setStartAtLogin(on bool) error {
 	k, _, err := registry.CreateKey(registry.CURRENT_USER, runKey, registry.SET_VALUE)

@@ -240,7 +240,7 @@ func (d *dashboard) PullKeys(ctx context.Context) error {
 		if err := reachable(ctx, *remote.Primary); err != nil {
 			return fmt.Errorf("your account has keys saved, but %w", err)
 		}
-		if err := a.creds.Save(*remote.Primary); err != nil {
+		if err := a.saveCreds(*remote.Primary); err != nil {
 			return err
 		}
 		d.forgetClient()

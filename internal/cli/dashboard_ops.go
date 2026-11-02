@@ -335,7 +335,7 @@ func (d *dashboard) SaveKeys(ctx context.Context, k ui.Keys) error {
 	if err := c.Valid(); err != nil {
 		return err
 	}
-	if err := a.creds.Save(c); err != nil {
+	if err := a.saveCreds(c); err != nil {
 		return err
 	}
 	// Drop any client cached from the credentials these just replaced -- see
