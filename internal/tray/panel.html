@@ -1881,6 +1881,7 @@ async function openAccount() {
   if (!AC.info) $("ac-main").innerHTML = '<div class="note">Loading…</div>';
   try { AC.info = await call("accountConfig"); }
   catch (e) { AC.info = Object.assign({}, AC.info || {}, { err: e.message }); }
+  U.info = await call("ultraInfo").catch(() => null);
   if (AC.info.needsPin) { showGate("set"); return; }
   acDraw();
 }
@@ -1920,6 +1921,7 @@ function acDraw() {
   if (!showSecond) { /* nothing to show */ } else if (s) {
     html += destBlock(s, "second") +
       '<div class="item"><div class="t"><b>Copy after every backup</b></div><button class="toggle" id="ac-auto" role="switch" aria-checked="' + !!a.auto + '" aria-label="Copy after every backup"></button></div>' +
+      ultraItem(U.info) +
       '<button class="item link" id="ac-copy"><div class="t"><b>Copy now…</b></div></button>' +
       '<button class="item link danger" id="ac-s-off"><div class="t"><b>Stop keeping a second copy</b></div></button>';
   } else {
@@ -1966,6 +1968,7 @@ function acDraw() {
     try { await call("mirrorAuto", { on }); $("ac-auto").setAttribute("aria-checked", on); AC.info.auto = on; toast(on ? "Copying after every backup." : "Copying after every backup is off."); }
     catch (e) { toast(e.message); }
   };
+  bindUltra(m, openAccount);
   if ($("ac-copy")) $("ac-copy").onclick = () => openMirror();
   if ($("ac-s-off")) $("ac-s-off").onclick = () => ask({
     title: "Stop keeping a second copy?", go: "Stop", danger: false,
@@ -2485,7 +2488,7 @@ function dfDraw() {
     }
     html += '<div class="group"><button class="item link" id="df-add"><div class="t"><b>Add a Drime folder…</b></div></button>' +
       (d.sources.length > 1 ? '<button class="item link" id="df-all"><div class="t"><b>Copy all now</b></div></button>' : "") + "</div>";
-    if (d.sources.length) html += ultraRow(U.info);
+    html += ultraRow(U.info);
   }
   pane.innerHTML = html;
   bindUltra(pane, openDrimeFolders);
@@ -2538,12 +2541,18 @@ $("b-dfold").onclick = () => openDrimeFolders();
 // first; nothing is set up until they agree and paste a token.
 
 const U = { info: null, back: null };
-function ultraRow(u) {
+// ultraItem is the switch alone, for a group that already exists; ultraRow
+// is the switch in a group of its own.
+function ultraItem(u) {
   if (!u || !(u.applies || u.on)) return "";
   const sub = u.on ? "On. Drime files go to S3 storage cloud to cloud, through your Cloudflare account" + (u.account ? " (" + u.account + ")" : "") + "."
     : "Experimental. Copies Drime files to S3 storage cloud to cloud, not through this PC.";
-  return '<div class="group"><div class="item"><div class="t"><b>Ultra fast mode</b><span>' + esc(sub) + "</span></div>" +
-    '<button class="toggle" data-ultra role="switch" aria-checked="' + !!u.on + '" aria-label="Ultra fast mode"></button></div></div>';
+  return '<div class="item"><div class="t"><b>Ultra fast mode</b><span>' + esc(sub) + "</span></div>" +
+    '<button class="toggle" data-ultra role="switch" aria-checked="' + !!u.on + '" aria-label="Ultra fast mode"></button></div>';
+}
+function ultraRow(u) {
+  const item = ultraItem(u);
+  return item ? '<div class="group">' + item + "</div>" : "";
 }
 function bindUltra(pane, back) {
   const b = pane.querySelector("[data-ultra]");
