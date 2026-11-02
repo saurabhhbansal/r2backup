@@ -698,18 +698,18 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
 
 <section class="sheet" id="sheet-ultra" aria-label="Ultra fast mode">
   <header>
-    <button class="icon-btn" id="u-back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button>
+    <button class="icon-btn" id="ux-back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button>
     <b>Ultra fast mode</b>
   </header>
-  <main id="u-main">
+  <main id="ux-main">
     <div class="pane">
-      <div class="notebox" id="u-note"></div>
-      <label class="field"><span>Cloudflare API token</span><input id="u-token" type="password" autocomplete="off" spellcheck="false"></label>
-      <button class="textbtn getlink" id="u-token-l">Make a token at Cloudflare</button>
-      <p class="lead" id="u-help"></p>
-      <label class="field" id="u-acct-f" hidden><span>Cloudflare account</span><select id="u-acct"></select></label>
-      <div class="err-line" id="u-err" hidden></div>
-      <button class="primary" id="u-go"><span>Agree and turn on</span></button>
+      <div class="notebox" id="ux-note"></div>
+      <label class="field"><span>Cloudflare API token</span><input id="ux-token" type="password" autocomplete="off" spellcheck="false"></label>
+      <button class="textbtn getlink" id="ux-token-l">Make a token at Cloudflare</button>
+      <p class="lead" id="ux-help"></p>
+      <label class="field" id="ux-acct-f" hidden><span>Cloudflare account</span><select id="ux-acct"></select></label>
+      <div class="err-line" id="ux-err" hidden></div>
+      <button class="primary" id="ux-go"><span>Agree and turn on</span></button>
     </div>
   </main>
 </section>
@@ -2564,36 +2564,36 @@ function bindUltra(pane, back) {
 }
 function openUltra(back) {
   U.back = back;
-  $("u-note").innerHTML = U.info.note.split(/\n\n/).map((p) => "<p>" + esc(p) + "</p>").join("");
-  $("u-help").textContent = U.info.tokenHelp;
-  $("u-token").value = "";
-  $("u-acct").innerHTML = "";
-  $("u-acct-f").hidden = true;
-  showErr("u-err", "");
+  $("ux-note").innerHTML = U.info.note.split(/\n\n/).map((p) => "<p>" + esc(p) + "</p>").join("");
+  $("ux-help").textContent = U.info.tokenHelp;
+  $("ux-token").value = "";
+  $("ux-acct").innerHTML = "";
+  $("ux-acct-f").hidden = true;
+  showErr("ux-err", "");
   openSheet("sheet-ultra");
-  $("u-main").scrollTop = 0;
+  $("ux-main").scrollTop = 0;
 }
-$("u-back").onclick = () => closeSheet("sheet-ultra");
-$("u-token-l").onclick = () => send("open", "https://dash.cloudflare.com/profile/api-tokens");
-$("u-go").onclick = () => working($("u-go"), "Setting up…", async () => {
-  showErr("u-err", "");
-  const token = $("u-token").value.trim();
-  if (!token) { showErr("u-err", "Paste the Cloudflare API token."); $("u-token").focus(); return; }
+$("ux-back").onclick = () => closeSheet("sheet-ultra");
+$("ux-token-l").onclick = () => send("open", "https://dash.cloudflare.com/profile/api-tokens");
+$("ux-go").onclick = () => working($("ux-go"), "Setting up…", async () => {
+  showErr("ux-err", "");
+  const token = $("ux-token").value.trim();
+  if (!token) { showErr("ux-err", "Paste the Cloudflare API token."); $("ux-token").focus(); return; }
   try {
-    const res = await call("ultraOn", { token, account: $("u-acct-f").hidden ? "" : $("u-acct").value });
+    const res = await call("ultraOn", { token, account: $("ux-acct-f").hidden ? "" : $("ux-acct").value });
     if (res.accounts && res.accounts.length) {
-      $("u-acct").innerHTML = res.accounts.map((a) => '<option value="' + esc(a.id) + '">' + esc(a.name) + "</option>").join("");
-      $("u-acct-f").hidden = false;
-      showErr("u-err", "This token reaches more than one Cloudflare account. Choose one, then turn it on.");
+      $("ux-acct").innerHTML = res.accounts.map((a) => '<option value="' + esc(a.id) + '">' + esc(a.name) + "</option>").join("");
+      $("ux-acct-f").hidden = false;
+      showErr("ux-err", "This token reaches more than one Cloudflare account. Choose one, then turn it on.");
       return;
     }
     U.info = res;
     closeSheet("sheet-ultra");
     if (U.back) U.back();
     toast(res.warming ? "Ultra fast mode is on. Its new address can take a few minutes to start working; until then, copies go through this PC." : "Ultra fast mode is on.");
-  } catch (e) { showErr("u-err", e.message); }
+  } catch (e) { showErr("ux-err", e.message); }
 });
-$("u-token").addEventListener("keydown", (e) => { if (e.key === "Enter" && !$("u-go").disabled) $("u-go").click(); });
+$("ux-token").addEventListener("keydown", (e) => { if (e.key === "Enter" && !$("ux-go").disabled) $("ux-go").click(); });
 
 // --- key files: moving storage keys without an account ------------------------------------------
 
