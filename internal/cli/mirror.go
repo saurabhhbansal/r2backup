@@ -88,6 +88,12 @@ func newMirrorSetupCmd(opts *Options) *cobra.Command {
 				return err
 			}
 			defer a.close()
+			// S3 storage only has no second copy, as in the panel. Switching
+			// to the first purpose sets one up.
+			if currentPurpose(a) == purposeS3 && !a.mirror.Exists() {
+				return errors.New("this computer is set up for S3 storage only, which has no second copy. " +
+					"To back up to Drime with a second copy: r2b setup purpose both")
+			}
 			return runMirrorSetup(cmd.Context(), a, opts, provider)
 		},
 	}
@@ -116,25 +122,17 @@ func runMirrorSetup(ctx context.Context, a *app, opts *Options, provider string)
 	}
 	fmt.Fprintln(p.out, "Checking the connection...")
 	// The panel's own request: refuses the place backups already go, checks
-	// the connection, saves it, and saves the keys to the account.
+	// the connection, saves it, turns on copying after every backup, and
+	// saves the keys to the account. Copying starts by itself, as it does
+	// when a second copy is added in the panel.
 	t := backendFor(opts, a)
 	if err := t.mirrorSetup(ctx, c, true); err != nil {
 		return err
 	}
 	_ = t.pushKeys(ctx) // as after the panel's mirrorSetup (keysChange)
-	fmt.Fprintf(p.out, "Second copy: %s.\n", destLabel(c))
-
-	auto, err := confirm(p, "Copy after every backup? [Y/n]", true)
-	if err != nil {
-		return err
-	}
-	if err := setMirrorAuto(auto); err != nil {
-		return err
-	}
-	if auto {
-		fmt.Fprintln(p.out, "On. Each backup will be copied there once it finishes.")
-	}
+	fmt.Fprintf(p.out, "Second copy: %s. Each backup is copied there once it finishes.\n", destLabel(c))
 	fmt.Fprintln(p.out, "To copy everything now: r2b mirror")
+	fmt.Fprintln(p.out, "To stop copying after every backup: r2b mirror auto off")
 	return nil
 }
 
@@ -164,7 +162,7 @@ func newMirrorAutoCmd(opts *Options) *cobra.Command {
 				return err
 			}
 			if on {
-				fmt.Fprintln(opts.Out, "Backups will be mirrored after each run.")
+				fmt.Fprintln(opts.Out, "Copying after every backup.")
 			} else {
 				fmt.Fprintln(opts.Out, "Automatic mirroring is off. r2b mirror still works by hand.")
 			}
@@ -215,6 +213,24 @@ func runMirror(ctx context.Context, a *app, opts *Options, names []string, f mir
 	defer closeStores(a.client, src, dst)
 	if srcName == dstName && src.Bucket() == dst.Bucket() {
 		return errors.New("the mirror is the same place as the main destination")
+	}
+	// The panel's Copy back: every computer's backups, filling in what is
+	// missing and removing nothing, after a second press.
+	if f.reverse {
+		if len(names) == 0 {
+			f.everything = true
+		}
+		if !f.dryRun {
+			ok, err := decide(opts, newPrompter(opts), "Copy back from "+srcName+" to "+dstName+
+				"? Fills in what’s missing. Removes nothing. [y/N]", false)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				fmt.Fprintln(opts.Out, "Nothing copied.")
+				return nil
+			}
+		}
 	}
 
 	var prefixes []string

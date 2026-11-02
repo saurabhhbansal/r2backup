@@ -10,12 +10,12 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/saurabhhbansal/r2backup/internal/backup"
 	"github.com/saurabhhbansal/r2backup/internal/config"
-	"github.com/saurabhhbansal/r2backup/internal/index"
 	"github.com/saurabhhbansal/r2backup/internal/progress"
 	"github.com/saurabhhbansal/r2backup/internal/remote"
 	"github.com/saurabhhbansal/r2backup/internal/restore"
@@ -23,7 +23,6 @@ import (
 	"github.com/saurabhhbansal/r2backup/internal/scan"
 	"github.com/saurabhhbansal/r2backup/internal/schedule"
 	"github.com/saurabhhbansal/r2backup/internal/sets"
-	"github.com/saurabhhbansal/r2backup/internal/trash"
 	"github.com/saurabhhbansal/r2backup/internal/tui"
 	"github.com/saurabhhbansal/r2backup/internal/winconsole"
 	"github.com/spf13/cobra"
@@ -71,7 +70,15 @@ func newAddCmd(opts *Options) *cobra.Command {
 				return fmt.Errorf("%q is not a folder", root)
 			}
 			if name == "" {
-				name = filepath.Base(root)
+				// The panel's suggestion: the folder's own name, "Drive D"
+				// for a whole drive, and a number when the name is taken.
+				name = suggestName(root)
+				for i := 2; i < 100; i++ {
+					if _, err := a.sets.Get(name); err != nil {
+						break
+					}
+					name = fmt.Sprintf("%s %d", suggestName(root), i)
+				}
 			}
 			// Checked here as well as in sets.Add, so a bad name costs the
 			// user an error rather than a full scan of the folder first.
@@ -141,6 +148,8 @@ func newAddCmd(opts *Options) *cobra.Command {
 			// the one way sets.Add will not mistake for "unset".
 			if retention <= 0 {
 				s.RetentionDays = sets.RetentionDisabled
+			} else if !retentionChoices[retention] {
+				return fmt.Errorf("keep deleted files for 7, 14, 30, 60, 90, 180 or 365 days, or 0 for not at all")
 			}
 			if err := a.sets.Add(s); err != nil {
 				return err
@@ -162,7 +171,7 @@ func newAddCmd(opts *Options) *cobra.Command {
 	cmd.Flags().IntVar(&interval, "every", schedule.DefaultIntervalMinutes,
 		"minutes between automatic backups, if you accept the offer to set them up")
 	cmd.Flags().IntVar(&retention, "retention", sets.DefaultRetentionDays,
-		"days to keep deleted and overwritten files; 0 disables trash")
+		"days to keep deleted and overwritten files: 7, 14, 30, 60, 90, 180 or 365, or 0 to keep none")
 	cmd.Flags().BoolVar(&all, "all", false, "skip the picker and include everything")
 	cmd.Flags().StringVar(&name, "name", "", "name for this set (default: the folder's name)")
 	return cmd
@@ -426,10 +435,9 @@ func printStatus(a *app, opts *Options) error {
 			} else if last.Error != "" {
 				fmt.Fprintf(opts.Out, "  last run %s — failed: %s\n", when, last.Error)
 			} else {
-				fmt.Fprintf(opts.Out, "  last run %s — %s uploaded, %s unchanged, %s operations\n",
+				fmt.Fprintf(opts.Out, "  last run %s — %s uploaded, %s unchanged\n",
 					when, progress.FormatCount(int64(last.Uploaded)),
-					progress.FormatCount(int64(last.Unchanged)),
-					progress.FormatCount(int64(last.Operations)))
+					progress.FormatCount(int64(last.Unchanged)))
 				if last.Failures > 0 || last.Collisions > 0 || last.Problems > 0 {
 					fmt.Fprintf(opts.Out, "  %d failed, %d unreadable, %d name collisions\n",
 						last.Failures, last.Problems, last.Collisions)
@@ -441,14 +449,6 @@ func printStatus(a *app, opts *Options) error {
 		fmt.Fprintln(opts.Out)
 	}
 
-	// The operation count against the free tier, counted locally because we
-	// perform every one of them ourselves.
-	if used, resetAt, err := idx.OpsThisMonth(); err == nil {
-		fmt.Fprintf(opts.Out, "Operations this month: %s of %s free (resets %s)\n",
-			progress.FormatCount(int64(used)),
-			progress.FormatCount(int64(index.FreeTierOpsPerMonth)),
-			resetAt.Format("2 Jan"))
-	}
 	if st, err := scheduleCurrent(scheduleName()); err == nil && st.Registered {
 		if st.Interval > 0 {
 			fmt.Fprintf(opts.Out, "Scheduled: every %s\n", progress.FormatInterval(st.Interval))
@@ -524,20 +524,29 @@ func watchProgress(ctx context.Context, opts *Options) error {
 }
 
 func newListCmd(opts *Options) *cobra.Command {
-	return &cobra.Command{
-		Use:   "ls [set]",
+	var machine string
+	cmd := &cobra.Command{
+		Use:   "ls [set] [folder]",
 		Short: "What is in the backup",
-		Args:  cobra.MaximumNArgs(1),
+		Long: "With no set, how many files each folder on this computer has backed up.\n" +
+			"With a set, what its backup holds in storage, one folder at a time, as\n" +
+			"the panel's Restore shows it: any computer's backup (--machine), and\n" +
+			"backups no folder here uses.",
+		Args: cobra.MaximumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := openApp()
 			if err != nil {
 				return err
 			}
 			defer a.close()
-			var only string
-			if len(args) == 1 {
-				only = args[0]
+			if len(args) >= 1 {
+				dir := ""
+				if len(args) == 2 {
+					dir = args[1]
+				}
+				return listStored(cmd.Context(), a, opts.Out, args[0], machine, dir)
 			}
+			var only string
 			list, err := a.resolveSets(only)
 			if err != nil {
 				return err
@@ -553,19 +562,60 @@ func newListCmd(opts *Options) *cobra.Command {
 					return err
 				}
 				fmt.Fprintf(opts.Out, "%s: %s\n", s.Name, countOf(int64(n), "object", "objects"))
-				if only != "" {
-					recs, err := idx.All(s.Name)
-					if err != nil {
-						return err
-					}
-					for _, r := range recs {
-						fmt.Fprintf(opts.Out, "  %10s  %s\n", progress.FormatBytes(r.Size), r.Key)
-					}
-				}
 			}
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&machine, "machine", "", "list another computer's backup")
+	return cmd
+}
+
+// listStored prints one folder of what a backup holds in storage: folders
+// first, each with its size and file count, then files with size and date.
+func listStored(ctx context.Context, a *app, out io.Writer, set, machine, dir string) error {
+	if err := a.connect(ctx); err != nil {
+		return err
+	}
+	root, err := storedTree(ctx, a, set, machine)
+	if err != nil {
+		return err
+	}
+	n := root.at(dir)
+	if n == nil || !n.dir {
+		return fmt.Errorf("%q is not a folder in this backup", strings.Trim(dir, "/"))
+	}
+	where := set
+	if d := strings.Trim(dir, "/"); d != "" {
+		where += "/" + d
+	}
+	fmt.Fprintf(out, "%s: %s, %s\n", where, countOf(int64(n.files), "file", "files"), progress.FormatBytes(n.size))
+	names := make([]string, 0, len(n.kids))
+	for name := range n.kids {
+		names = append(names, name)
+	}
+	sort.Slice(names, func(i, j int) bool {
+		x, y := n.kids[names[i]], n.kids[names[j]]
+		if x.dir != y.dir {
+			return x.dir
+		}
+		return strings.ToLower(names[i]) < strings.ToLower(names[j])
+	})
+	for _, name := range names {
+		k := n.kids[name]
+		if k.dir {
+			fmt.Fprintf(out, "  %10s  %s/  (%s)\n", progress.FormatBytes(k.size), name, countOf(int64(k.files), "file", "files"))
+			continue
+		}
+		when := ""
+		if !k.mod.IsZero() {
+			when = "  " + k.mod.Local().Format("2 Jan 2006 15:04")
+		}
+		fmt.Fprintf(out, "  %10s  %s%s\n", progress.FormatBytes(k.size), name, when)
+	}
+	if len(names) > 0 {
+		fmt.Fprintf(out, "To bring some back: r2b restore %s --only <path> (repeat --only for more)\n", set)
+	}
+	return nil
 }
 
 // countOf renders a count with its noun, singular or plural: "1 object",
@@ -750,24 +800,64 @@ func offerSchedule(opts *Options, every int) {
 // mirror are moved to trash on the way out, so they stay recoverable for the
 // set's retention window exactly like a deleted file.
 func newEditCmd(opts *Options) *cobra.Command {
-	var retention int
+	var (
+		retention        int
+		exclude, include []string
+	)
 	cmd := &cobra.Command{
 		Use:   "edit <set>",
 		Short: "Change what is included in a set, or how long deleted files are kept",
-		Long: "Reopens the folder picker with the current selection, then backs up\n" +
-			"with whatever you choose. Newly excluded files move to trash, so\n" +
-			"they stay recoverable.\n\n" +
+		Long: "Reopens the folder picker with the current selection. The change\n" +
+			"applies at the next backup, and you can back up now. Newly excluded\n" +
+			"files move to deleted files, so they stay recoverable.\n\n" +
+			"--exclude and --include change one path (inside the folder) each,\n" +
+			"without the picker, as the panel's switches do.\n\n" +
 			"With --retention, changes how long deleted files are kept instead:\n" +
 			"7, 14, 30, 60, 90, 180 or 365 days, as in the panel.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(exclude)+len(include) > 0 {
+				err := withBackend(opts, func(t *trayBackend) error {
+					for _, ch := range []struct {
+						paths []string
+						ex    bool
+						word  string
+					}{{exclude, true, "Excluded"}, {include, false, "Included"}} {
+						for _, p := range ch.paths {
+							p = strings.Trim(filepath.ToSlash(p), "/")
+							if _, err := t.Call(cmd.Context(), "folderExclude",
+								mustJSON(map[string]any{"name": args[0], "path": p, "exclude": ch.ex})); err != nil {
+								return err
+							}
+							fmt.Fprintf(opts.Out, "%s %s.\n", ch.word, p)
+						}
+					}
+					return nil
+				})
+				if err != nil {
+					return err
+				}
+				a, err := openApp()
+				if err != nil {
+					return err
+				}
+				defer a.close()
+				s, err := a.sets.Get(args[0])
+				if err != nil {
+					return err
+				}
+				if err := a.connect(cmd.Context()); err != nil {
+					return err
+				}
+				return offerBackupAfterEdit(cmd.Context(), a, opts, s)
+			}
 			if cmd.Flags().Changed("retention") {
 				return withBackend(opts, func(t *trayBackend) error {
 					if _, err := t.Call(cmd.Context(), "folderRetention",
 						mustJSON(map[string]any{"name": args[0], "days": retention})); err != nil {
 						return err
 					}
-					fmt.Fprintf(opts.Out, "Deleted files in %s are kept for %d days.\n", args[0], retention)
+					fmt.Fprintf(opts.Out, "Deleted files in %s are kept for %s.\n", args[0], keepLabel(retention))
 					return nil
 				})
 			}
@@ -824,6 +914,8 @@ func newEditCmd(opts *Options) *cobra.Command {
 	}
 	cmd.Flags().IntVar(&retention, "retention", sets.DefaultRetentionDays,
 		"days to keep deleted files: 7, 14, 30, 60, 90, 180 or 365 (skips the picker)")
+	cmd.Flags().StringArrayVar(&exclude, "exclude", nil, "stop backing up this path inside the folder (repeat for more; skips the picker)")
+	cmd.Flags().StringArrayVar(&include, "include", nil, "back this excluded path up again (repeat for more; skips the picker)")
 	return cmd
 }
 
@@ -849,17 +941,22 @@ func finishEdit(ctx context.Context, a *app, opts *Options, s sets.Set, chosen [
 		fmt.Fprintf(opts.Out, "  now included: %s\n", e)
 	}
 	if len(added) > 0 {
-		fmt.Fprintln(opts.Out, "Excluded files move to trash and stay recoverable.")
+		fmt.Fprintln(opts.Out, "Excluded files move to deleted files at the next backup, and stay recoverable.")
 	}
+	return offerBackupAfterEdit(ctx, a, opts, s)
+}
 
-	// `edit` has always backed up right after saving, unlike the dashboard's
-	// `e`, which only saves and points at `b`. Whether it should is a
-	// separate question from the one this line answers: today it does, and
-	// until now it did so without saying so first, which made a command
-	// that spends operations and starts a transfer look like it was only
-	// ever asked to save some excludes. Said plainly, the same way `add`
-	// says "Backing up now" before its own first run, so nothing below is a
-	// surprise.
+// offerBackupAfterEdit is the panel's "Applies at the next backup", with its
+// optional Back up now.
+func offerBackupAfterEdit(ctx context.Context, a *app, opts *Options, s sets.Set) error {
+	fmt.Fprintln(opts.Out, "Applies at the next backup.")
+	now, err := decide(opts, newPrompter(opts), "Back up now? [y/N]", false)
+	if err != nil || !now {
+		if errors.Is(err, errNeedsYes) {
+			err = nil
+		}
+		return err
+	}
 	fmt.Fprintln(opts.Out, "\nBacking up now to apply the change.")
 	rep, err := runOne(ctx, a, s, opts.Out, interactive())
 	if err != nil {
@@ -926,6 +1023,9 @@ func newRemoveCmd(opts *Options) *cobra.Command {
 			"and adding the folder again reaches it, unless you pass --purge.",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := refuseWhileRunning(); err != nil {
+				return err
+			}
 			a, err := openApp()
 			if err != nil {
 				return err
@@ -1278,6 +1378,9 @@ func newRenameCmd(opts *Options) *cobra.Command {
 			"with, so this is instant and costs nothing.",
 		Args: cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := refuseWhileRunning(); err != nil {
+				return err
+			}
 			a, err := openApp()
 			if err != nil {
 				return err
@@ -1381,24 +1484,35 @@ func newTrashCmd(opts *Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			tr := trash.New(a.client, trash.Clock{})
 			for _, s := range list {
 				// Listing a set with no trash would date every entry against
 				// a retention window that does not exist. There is nothing to
 				// list, and why is more use than "0 recoverable".
 				if !s.TrashEnabled() {
 					fmt.Fprintf(opts.Out, "%s: trash is off for this set, so nothing is recoverable.\n", s.Name)
-					continue
 				}
-				entries, err := tr.List(cmd.Context(), s.Prefix, s.RetentionDays)
-				if err != nil {
-					return err
+			}
+			// One list, newest first, by the day each file was deleted, as
+			// the panel's Deleted files shows it.
+			rows, err := backendFor(opts, a).trashRows(cmd.Context(), only)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintf(opts.Out, "%s recoverable\n", countOf(int64(len(rows)), "file", "files"))
+			day, now := "", time.Now()
+			for _, r := range rows {
+				at, _ := time.Parse(time.RFC3339, r.Deleted)
+				until, _ := time.Parse(time.RFC3339, r.Expires)
+				if d := dayLabel(at, now); d != day {
+					day = d
+					fmt.Fprintf(opts.Out, "\n%s\n", day)
 				}
-				fmt.Fprintf(opts.Out, "%s: %d recoverable\n", s.Name, len(entries))
-				for _, e := range entries {
-					fmt.Fprintf(opts.Out, "  %10s  %s  (until %s)\n",
-						progress.FormatBytes(e.Size), e.RelPath, e.ExpiresOn.Format("2 Jan"))
+				when := "     "
+				if r.Exact {
+					when = at.Local().Format("15:04")
 				}
+				fmt.Fprintf(opts.Out, "  %s  %-16s %s  %s  (until %s)\n", when, r.Set, r.Key,
+					progress.FormatBytes(r.Size), until.Local().Format("2 Jan"))
 			}
 			return nil
 		},
@@ -1410,7 +1524,7 @@ func newTrashCmd(opts *Options) *cobra.Command {
 func newRestoreCmd(opts *Options) *cobra.Command {
 	var (
 		to        string
-		only      string
+		only      []string
 		machine   string
 		overwrite bool
 		verify    bool
@@ -1443,7 +1557,8 @@ func newRestoreCmd(opts *Options) *cobra.Command {
 				Set:           s,
 				Client:        a.client,
 				Target:        to,
-				Only:          only,
+				Only:          onlyOne(only),
+				OnlyAny:       onlyMany(only),
 				SourceMachine: machine,
 				Deleted:       deleted,
 				Overwrite:     overwrite,
@@ -1477,11 +1592,11 @@ func newRestoreCmd(opts *Options) *cobra.Command {
 				}
 				return fmt.Errorf("nothing is stored for %q yet, so nothing was restored", s.Name)
 			}
-			if only != "" && rep.Downloaded == 0 && rep.SkippedExisting == 0 && len(rep.Failures) == 0 {
-				return fmt.Errorf("--only %q matched none of the %s objects stored for %q, so nothing was restored. "+
+			if len(only) > 0 && rep.Downloaded == 0 && rep.SkippedExisting == 0 && len(rep.Failures) == 0 {
+				return fmt.Errorf("--only %s matched none of the %s objects stored for %q, so nothing was restored. "+
 					"A bare name restores everything under it (--only docs), and \"*\" does not cross a \"/\" "+
 					"(use --only 'docs/**')",
-					only, progress.FormatCount(rep.ListedFiles), s.Name)
+					strings.Join(quoted(only), ", "), progress.FormatCount(rep.ListedFiles), s.Name)
 			}
 			fmt.Fprintf(opts.Out, "%s: %s restored (%s) into %s in %s\n",
 				rep.Set, progress.FormatCount(int64(rep.Downloaded)),
@@ -1516,8 +1631,8 @@ func newRestoreCmd(opts *Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&to, "to", "", "restore into this directory instead")
-	cmd.Flags().StringVar(&only, "only", "",
-		`restore only matching paths: a bare name takes everything under it ("docs"), or glob it ("docs/**", "*.pdf") -- "*" does not cross a "/"`)
+	cmd.Flags().StringArrayVar(&only, "only", nil,
+		`restore only matching paths, repeat for more: a bare name takes everything under it ("docs"), or glob it ("docs/**", "*.pdf") -- "*" does not cross a "/"`)
 	cmd.Flags().StringVar(&machine, "machine", "", "restore from another computer's backup")
 	cmd.Flags().StringVar(&deleted, "deleted", "", "recover a deleted file from trash")
 	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "replace files that already exist")
@@ -1559,4 +1674,29 @@ func (o *restoreObserver) Progress(s progress.Snapshot) {
 	line := progress.Render(s, 40)
 	fmt.Fprintln(o.out, line)
 	o.lastLines = strings.Count(line, "\n") + 1
+}
+
+// onlyOne and onlyMany split restore's --only between restore.Options.Only
+// (one pattern) and OnlyAny (several, any of which restores a path), the
+// latter being what the panel uses for files and folders picked together.
+func onlyOne(only []string) string {
+	if len(only) == 1 {
+		return only[0]
+	}
+	return ""
+}
+
+func onlyMany(only []string) []string {
+	if len(only) > 1 {
+		return only
+	}
+	return nil
+}
+
+func quoted(ss []string) []string {
+	out := make([]string, len(ss))
+	for i, s := range ss {
+		out[i] = strconv.Quote(s)
+	}
+	return out
 }

@@ -24,6 +24,20 @@ import (
 // deleted files. Anything else set elsewhere is shown as it is and kept.
 var retentionChoices = map[int]bool{7: true, 14: true, 30: true, 60: true, 90: true, 180: true, 365: true}
 
+// keepLabel words a retention the way the panel's list does: "30 days",
+// "6 months", "a year".
+func keepLabel(days int) string {
+	switch {
+	case days <= 0:
+		return "not at all"
+	case days == 180:
+		return "6 months"
+	case days == 365:
+		return "a year"
+	}
+	return fmt.Sprintf("%d days", days)
+}
+
 // suggestName is the name a new folder gets unless someone changes it: its
 // own name, or for a whole drive, the drive letter -- filepath.Base(`D:\`)
 // is `\`, which is not a name.
@@ -249,6 +263,9 @@ func (t *trayBackend) addCall(ctx context.Context, method string, raw []byte) (o
 		s, err := t.d.app.sets.Get(a.Name)
 		if err != nil {
 			return nil, true, err
+		}
+		if s.RetentionDays <= 0 && a.Days != s.RetentionDays {
+			return nil, true, errors.New("this folder keeps no deleted files, which can only be chosen when it is added")
 		}
 		if !retentionChoices[a.Days] && a.Days != s.RetentionDays {
 			return nil, true, errors.New("choose how long to keep deleted files")

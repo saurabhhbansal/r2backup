@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -25,78 +26,81 @@ func TestLoadSettingsMissingFileIsTheDefault(t *testing.T) {
 	if !reflect.DeepEqual(s, Settings{}) {
 		t.Errorf("settings = %+v, want the zero value", s)
 	}
-	if s.BudgetUSD != 0 {
-		t.Errorf("BudgetUSD = %v, want 0 (no limit)", s.BudgetUSD)
-	}
 }
 
 func TestSaveAndLoadRoundTrip(t *testing.T) {
 	withDataDir(t)
-	if err := SaveSettings(Settings{BudgetUSD: 12.50}); err != nil {
+	if err := SaveSettings(Settings{MachineName: "laptop"}); err != nil {
 		t.Fatalf("SaveSettings: %v", err)
 	}
 	got, err := LoadSettings()
 	if err != nil {
 		t.Fatalf("LoadSettings: %v", err)
 	}
-	if got.BudgetUSD != 12.50 {
-		t.Errorf("BudgetUSD = %v, want 12.50", got.BudgetUSD)
+	if got.MachineName != "laptop" {
+		t.Errorf("MachineName = %q, want laptop", got.MachineName)
 	}
 }
 
 func TestSaveSettingsOverwrites(t *testing.T) {
 	withDataDir(t)
-	if err := SaveSettings(Settings{BudgetUSD: 5}); err != nil {
+	if err := SaveSettings(Settings{MachineName: "a"}); err != nil {
 		t.Fatalf("SaveSettings: %v", err)
 	}
-	if err := SaveSettings(Settings{BudgetUSD: 20}); err != nil {
-		t.Fatalf("SaveSettings: %v", err)
-	}
-	got, err := LoadSettings()
-	if err != nil {
-		t.Fatalf("LoadSettings: %v", err)
-	}
-	if got.BudgetUSD != 20 {
-		t.Errorf("BudgetUSD = %v, want the second write, 20", got.BudgetUSD)
-	}
-}
-
-// Clearing the limit has to actually clear it. omitempty drops the field, and
-// a reader must take its absence as "no limit" rather than keeping the old
-// one.
-func TestSavingZeroClearsTheLimit(t *testing.T) {
-	withDataDir(t)
-	if err := SaveSettings(Settings{BudgetUSD: 30}); err != nil {
-		t.Fatalf("SaveSettings: %v", err)
-	}
-	if err := SaveSettings(Settings{}); err != nil {
+	if err := SaveSettings(Settings{MachineName: "b"}); err != nil {
 		t.Fatalf("SaveSettings: %v", err)
 	}
 	got, err := LoadSettings()
 	if err != nil {
 		t.Fatalf("LoadSettings: %v", err)
 	}
-	if got.BudgetUSD != 0 {
-		t.Errorf("BudgetUSD = %v, want 0 after clearing", got.BudgetUSD)
+	if got.MachineName != "b" {
+		t.Errorf("MachineName = %q, want the second write, b", got.MachineName)
 	}
 }
 
-// Unreadable settings must not read back as "no limit set" -- failing open on
-// a spending limit is the one behaviour this file exists to prevent.
+// A settings file from an older version still holds a spending limit. It
+// loads, the limit is ignored, and the rest of the file is kept.
+func TestOldBudgetSettingsLoadAndAreIgnored(t *testing.T) {
+	dir := withDataDir(t)
+	old := `{"budget_usd": 12.5, "budget_resumed_month": "2026-09", "machine_name": "laptop", "mirror_auto": true}`
+	if err := os.WriteFile(filepath.Join(dir, settingsFileName), []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadSettings()
+	if err != nil {
+		t.Fatalf("an old settings file with a budget did not load: %v", err)
+	}
+	if got.MachineName != "laptop" || !got.MirrorAuto {
+		t.Errorf("the rest of the old file was lost: %+v", got)
+	}
+	if err := SaveSettings(got); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, settingsFileName))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "budget") {
+		t.Errorf("the old limit was written back:\n%s", data)
+	}
+}
+
+// Unreadable settings are an error, not the defaults.
 func TestCorruptSettingsAreAnError(t *testing.T) {
 	dir := withDataDir(t)
 	if err := os.WriteFile(filepath.Join(dir, settingsFileName), []byte("{not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := LoadSettings(); err == nil {
-		t.Error("corrupt settings loaded as the default; a limit must not fail open")
+		t.Error("corrupt settings loaded as the default")
 	}
 }
 
 // A rename-into-place leaves no temporary files behind.
 func TestSaveSettingsLeavesNoTempFiles(t *testing.T) {
 	dir := withDataDir(t)
-	if err := SaveSettings(Settings{BudgetUSD: 1}); err != nil {
+	if err := SaveSettings(Settings{MachineName: "x"}); err != nil {
 		t.Fatalf("SaveSettings: %v", err)
 	}
 	entries, err := os.ReadDir(dir)

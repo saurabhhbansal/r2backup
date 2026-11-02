@@ -147,6 +147,13 @@ func newKeysCmd(opts *Options) *cobra.Command {
 			}
 			defer a.close()
 			p := newPrompter(opts)
+			fmt.Fprintln(opts.Out, "Saves your storage keys (where backups go, and the second copy) to a file locked with a")
+			fmt.Fprintln(opts.Out, "passphrase. Import it on another computer to set it up without an account.")
+			if tok, _ := account.LoadToken(); tok != "" {
+				fmt.Fprintln(opts.Out, "You do not need a file to set up another computer: sign in there and your keys come back.")
+			}
+			fmt.Fprintln(opts.Out, "At least 8 characters. Don’t reuse your PIN: anyone with the file can keep guessing.")
+			fmt.Fprintln(opts.Out, "Forget it, and nobody can open the file.")
 			pass, err := p.secret(fmt.Sprintf("Passphrase for the file (%d+ characters)", account.MinKeyFilePassphrase))
 			if err != nil {
 				return err
@@ -179,7 +186,8 @@ func newKeysCmd(opts *Options) *cobra.Command {
 				return err
 			}
 			defer a.close()
-			pass, err := newPrompter(opts).secret("Passphrase")
+			fmt.Fprintln(opts.Out, "Opens a key file made with keys export. Its storage keys replace the ones on this computer.")
+			pass, err := newPrompter(opts).secret("Passphrase (the one chosen when the file was made)")
 			if err != nil {
 				return err
 			}

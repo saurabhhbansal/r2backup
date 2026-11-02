@@ -115,14 +115,12 @@ func TestUpdateCheckThrottle(t *testing.T) {
 	}
 }
 
-// Recording the check must not disturb the spending limit sitting in the same
-// file. These are the two settings that share settings.json, and one silently
-// clearing the other would turn an update check into an unbounded bill.
-func TestRecordingTheCheckKeepsTheBudget(t *testing.T) {
+// Recording the check must not disturb the other settings in the same file.
+func TestRecordingTheCheckKeepsOtherSettings(t *testing.T) {
 	t.Setenv(config.EnvDataDir, t.TempDir())
 	if err := config.SaveSettings(config.Settings{
-		BudgetUSD:          12.50,
-		BudgetResumedMonth: "2026-09",
+		MachineName: "laptop",
+		MirrorAuto:  true,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -140,11 +138,8 @@ func TestRecordingTheCheckKeepsTheBudget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.BudgetUSD != 12.50 {
-		t.Errorf("BudgetUSD = %v, want 12.50 -- the update check ate the limit", got.BudgetUSD)
-	}
-	if got.BudgetResumedMonth != "2026-09" {
-		t.Errorf("BudgetResumedMonth = %q, want it kept", got.BudgetResumedMonth)
+	if got.MachineName != "laptop" || !got.MirrorAuto {
+		t.Errorf("the update check lost other settings: %+v", got)
 	}
 	if got.LastUpdateCheck == 0 {
 		t.Error("the check was not recorded")

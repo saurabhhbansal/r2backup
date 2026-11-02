@@ -41,8 +41,8 @@ func TestRemoveRefusesTheSetItsOwnLiveProgressFileNamesAsRunning(t *testing.T) {
 	if err == nil {
 		t.Fatalf("remove of a set its own progress file says is running should have failed; output:\n%s", out)
 	}
-	if got := err.Error(); !strings.Contains(got, "Photos") || !strings.Contains(got, "being backed up") {
-		t.Errorf("error should name the set and say it is being backed up, got %q", got)
+	if got := err.Error(); !strings.Contains(got, "Photos") || !strings.Contains(got, "is running") {
+		t.Errorf("error should name the set and say it is running, got %q", got)
 	}
 
 	// Nothing below must have run: the set is still there to remove once
@@ -57,10 +57,9 @@ func TestRemoveRefusesTheSetItsOwnLiveProgressFileNamesAsRunning(t *testing.T) {
 	}
 }
 
-// Removing a set is fine while a different set is the one being backed up --
-// the live progress file names exactly one set, and only that one may be in
-// the middle of a run that this check needs to protect.
-func TestRemoveOfADifferentSetIsNotRefusedWhileOneRuns(t *testing.T) {
+// Removing any set waits while a backup runs, as the panel's Stop backing up
+// does: the panel refuses whatever is running, and the terminal says the same.
+func TestRemoveOfADifferentSetAlsoWaitsWhileOneRuns(t *testing.T) {
 	t.Setenv("R2BACKUP_DATA_DIR", t.TempDir())
 
 	running := sets.Set{
@@ -82,21 +81,16 @@ func TestRemoveOfADifferentSetIsNotRefusedWhileOneRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := runRemove(t, other.Name)
-	if err != nil {
-		t.Fatalf("remove of a set that is not the one running should have succeeded: %v\noutput:\n%s", err, out)
+	if _, err := runRemove(t, other.Name); err == nil || !strings.Contains(err.Error(), "is running") {
+		t.Fatalf("remove went ahead while a backup ran: %v", err)
 	}
-
 	a, err := openApp()
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer a.close()
-	if _, err := a.sets.Get(other.Name); err == nil {
-		t.Error("the other set should have been removed")
-	}
-	if _, err := a.sets.Get(running.Name); err != nil {
-		t.Errorf("the running set should have been left alone: %v", err)
+	if _, err := a.sets.Get(other.Name); err != nil {
+		t.Errorf("the other set was removed while a backup ran: %v", err)
 	}
 }
 

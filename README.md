@@ -155,6 +155,7 @@ What the panel does, and the command that does it:
 
 | in the panel | in the terminal |
 |---|---|
+| What r2backup is for here · Not now (no second copy yet) | `r2b setup purpose both\|s3` · `r2b setup --second none` |
 | Use without an account · sign in · Forgot PIN? | `r2b setup` · `r2b account login` · `r2b account reset-pin` |
 | Export keys · Import keys | `r2b keys export <file>` · `r2b keys import <file>` |
 | Settings → Account | `r2b account` |
@@ -165,14 +166,14 @@ What the panel does, and the command that does it:
 | Ultra fast mode | `r2b mirror ultra on\|off` |
 | Keys not saved → Save now | `r2b account save-keys` |
 | Rename this computer · the computers | `r2b account rename <name>` · `r2b account devices` |
-| Add a folder · what it includes · keep deleted files | `r2b add <folder>` · `r2b edit <set>` · `r2b edit <set> --retention <days>` |
+| Add a folder · what it includes · keep deleted files | `r2b add <folder>` · `r2b edit <set>` (or `--exclude`/`--include <path>`) · `r2b edit <set> --retention <days>` |
 | Back up automatically, and how often | `r2b schedule --every <minutes>` · `--remove` |
 | Back up now, with progress | `r2b backup [set]` · `r2b status --watch` |
 | Backups (every computer's) · delete one | `r2b backups` · `r2b backups delete <name>` |
-| Restore | `r2b restore <set>` (`--machine` for another computer's) |
+| Activity · a run's details | `r2b activity` · `r2b activity <number>` |
+| Restore · browse a backup · pick files | `r2b restore <set>` (`--machine` for another computer's) · `r2b ls <set> [folder]` · `--only <path>`, repeated |
 | Deleted files · recover · delete forever · empty | `r2b trash ls` · `r2b trash recover <set> <path>` · `r2b trash rm <set> <path>` · `r2b trash empty` |
 | Stop backing up · and delete the backup | `r2b remove <set>` · `r2b remove <set> --purge` |
-| Usage and cost · monthly limit | `r2b usage` · `r2b budget set <amount>` |
 | Check for updates · update | `r2b update --check` · `r2b update` |
 
 Deleting asks first, as the panel does: `remove --purge` wants the folder's
@@ -193,13 +194,12 @@ adding a folder, restoring, scheduling. Every command and every flag has a
 key, and that is a test rather than a claim: the build fails if one is added
 without.
 
-Five modes, on <kbd>1</kbd>–<kbd>5</kbd> or <kbd>tab</kbd>:
+Four modes, on <kbd>1</kbd>–<kbd>4</kbd> or <kbd>tab</kbd>:
 
 | mode | |
 |---|---|
 | **Folders** | what is backed up, and what each run did |
 | **Schedule** | whether backups run by themselves, how often, and when next |
-| **Cost** | what is stored, operations used, and what the month is coming to |
 | **Trash** | what is recoverable, and until when |
 | **Account** | your keys, signing in, and your other computers |
 
@@ -220,20 +220,19 @@ scripts use.
 
 | command | |
 |---|---|
-| `r2b setup` | Get this computer ready. `--keys` to re-enter your keys, `--provider` to name where |
+| `r2b setup` | Get this computer ready. `--keys` to re-enter your keys, `--provider` to name where, `--purpose both\|s3`, `--second <kind>` or `--second none` |
 | `r2b add <folder>` | Choose what to include, then back it up. `--name`, `--retention`, `--all` |
-| `r2b edit <set>` | Change what a folder includes. `--retention <days>` for how long deleted files are kept |
+| `r2b edit <set>` | Change what a folder includes. `--exclude`/`--include <path>`, `--retention <days>` for how long deleted files are kept |
 | `r2b backup [set]` | Back up now — all folders, or one |
-| `r2b restore <set>` | Bring a folder back. `--to`, `--only`, `--verify`, `--deleted`, `--machine` |
+| `r2b restore <set>` | Bring a folder back. `--to`, `--only` (repeat for more), `--verify`, `--deleted`, `--machine` |
 | `r2b status` | What ran, when, and what is next. `--watch` follows a run |
-| `r2b ls [set]` | What is stored |
+| `r2b ls [set] [folder]` | What is stored. With a set, one folder of its backup at a time, read from storage. `--machine` |
+| `r2b activity [number]` | Recent backups, and what one did |
 | `r2b backups` | Every backup in your storage, by computer. `delete <name>` |
 | `r2b trash` | Deleted files. `ls`, `recover <set> <path>`, `rm <set> <path>`, `empty` |
 | `r2b schedule` | Automatic runs. `--every`, `--remove`, `--repair` |
 | `r2b rename` · `r2b relink` | Rename a set · point one at a folder that moved |
 | `r2b remove <set>` | Stop backing a folder up. `--purge` deletes the copy too |
-| `r2b usage` | What is stored, and what it costs this month |
-| `r2b budget` | The monthly limit. `set <amount>`, `off`, `continue` |
 | `r2b account` | Your account, storage and computers. `login`, `reset-pin`, `save-keys`, `rename`, `devices`, `logout` |
 | `r2b keys` | Move your storage keys without an account. `export <file>`, `import <file>` |
 | `r2b pack on\|off` | Pack small files at where backups go, or `--second-copy` |
@@ -364,10 +363,13 @@ sync` decides by size alone and skips an edit that keeps the size the same.
 
 The second copy keeps what is stored in one place in a second — Drime to S3
 storage, or the other way — so your files are with two companies, not one. In the panel,
-choose it under **Settings → Account → Second copy**; in the terminal:
+choose it under **Settings → Account → Second copy**. Getting started with
+**Drime, with a second copy** asks for it right away; **Not now** (or
+`r2b setup --second none`) leaves backups on Drime alone until you add one. In
+the terminal:
 
 ```sh
-r2b mirror setup       # choose the second place; offers to mirror after every backup
+r2b mirror setup       # choose the second place; then every backup is copied there
 r2b mirror             # copy now: only what changed since last time
 r2b mirror --dry-run   # say what would be copied, change nothing
 r2b mirror --reverse   # copy back from the mirror, e.g. after losing the main one
@@ -438,18 +440,6 @@ In the panel it is the **Ultra fast mode** switch under **Second copy** and
 Adding a backup folder that is inside Drime's synced folder on your PC warns
 you: backing it up from there downloads everything from Drime first. Copying
 it as a Drime folder, with Ultra fast mode on, skips your PC entirely.
-
-## Cost
-
-R2 bills for storage and operations; most people backing up a documents folder
-stay inside Cloudflare's free tier. The **Cost** mode, `r2b budget`, and
-**Usage and cost** in the panel show what is stored, how many operations have
-been used and what the month is coming to. These are estimates worked out from
-what r2backup itself did, at Cloudflare's published rates.
-
-You can set a monthly limit (`r2b budget set 5`). When the estimate reaches
-it, backups pause until you carry on or the month ends. Restores are never
-paused. There is no limit unless you set one.
 
 ## Privacy and security
 

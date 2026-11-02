@@ -199,7 +199,7 @@ func (m *Model) tabRule() string {
 func (m *Model) statusLine() string {
 	switch {
 	case !m.ov.Configured:
-		return warnStyle.Render("○ Not set up") + dimStyle.Render(" · 5 Account to connect Drime or R2")
+		return warnStyle.Render("○ Not set up") + dimStyle.Render(" · 4 Account to connect Drime or R2")
 	case m.running:
 		return m.spin.View() + " " + titleStyle.Render("Backing up "+m.runWhat) + dimStyle.Render(" · w to watch")
 	case m.ov.Running != "":
@@ -372,8 +372,6 @@ func (m *Model) bodyView() string {
 		return m.foldersView()
 	case tabSchedule:
 		return m.scheduleView()
-	case tabCost:
-		return m.costView()
 	case tabTrash:
 		return m.trashView()
 	case tabAccount:
@@ -387,7 +385,7 @@ func (m *Model) bodyView() string {
 func (m *Model) foldersView() string {
 	if !m.ov.Configured {
 		return m.welcome(titleStyle.Render("This computer is not set up yet.") + "\n\n" +
-			dimStyle.Render("Go to ") + titleStyle.Render("5 Account") +
+			dimStyle.Render("Go to ") + titleStyle.Render("4 Account") +
 			dimStyle.Render(" and press ") + titleStyle.Render("D") + dimStyle.Render(" for a Drime token, ") +
 			titleStyle.Render("k") + dimStyle.Render(" for R2 keys, or ") + titleStyle.Render("i") +
 			dimStyle.Render(" to sign in."))
@@ -455,7 +453,6 @@ func (m *Model) showDetail(v SetView) {
 		row("  uploaded", progress.FormatCount(int64(v.Uploaded))+" ("+progress.FormatBytes(v.Bytes)+")")
 		row("  unchanged", progress.FormatCount(int64(v.Unchanged)))
 		row("  deleted", progress.FormatCount(int64(v.Deleted)))
-		row("  operations", progress.FormatCount(int64(v.Operations)))
 	}
 	if v.Failures+v.Problems+v.Collisions > 0 {
 		b.WriteString("\n" + badStyle.Render("Needs a look") + "\n")
@@ -709,12 +706,11 @@ func humanEvery(d time.Duration) string {
 }
 
 // accountView is where this computer's standing state is answered in one
-// place: what it is pointed at, whether it backs itself up, what that has
-// cost this month, and who -- if anyone -- it is signed in as.
+// place: what it is pointed at, whether it backs itself up, and who -- if
+// anyone -- it is signed in as.
 //
-// The first three of those used to be scattered: the bucket here, automatic
-// or not in a permanent footer line on every screen, the operations count
-// beside it. Read one at a time they each raise the next question, which is
+// The first two of those used to be scattered: the bucket here, automatic
+// or not in a permanent footer line on every screen. Read one at a time they each raise the next question, which is
 // why they are read together now.
 func (m *Model) accountView() string {
 	var b strings.Builder
@@ -735,17 +731,6 @@ func (m *Model) accountView() string {
 		b.WriteString("\n")
 	} else {
 		b.WriteString("  " + warnStyle.Render("○ Manual") + dimStyle.Render(" — backups run only when you run them. 2 Schedule turns this on.") + "\n")
-	}
-	// The allowance is worth showing even at nought used, because the number
-	// people want is not what they have spent -- it is how much room is left
-	// before spending anything at all.
-	if m.ov.OpsLimit > 0 && !m.isDrime() {
-		line := fmt.Sprintf("%s of %s operations this month",
-			progress.FormatCount(int64(m.ov.OpsUsed)), progress.FormatCount(int64(m.ov.OpsLimit)))
-		if !m.ov.OpsResetAt.IsZero() {
-			line += ", resets " + m.ov.OpsResetAt.Format("2 Jan")
-		}
-		b.WriteString("  " + dimStyle.Render(line) + "\n")
 	}
 
 	b.WriteString("\n" + titleStyle.Render("Account") + "\n\n")

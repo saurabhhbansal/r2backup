@@ -73,7 +73,7 @@ func newSetupCmd(opts *Options) *cobra.Command {
 	cmd.Flags().StringVar(&purpose, "purpose", "",
 		"what r2backup is for here: both (Drime plus a second copy on S3 storage) or s3 (S3 storage only); asked if not given")
 	cmd.Flags().StringVar(&second, "second", "",
-		"with --purpose both, where the second copy goes: r2, b2, s3 or s3-custom (asked if not given)")
+		"with --purpose both, where the second copy goes: r2, b2, s3, s3-custom, or none to add it later (asked if not given)")
 	cmd.AddCommand(newPurposeCmd(opts))
 	return cmd
 }
@@ -96,10 +96,10 @@ func parseSetupFlags(provider, purpose, second string) (setupFlags, error) {
 			return f, fmt.Errorf("unknown provider %q: use drime, r2, b2, s3 or s3-custom", provider)
 		}
 	}
-	if second != "" {
+	if second != "" && second != secondNone {
 		pv, ok := remote.ParseProvider(second)
 		if !ok || pv == remote.ProviderDrime {
-			return f, fmt.Errorf("unknown --second %q: use r2, b2, s3 or s3-custom", second)
+			return f, fmt.Errorf("unknown --second %q: use r2, b2, s3, s3-custom or none", second)
 		}
 	}
 	if purpose != "" {
@@ -226,6 +226,11 @@ func runSetup(ctx context.Context, a *app, opts *Options, f setupFlags) error {
 	var c creds.Credentials
 	switch purpose {
 	case purposeBoth:
+		if keysOnly {
+			// The panel's Change…: any kind of storage.
+			c, err = askForDestination(ctx, p, provider)
+			break
+		}
 		fmt.Fprintln(p.out, "\nFirst Drime, where backups go.")
 		c, err = askForKind(ctx, p, creds.ProviderDrime)
 	case purposeS3:
@@ -235,6 +240,20 @@ func runSetup(ctx context.Context, a *app, opts *Options, f setupFlags) error {
 	}
 	if err != nil {
 		return err
+	}
+	// New keys for other storage move where backups go. That asks first,
+	// as every other way of changing it does; new keys for the same storage
+	// do not.
+	if old, err := a.creds.Load(); err == nil && keysOnly && old.Place() != c.Place() {
+		move, err := decide(opts, p, "\nBack up somewhere else? New backups go to "+destLabel(c)+". What’s in "+
+			destLabel(old)+" stays.\nContinue? [y/N]", false)
+		if err != nil {
+			return err
+		}
+		if !move {
+			fmt.Fprintf(p.out, "Backups still go to %s.\n", destLabel(old))
+			return setupFinish(ctx, a, opts, p)
+		}
 	}
 	if err := a.creds.Save(c); err != nil {
 		return err
@@ -389,10 +408,20 @@ func signIn(ctx context.Context, p *prompter, client *account.Client) (*account.
 
 // askCode asks for the email code, forgiving a typo or two.
 func askCode(ctx context.Context, p *prompter, client *account.Client, email string) (*account.PINChallenge, error) {
+	fmt.Fprintln(p.out, "No email? Type new for a new code.")
 	for attempt := 1; ; attempt++ {
 		code, err := p.askRequired("Code")
 		if err != nil {
 			return nil, err
+		}
+		// The panel's "Send a new code".
+		if strings.EqualFold(strings.TrimSpace(code), "new") {
+			if err := client.RequestCode(ctx, email); err != nil {
+				return nil, friendlyAccountErr(err)
+			}
+			fmt.Fprintf(p.out, "  A new code is on its way to %s.\n", email)
+			attempt = 0
+			continue
 		}
 		ch, err := client.Verify(ctx, email, strings.ReplaceAll(code, " ", ""))
 		if err == nil {
@@ -730,14 +759,14 @@ func askForS3(p *prompter, kind string) (creds.Credentials, error) {
 	}
 	label := "Access key ID"
 	if kind == creds.ProviderB2 {
-		label = "keyID"
+		label = "Key ID"
 	}
 	if c.AccessKeyID, err = p.askRequired(label); err != nil {
 		return c, err
 	}
 	secretLabel := "Secret access key"
 	if kind == creds.ProviderB2 {
-		secretLabel = "applicationKey"
+		secretLabel = "Application key"
 	}
 	if c.SecretAccessKey, err = p.secret(secretLabel); err != nil {
 		return c, err
@@ -845,6 +874,28 @@ func askForS3Destination(ctx context.Context, p *prompter, kind, question string
 	return askForKind(ctx, p, kind)
 }
 
+// secondNone is --second none: no second copy for now.
+const secondNone = "none"
+
+// secondSkipped is what setup says when the second copy is left for later.
+const secondSkipped = "No second copy for now. Add one with: r2b mirror setup"
+
+// askSecondKind asks where the second copy goes, or "Not now".
+func askSecondKind(p *prompter) (string, error) {
+	fmt.Fprintln(p.out)
+	fmt.Fprintln(p.out, "Where should the second copy go?")
+	fmt.Fprintln(p.out, "  1. Cloudflare R2          -- an account, a bucket and a key pair")
+	fmt.Fprintln(p.out, "  2. Backblaze B2           -- a bucket, its region and an application key")
+	fmt.Fprintln(p.out, "  3. Amazon S3              -- a bucket, its region and an access key")
+	fmt.Fprintln(p.out, "  4. Other S3-compatible    -- an endpoint URL, a bucket and a key pair")
+	fmt.Fprintln(p.out, "  5. Not now                -- back up to Drime only, add a second copy later")
+	i, err := askIndex(p, "Choose 1 to 5", 5)
+	if err != nil {
+		return "", err
+	}
+	return []string{"r2", "b2", "s3", "s3-custom", secondNone}[i], nil
+}
+
 // setUpSecondCopy asks for the S3 storage the second copy goes to, checks
 // it, and copies each backup there after it finishes. A second copy already
 // set up (setup --keys after rotating the main keys) is kept.
@@ -856,6 +907,16 @@ func setUpSecondCopy(ctx context.Context, a *app, p *prompter, kind string) erro
 	main, err := a.creds.Load()
 	if err != nil {
 		return err
+	}
+	if kind == "" {
+		// The panel's "Not now": Drime alone for the moment.
+		if kind, err = askSecondKind(p); err != nil {
+			return err
+		}
+	}
+	if kind == secondNone {
+		fmt.Fprintln(p.out, secondSkipped)
+		return nil
 	}
 	for attempt := 1; ; attempt++ {
 		c, err := askForS3Destination(ctx, p, kind, "Where should the second copy go?")
@@ -878,7 +939,10 @@ func setUpSecondCopy(ctx context.Context, a *app, p *prompter, kind string) erro
 			return nil
 		}
 		if attempt >= passwordAttempts {
-			return fmt.Errorf("the second copy could not be reached: %w. Add it later with r2b mirror setup", err)
+			// Backups to Drime work without it, so setup still finishes:
+			// the Drime keys are stored and the next step is shown.
+			fmt.Fprintf(p.out, "The second copy could not be reached: %s.\n%s\n", err.Error(), secondSkipped)
+			return nil
 		}
 		fmt.Fprintf(p.out, "  %s. Try again.\n", err.Error())
 	}

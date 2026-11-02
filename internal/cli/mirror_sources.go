@@ -273,6 +273,7 @@ func newMirrorDrimeCmd(opts *Options) *cobra.Command {
 					return errors.New("no Drime API token yet; run this in a terminal to enter one")
 				}
 				fmt.Fprintln(opts.Out, "Make a Drime API token: Drime > Settings > Developer > Create token.")
+				fmt.Fprintln(opts.Out, "  https://app.drime.cloud/account-settings")
 				if token, err = newPrompter(opts).secret("Drime API token"); err != nil {
 					return err
 				}
@@ -300,6 +301,16 @@ func newMirrorDrimeCmd(opts *Options) *cobra.Command {
 			st, err := config.LoadSettings()
 			if err != nil {
 				return err
+			}
+			a, err := openApp()
+			if err != nil {
+				return err
+			}
+			defer a.close()
+			if dest, err := s3Destination(a); err == nil {
+				fmt.Fprintln(opts.Out, "Copied to "+destLabel(dest))
+			} else {
+				fmt.Fprintln(opts.Out, err.Error())
 			}
 			if len(st.MirrorSources) == 0 {
 				fmt.Fprintln(opts.Out, "No Drime folders are being copied. Add one: r2b mirror drime add <folder>")
@@ -349,10 +360,28 @@ func newMirrorDrimeCmd(opts *Options) *cobra.Command {
 		Short: "Stop copying a Drime folder (what was copied stays)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			a, err := openApp()
+			if err != nil {
+				return err
+			}
+			where := "the S3 storage"
+			if dest, err := s3Destination(a); err == nil {
+				where = destLabel(dest)
+			}
+			a.close()
+			ok, err := decide(opts, newPrompter(opts), "Stop copying "+args[0]+"? Nothing is deleted: what is in Drime and the copy on "+
+				where+" both stay. [y/N]", false)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				fmt.Fprintln(opts.Out, "Still copying "+args[0]+".")
+				return nil
+			}
 			if err := removeDrimeSource(args[0]); err != nil {
 				return err
 			}
-			fmt.Fprintf(opts.Out, "Stopped copying %s. What was copied is still there.\n", args[0])
+			fmt.Fprintf(opts.Out, "No longer copying %s. What was copied is still there.\n", args[0])
 			return nil
 		},
 	}

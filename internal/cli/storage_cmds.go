@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -15,8 +14,8 @@ import (
 	"github.com/saurabhhbansal/r2backup/internal/ui"
 )
 
-// The panel's Backups screen, its trash, packing per destination and the
-// usage and cost screen, for the terminal. Each command goes through the
+// The panel's Backups screen, its trash and packing per destination, for the
+// terminal. Each command goes through the
 // trayBackend method the panel's request does.
 
 // whereToDelete asks the panel's "delete it from where?" question, when there
@@ -345,61 +344,6 @@ func newPackCmd(opts *Options) *cobra.Command {
 	cmd.Flags().BoolVar(&second, "second-copy", false, "change the second copy, not where backups go")
 	return cmd
 }
-
-func newUsageCmd(opts *Options) *cobra.Command {
-	return &cobra.Command{
-		Use:   "usage",
-		Short: "What is stored, and what it costs this month",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return withBackend(opts, func(t *trayBackend) error {
-				if !t.d.app.creds.Exists() {
-					return errors.New("choose where backups go first: r2b setup")
-				}
-				c, err := t.cost(cmd.Context())
-				if err != nil {
-					return err
-				}
-				printUsage(opts.Out, c)
-				return nil
-			})
-		},
-	}
-}
-
-// printUsage is the panel's "Usage and cost" block.
-func printUsage(out io.Writer, c costOut) {
-	stored := progress.FormatBytes(c.StoredBytes)
-	if c.Provider == "drime" {
-		fmt.Fprintf(out, "Stored        %s\nFiles         %s\n", stored, progress.FormatCount(c.StoredObjects))
-		return
-	}
-	switch c.BudgetState {
-	case "exceeded":
-		fmt.Fprintf(out, "Backups paused. Monthly limit of %s reached.\nTo carry on this month: r2b budget continue\n\n", usd(c.BudgetUSD))
-	case "near":
-		fmt.Fprintf(out, "Close to your monthly limit of %s.\n\n", usd(c.BudgetUSD))
-	}
-	if c.WithinFreeTier {
-		fmt.Fprintln(out, "This month    Free (free tier)")
-	} else {
-		fmt.Fprintf(out, "This month    %s\nOn track for  %s\n", usd(c.EstimatedUSD), usd(c.ProjectedUSD))
-	}
-	fmt.Fprintf(out, "Stored        %s, %s\n", stored, countOf(c.StoredObjects, "file", "files"))
-	ops := progress.FormatCount(int64(c.OpsUsed))
-	if c.OpsLimit > 0 {
-		ops += " of " + progress.FormatCount(int64(c.OpsLimit)) + " free"
-	}
-	fmt.Fprintf(out, "Operations    %s\n", ops)
-	limit := "None"
-	if c.BudgetUSD > 0 {
-		limit = usd(c.BudgetUSD)
-	}
-	fmt.Fprintf(out, "Monthly limit %s (backups pause here; change it: r2b budget set <amount>)\n", limit)
-	fmt.Fprintln(out, "Estimate at Cloudflare’s prices, for r2backup only.")
-}
-
-func usd(v float64) string { return "$" + strconv.FormatFloat(v, 'f', 2, 64) }
 
 // newMirrorOffCmd is the panel's "Stop keeping a second copy".
 func newMirrorOffCmd(opts *Options) *cobra.Command {
