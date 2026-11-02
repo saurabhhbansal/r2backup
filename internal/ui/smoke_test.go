@@ -37,9 +37,6 @@ type fakeBackend struct {
 	vaultPw   []string
 	signedOut bool
 
-	budgetUSD     float64
-	budgetResumed bool
-
 	overlap    string
 	scanErr    error
 	restoreErr error
@@ -179,17 +176,6 @@ func (f *fakeBackend) SaveKeys(_ context.Context, k Keys) error {
 	return nil
 }
 
-func (f *fakeBackend) SetBudget(_ context.Context, usd float64) error {
-	f.budgetUSD = usd
-	f.budgetResumed = false
-	return nil
-}
-
-func (f *fakeBackend) ResumeBudget(context.Context) error {
-	f.budgetResumed = true
-	return nil
-}
-
 func (f *fakeBackend) CheckUpdate(context.Context) (string, error) { return "v9.9.9", nil }
 func (f *fakeBackend) ApplyUpdate(context.Context) (string, error) { return "v9.9.9", nil }
 
@@ -199,7 +185,7 @@ func twoSets() *fakeBackend {
 			{
 				Name: "Documents", Root: "/home/me/Documents", Prefix: "machines/pc/Documents",
 				State: "ok", HasRun: true, LastRun: time.Now().Add(-90 * time.Minute),
-				Uploaded: 3, Unchanged: 120, Bytes: 4096, Operations: 6, Objects: 123,
+				Uploaded: 3, Unchanged: 120, Bytes: 4096, Objects: 123,
 				Retention: 30,
 			},
 			{
@@ -209,7 +195,6 @@ func twoSets() *fakeBackend {
 		},
 		ov: Overview{
 			Machine: "pc", Bucket: "backups", Configured: true,
-			OpsUsed: 42, OpsLimit: 1000000,
 			Scheduled: true, Interval: 30 * time.Minute,
 			SchedulerAvailable: true,
 		},
@@ -286,10 +271,13 @@ func TestTheAccountTabAnswersHowThisComputerIsSetUp(t *testing.T) {
 	m := sized(twoSets(), 120, 40)
 	m.tab = tabAccount
 	view := m.View()
-	for _, want := range []string{"This computer", "automatic", "operations this month", "Account"} {
+	for _, want := range []string{"This computer", "automatic", "Account"} {
 		if !strings.Contains(strings.ToLower(view), strings.ToLower(want)) {
 			t.Errorf("account tab is missing %q\n---\n%s", want, view)
 		}
+	}
+	if strings.Contains(strings.ToLower(view), "operations") {
+		t.Errorf("operations are no longer counted, so none may be shown:\n%s", view)
 	}
 	if strings.Contains(m.footer(), "operations") {
 		t.Errorf("the footer should carry keys only, not standing status:\n%s", m.footer())

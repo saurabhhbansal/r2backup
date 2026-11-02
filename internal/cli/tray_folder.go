@@ -16,10 +16,9 @@ import (
 	"github.com/saurabhhbansal/r2backup/internal/ui"
 )
 
-// The panel's folder settings: what a folder includes, stopping a backup of
-// it, and what the whole thing costs. Choosing what is included is the
-// terminal's `edit` picker; stopping is `remove`; cost is the Cost tab. Each
-// goes through the same set store and dashboard methods those use.
+// The panel's folder settings: what a folder includes and stopping a backup
+// of it. Choosing what is included is the terminal's `edit` picker; stopping
+// is `remove`. Each goes through the same set store and dashboard methods those use.
 
 const localTreeTTL = 2 * time.Minute
 
@@ -142,47 +141,7 @@ func (t *trayBackend) busyReason() string {
 	return ""
 }
 
-type costOut struct {
-	Provider       string  `json:"provider"`
-	StoredBytes    int64   `json:"storedBytes"`
-	StoredObjects  int64   `json:"storedObjects"`
-	EstimatedUSD   float64 `json:"estimatedUSD"`
-	ProjectedUSD   float64 `json:"projectedUSD"`
-	StorageUSD     float64 `json:"storageUSD"`
-	OperationsUSD  float64 `json:"operationsUSD"`
-	WithinFreeTier bool    `json:"withinFreeTier"`
-	OpsUsed        int     `json:"opsUsed"`
-	OpsLimit       int     `json:"opsLimit"`
-	BudgetUSD      float64 `json:"budgetUSD"`
-	BudgetState    string  `json:"budgetState"`
-}
-
-func (t *trayBackend) cost(ctx context.Context) (costOut, error) {
-	t.mu.Lock()
-	ov, ok := t.last.ov, t.last.ok
-	t.mu.Unlock()
-	if !ok {
-		_, fresh, err := t.d.Load(ctx)
-		if err != nil {
-			t.mu.Lock()
-			ov, ok = t.last.ov, t.last.ov.Configured
-			t.mu.Unlock()
-			if !ok {
-				return costOut{}, err
-			}
-		} else {
-			ov = fresh
-		}
-	}
-	return costOut{
-		Provider: ov.Provider, StoredBytes: ov.StoredBytes, StoredObjects: ov.StoredObjects,
-		EstimatedUSD: ov.EstimatedUSD, ProjectedUSD: ov.ProjectedUSD,
-		StorageUSD: ov.StorageUSD, OperationsUSD: ov.OperationsUSD, WithinFreeTier: ov.WithinFreeTier,
-		OpsUsed: ov.OpsUsed, OpsLimit: ov.OpsLimit, BudgetUSD: ov.BudgetUSD, BudgetState: ov.BudgetState,
-	}, nil
-}
-
-// folderCall serves the panel's folder-settings and cost requests.
+// folderCall serves the panel's folder-settings requests.
 func (t *trayBackend) folderCall(ctx context.Context, method string, raw []byte) (out any, ok bool, err error) {
 	switch method {
 	case "folderList":
@@ -305,25 +264,6 @@ func (t *trayBackend) folderCall(ctx context.Context, method string, raw []byte)
 		}
 		return nil, true, err
 
-	case "cost":
-		c, err := t.cost(ctx)
-		return c, true, err
-
-	case "setBudget":
-		var a struct {
-			USD float64 `json:"usd"`
-		}
-		if err := decodeArgs(raw, &a); err != nil {
-			return nil, true, err
-		}
-		err := t.d.SetBudget(ctx, a.USD)
-		t.invalidate()
-		return nil, true, err
-
-	case "resumeBudget":
-		err := t.d.ResumeBudget(ctx)
-		t.invalidate()
-		return nil, true, err
 	}
 	return nil, false, nil
 }

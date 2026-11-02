@@ -125,7 +125,6 @@ func NewRoot(opts *Options) *cobra.Command {
 		newRelinkCmd(opts),
 		newRemoveCmd(opts),
 		newTrashCmd(opts),
-		newBudgetCmd(opts),
 		newMirrorCmd(opts),
 		newTrayCmd(opts),
 		newUpdateCmd(opts),
@@ -133,7 +132,6 @@ func NewRoot(opts *Options) *cobra.Command {
 		newKeysCmd(opts),
 		newBackupsCmd(opts),
 		newPackCmd(opts),
-		newUsageCmd(opts),
 	)
 	attachDashboard(root, opts)
 	return root

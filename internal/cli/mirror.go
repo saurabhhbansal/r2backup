@@ -121,25 +121,17 @@ func runMirrorSetup(ctx context.Context, a *app, opts *Options, provider string)
 	}
 	fmt.Fprintln(p.out, "Checking the connection...")
 	// The panel's own request: refuses the place backups already go, checks
-	// the connection, saves it, and saves the keys to the account.
+	// the connection, saves it, turns on copying after every backup, and
+	// saves the keys to the account. Copying starts by itself, as it does
+	// when a second copy is added in the panel.
 	t := backendFor(opts, a)
 	if err := t.mirrorSetup(ctx, c, true); err != nil {
 		return err
 	}
 	_ = t.pushKeys(ctx) // as after the panel's mirrorSetup (keysChange)
-	fmt.Fprintf(p.out, "Second copy: %s.\n", destLabel(c))
-
-	auto, err := confirm(p, "Copy after every backup? [Y/n]", true)
-	if err != nil {
-		return err
-	}
-	if err := setMirrorAuto(auto); err != nil {
-		return err
-	}
-	if auto {
-		fmt.Fprintln(p.out, "On. Each backup will be copied there once it finishes.")
-	}
+	fmt.Fprintf(p.out, "Second copy: %s. Each backup is copied there once it finishes.\n", destLabel(c))
 	fmt.Fprintln(p.out, "To copy everything now: r2b mirror")
+	fmt.Fprintln(p.out, "To stop copying after every backup: r2b mirror auto off")
 	return nil
 }
 

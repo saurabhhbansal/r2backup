@@ -314,77 +314,8 @@ func TestDropSetRemovesOnlyThatSet(t *testing.T) {
 	}
 }
 
-func TestOpsCounterAccumulates(t *testing.T) {
-	db := openTestDB(t)
-	frozen := time.Date(2026, 4, 10, 0, 0, 0, 0, time.UTC)
-	db.Now = func() time.Time { return frozen }
-
-	if err := db.AddOps(100); err != nil {
-		t.Fatalf("AddOps: %v", err)
-	}
-	if err := db.AddOps(250); err != nil {
-		t.Fatalf("AddOps: %v", err)
-	}
-	used, resetAt, err := db.OpsThisMonth()
-	if err != nil {
-		t.Fatalf("OpsThisMonth: %v", err)
-	}
-	if used != 350 {
-		t.Errorf("used = %d, want 350", used)
-	}
-	wantReset := time.Date(2026, 5, 1, 0, 0, 0, 0, time.UTC)
-	if !resetAt.Equal(wantReset) {
-		t.Errorf("resetAt = %v, want %v", resetAt, wantReset)
-	}
-}
-
-func TestOpsCounterResetsOnMonthRollover(t *testing.T) {
-	db := openTestDB(t)
-	april := time.Date(2026, 4, 20, 0, 0, 0, 0, time.UTC)
-	db.Now = func() time.Time { return april }
-	if err := db.AddOps(999_000); err != nil {
-		t.Fatalf("AddOps: %v", err)
-	}
-
-	// Cross into May without any intervening AddOps call: a plain read
-	// must still see the reset, not a stale total.
-	may := time.Date(2026, 5, 1, 0, 0, 1, 0, time.UTC)
-	db.Now = func() time.Time { return may }
-	used, _, err := db.OpsThisMonth()
-	if err != nil {
-		t.Fatalf("OpsThisMonth: %v", err)
-	}
-	if used != 0 {
-		t.Errorf("used after rollover (no AddOps yet) = %d, want 0", used)
-	}
-
-	// And AddOps itself starts the new month's count from zero, not from
-	// wherever April left off.
-	if err := db.AddOps(42); err != nil {
-		t.Fatalf("AddOps: %v", err)
-	}
-	used, resetAt, err := db.OpsThisMonth()
-	if err != nil {
-		t.Fatalf("OpsThisMonth: %v", err)
-	}
-	if used != 42 {
-		t.Errorf("used after rollover AddOps = %d, want 42", used)
-	}
-	wantReset := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
-	if !resetAt.Equal(wantReset) {
-		t.Errorf("resetAt = %v, want %v", resetAt, wantReset)
-	}
-}
-
-func TestFreeTierConstant(t *testing.T) {
-	if FreeTierOpsPerMonth != 1_000_000 {
-		t.Errorf("FreeTierOpsPerMonth = %d, want 1,000,000", FreeTierOpsPerMonth)
-	}
-}
-
 // TestConcurrentAccess hammers the DB from many goroutines at once: distinct
-// sets writing and reading concurrently, plus the shared op counter being
-// bumped from every goroutine. Meaningful primarily under -race.
+// sets writing and reading concurrently. Meaningful primarily under -race.
 func TestConcurrentAccess(t *testing.T) {
 	db := openTestDB(t)
 	const goroutines = 20
@@ -407,10 +338,6 @@ func TestConcurrentAccess(t *testing.T) {
 					t.Errorf("Get: %v", err)
 					return
 				}
-				if err := db.AddOps(1); err != nil {
-					t.Errorf("AddOps: %v", err)
-					return
-				}
 				if _, err := db.Count(set); err != nil {
 					t.Errorf("Count: %v", err)
 					return
@@ -419,14 +346,6 @@ func TestConcurrentAccess(t *testing.T) {
 		}(g)
 	}
 	wg.Wait()
-
-	used, _, err := db.OpsThisMonth()
-	if err != nil {
-		t.Fatalf("OpsThisMonth: %v", err)
-	}
-	if used != goroutines*perGoroutine {
-		t.Errorf("ops used = %d, want %d", used, goroutines*perGoroutine)
-	}
 
 	for g := 0; g < 4; g++ {
 		set := fmt.Sprintf("set-%d", g)

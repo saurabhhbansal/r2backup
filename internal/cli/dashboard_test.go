@@ -63,11 +63,6 @@ func TestTheDashboardSeesAndDoesRealWork(t *testing.T) {
 	if ov.Bucket != c.Bucket {
 		t.Errorf("overview bucket = %q, want %q", ov.Bucket, c.Bucket)
 	}
-	// Load runs once a second while the window is open. If it ever starts
-	// reaching the network, an idle dashboard burns operations all day.
-	if ov.OpsLimit == 0 {
-		t.Error("the free-tier limit should be reported so the footer can show it")
-	}
 
 	var phases []string
 	var lastSnap progress.Snapshot

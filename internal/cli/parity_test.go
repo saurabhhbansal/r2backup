@@ -333,24 +333,13 @@ func TestPackIsPerDestination(t *testing.T) {
 	}
 }
 
-func TestUsageReadsAsThePanelDoes(t *testing.T) {
-	var out bytes.Buffer
-	printUsage(&out, costOut{Provider: "drime", StoredBytes: 2048, StoredObjects: 3})
-	if s := out.String(); !strings.Contains(s, "Files") || strings.Contains(s, "Cloudflare") {
-		t.Errorf("Drime usage:\n%s", s)
-	}
-	out.Reset()
-	printUsage(&out, costOut{Provider: "b2", EstimatedUSD: 1.5, ProjectedUSD: 3, StoredObjects: 1, OpsUsed: 10,
-		OpsLimit: 1000000, BudgetUSD: 2, BudgetState: "exceeded"})
-	s := out.String()
-	for _, want := range []string{"Backups paused. Monthly limit of $2.00 reached.", "On track for  $3.00", "1 file", "of 1,000,000 free"} {
-		if !strings.Contains(s, want) {
-			t.Errorf("missing %q in:\n%s", want, s)
-		}
-	}
+// Usage and cost are gone: no command shows them and none sets a limit.
+func TestNoUsageOrBudgetCommands(t *testing.T) {
 	t.Setenv(config.EnvDataDir, t.TempDir())
-	if _, err := r2b(t, nil, "usage"); err == nil {
-		t.Error("usage with nowhere to back up said nothing was wrong")
+	for _, args := range [][]string{{"usage"}, {"budget"}, {"budget", "set", "5"}} {
+		if out, err := r2b(t, nil, args...); err == nil {
+			t.Errorf("r2b %s still runs:\n%s", strings.Join(args, " "), out)
+		}
 	}
 }
 
@@ -387,15 +376,19 @@ func TestMirrorSetupRefusesWhereBackupsAlreadyGo(t *testing.T) {
 		!strings.Contains(err.Error(), "A second copy has to be somewhere else") {
 		t.Fatalf("same place: %v", err)
 	}
-	other := conversation("other", "us-west-004", "k", "s", "", "n")
+	other := conversation("other", "us-west-004", "k", "s", "")
 	if err := runMirrorSetup(context.Background(), a, other, "b2"); err != nil {
 		t.Fatalf("%v\n%s", err, said(other))
 	}
 	if c, err := a.mirror.Load(); err != nil || c.Bucket != "other" {
 		t.Fatalf("second copy %+v %v", c.Redacted(), err)
 	}
-	if s, _ := config.LoadSettings(); s.MirrorAuto {
-		t.Error("said no to copying after every backup, and it is on")
+	// Copying starts by itself, as when a second copy is added in the panel.
+	if s, _ := config.LoadSettings(); !s.MirrorAuto {
+		t.Error("a second copy was added and copying after every backup is off")
+	}
+	if !strings.Contains(said(other), "r2b mirror auto off") {
+		t.Errorf("did not say how to stop copying:\n%s", said(other))
 	}
 }
 

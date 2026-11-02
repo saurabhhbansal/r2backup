@@ -10,7 +10,7 @@ func TestPlain(t *testing.T) {
 		{"", ""},
 		{"that code is not right, or it has expired", "That code is not right, or it has expired"},
 		{"monthly spending limit reached; backups are paused and nothing was uploaded: about $5.12 of $5.00 this month. To carry on: r2b budget continue",
-			"Backups are paused: this month reached your spending limit (about $5.12 of $5.00). Carry on from Usage and cost."},
+			"An older version paused this backup for a spending limit. There is no limit now, so it runs next time."},
 		{`open index at "C:\\x\\index.db": another copy of r2b is already running (a backup, or the dashboard), and this one stopped rather than wait for it: timeout`,
 			"Another backup was running at the same time, so this one did not start. It runs again next time."},
 		{"the folder this set points at no longer exists: C:\\Photos",

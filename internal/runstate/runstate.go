@@ -109,8 +109,6 @@ type Past struct {
 	Unchanged int   `json:"unchanged"`
 	Bytes     int64 `json:"bytes"`
 
-	Operations int `json:"operations"`
-
 	// Problems and Failures are counts plus a few examples. The full lists
 	// live in the run log; status needs enough to tell the user something is
 	// wrong and where to look.

@@ -54,10 +54,6 @@ type Record struct {
 // forever.
 const ModTimeTolerance = 2 * time.Second
 
-// FreeTierOpsPerMonth is Cloudflare R2's free allowance of Class A
-// operations per calendar month.
-const FreeTierOpsPerMonth = 1_000_000
-
 // ErrNotFound is returned by Get when the set or the key inside it does not
 // exist, so callers can tell "never uploaded" apart from a real failure
 // instead of getting a zero-value Record back either way.
@@ -88,7 +84,6 @@ func Changed(rec Record, size int64, modTime time.Time) bool {
 var (
 	setsBucketName = []byte("sets")
 	metaBucketName = []byte("meta")
-	opsKey         = []byte("ops")
 	// prunedKey holds, per set, the UTC calendar day its trash was last
 	// swept. See ClaimDailyPrune.
 	prunedKey = []byte("pruned")
@@ -662,29 +657,4 @@ func (db *DB) ForgetDailyPrune(set string) error {
 		}
 		return meta.Put(prunedKey, out)
 	})
-}
-
-// AddOps records n more Class A R2 operations against the current calendar
-// month. r2backup performs every operation against R2 itself -- there is no
-// billing API to poll -- so this local tally is the only way it can warn a
-// user before they run past the free tier. If the stored counter belongs to
-// an earlier month, it is zeroed first: the count is "operations this month",
-// not a running total since install.
-//
-// This deviates from a bare `AddOps(n int)` signature: swallowing a bbolt
-// write failure here would let the counter silently fall behind actual
-// usage, defeating the point of tracking it, and returning an error is the
-// only alternative to a panic.
-//
-// The month-rollover rule itself lives in addMonthly, shared with the Class B
-// counter -- see internal/index/usage.go.
-func (db *DB) AddOps(n int) error { return db.addMonthly(opsKey, n) }
-
-// OpsThisMonth returns Class A operations counted so far in the current
-// calendar month and when that count will next reset. It computes the
-// rollover from the current time rather than trusting the stored month, so a
-// query made after the month has turned -- with no AddOps call in between to
-// trigger the reset itself -- still reports 0 rather than a stale total.
-func (db *DB) OpsThisMonth() (used int, resetAt time.Time, err error) {
-	return db.readMonthly(opsKey)
 }

@@ -37,7 +37,7 @@ type surface struct {
 
 var tuiSurface = map[string]surface{
 	// The root command is the interface.
-	"r2b": {Keys: []string{"1", "2", "3", "4", "5", "tab"}, Where: "running r2b with no arguments is the interface"},
+	"r2b": {Keys: []string{"1", "2", "3", "4", "tab"}, Where: "running r2b with no arguments is the interface"},
 	"r2b --yes": {NA: "pre-answers a prompt for a script or a scheduled run. " +
 		"Nothing in the window prompts at someone who is not there to answer."},
 	"r2b --no":     {NA: "the same, taking the safe path."},
@@ -107,13 +107,8 @@ var tuiSurface = map[string]surface{
 	"r2b activity": {NA: "the list of recent runs is the taskbar panel's Activity tab and this command; the full-screen " +
 		"view shows each folder's last run on the Folders screen."},
 
-	"r2b trash":    {Keys: []string{"4"}, Where: "the Trash mode"},
-	"r2b trash ls": {Keys: []string{"4"}, Where: "the Trash mode lists what is recoverable and until when"},
-
-	"r2b budget":          {Keys: []string{"3"}, Where: "the Cost mode: what this is costing, and the monthly limit"},
-	"r2b budget set":      {Keys: []string{"b"}, Where: "Cost: b sets or changes the monthly limit"},
-	"r2b budget off":      {Keys: []string{"x"}, Where: "Cost: x removes the limit"},
-	"r2b budget continue": {Keys: []string{"c"}, Where: "Cost: c carries on for the rest of the month when backups are paused"},
+	"r2b trash":    {Keys: []string{"3"}, Where: "the Trash mode"},
+	"r2b trash ls": {Keys: []string{"3"}, Where: "the Trash mode lists what is recoverable and until when"},
 
 	"r2b schedule":          {Keys: []string{"2"}, Where: "the Schedule mode"},
 	"r2b schedule --every":  {Keys: []string{"e"}, Where: "Schedule: e changes how often"},
@@ -129,8 +124,8 @@ var tuiSurface = map[string]surface{
 	"r2b update":         {Keys: []string{"u"}, Where: "Account: u checks, and a second u installs"},
 	"r2b update --check": {Keys: []string{"u"}, Where: "the first u only reports what is available"},
 
-	"r2b account":         {Keys: []string{"5"}, Where: "the Account mode"},
-	"r2b account devices": {Keys: []string{"5"}, Where: "Account lists the computers signed in, this one marked"},
+	"r2b account":         {Keys: []string{"4"}, Where: "the Account mode"},
+	"r2b account devices": {Keys: []string{"4"}, Where: "Account lists the computers signed in, this one marked"},
 	"r2b account logout":  {Keys: []string{"o"}, Where: "Account: o signs out"},
 	"r2b account login":   {Keys: []string{"i"}, Where: "Account: i signs in with an email code and the PIN"},
 	"r2b account reset-pin": {NA: "resetting a forgotten PIN is in the taskbar panel's sign-in (Forgot PIN?), " +
@@ -162,7 +157,6 @@ var tuiSurface = map[string]surface{
 	"r2b pack": {NA: "packing small files is a switch per destination in the taskbar panel's account screen and here; " +
 		"the terminal interface does not offer it yet."},
 	"r2b pack --second-copy": {NA: "part of r2b pack."},
-	"r2b usage":              {Keys: []string{"3"}, Where: "the Cost mode: what is stored and what it costs"},
 	"r2b mirror off":         {NA: "part of r2b mirror, which the interface does not yet offer."},
 }
 

@@ -11,12 +11,9 @@ import (
 // settingsFileName holds the handful of choices that belong to this machine
 // rather than to a set.
 //
-// It is its own file rather than a key in the index, and the spending limit is
-// why. The index is rebuildable state -- delete it and the next run works out
-// what to upload again -- so a limit stored there would quietly disappear on a
-// rebuild, and backups would resume spending without the ceiling their owner
-// set. A setting that fails open is worse than no setting, so it lives
-// somewhere nothing else has a reason to delete.
+// It is its own file rather than a key in the index because the index is
+// rebuildable state -- delete it and the next run works out what to upload
+// again -- and a choice someone made should not disappear with a rebuild.
 const settingsFileName = "settings.json"
 
 // Settings are the per-machine choices.
@@ -25,17 +22,9 @@ const settingsFileName = "settings.json"
 // missing file, an empty file and a file written by an older build all mean
 // the same thing: nothing has been chosen yet.
 type Settings struct {
-	// BudgetUSD is the monthly spending limit in US dollars. Zero means no
-	// limit, which is the default and the only safe one -- see
-	// internal/cost.Budget for why this is never set for someone.
-	BudgetUSD float64 `json:"budget_usd,omitempty"`
-
-	// BudgetResumedMonth is the calendar month ("2006-01", UTC) someone
-	// chose to carry on backing up in after the limit was reached.
-	//
-	// Stored as a month rather than a flag so that carrying on expires by
-	// itself. See cost.Budget.ResumedMonth for the argument.
-	BudgetResumedMonth string `json:"budget_resumed_month,omitempty"`
+	// Older versions also kept a monthly spending limit here (budget_usd,
+	// budget_resumed_month). There is no limit any more; those keys load
+	// without error, are ignored, and are dropped on the next save.
 
 	// LastUpdateCheck is when this machine last asked whether a newer
 	// release exists, as a Unix timestamp. It throttles the check that runs
@@ -96,9 +85,8 @@ func SettingsPath() (string, error) { return sub(settingsFileName) }
 // LoadSettings reads the settings for this machine.
 //
 // A missing file is not an error; it is what every fresh install looks like,
-// and it reads back as the zero Settings. A corrupt file is an error, because
-// silently treating unreadable settings as "no limit set" is precisely the
-// fail-open behaviour the file exists to avoid.
+// and it reads back as the zero Settings. A corrupt file is an error, so a
+// damaged file is never quietly saved over with defaults.
 func LoadSettings() (Settings, error) {
 	path, err := SettingsPath()
 	if err != nil {

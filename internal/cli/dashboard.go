@@ -13,12 +13,10 @@ import (
 	"github.com/saurabhhbansal/r2backup/internal/backup"
 	"github.com/saurabhhbansal/r2backup/internal/config"
 	"github.com/saurabhhbansal/r2backup/internal/creds"
-	"github.com/saurabhhbansal/r2backup/internal/index"
 	"github.com/saurabhhbansal/r2backup/internal/progress"
 	"github.com/saurabhhbansal/r2backup/internal/runstate"
 	"github.com/saurabhhbansal/r2backup/internal/schedule"
 	"github.com/saurabhhbansal/r2backup/internal/sets"
-	"github.com/saurabhhbansal/r2backup/internal/spend"
 	"github.com/saurabhhbansal/r2backup/internal/trash"
 	"github.com/saurabhhbansal/r2backup/internal/ui"
 )
@@ -227,7 +225,6 @@ func (d *dashboard) Load(ctx context.Context) ([]ui.SetView, ui.Overview, error)
 			v.HasRun, v.LastRun = true, last.FinishedAt
 			v.Uploaded, v.Unchanged = last.Uploaded, last.Unchanged
 			v.Deleted, v.Moved, v.Bytes = last.Deleted, last.Moved, last.Bytes
-			v.Operations = last.Operations
 			v.Failures, v.Problems, v.Collisions = last.Failures, last.Problems, last.Collisions
 			v.Examples = last.Examples
 			if last.Cancelled {
@@ -256,7 +253,7 @@ func (d *dashboard) Load(ctx context.Context) ([]ui.SetView, ui.Overview, error)
 		views = append(views, v)
 	}
 
-	ov := ui.Overview{Machine: machineName(), Version: Version, OpsLimit: index.FreeTierOpsPerMonth}
+	ov := ui.Overview{Machine: machineName(), Version: Version}
 	// Read from the stored credentials rather than by connecting: Load runs
 	// once a second, and this must stay free.
 	if c, err := a.creds.Load(); err == nil {
@@ -277,24 +274,6 @@ func (d *dashboard) Load(ctx context.Context) ([]ui.SetView, ui.Overview, error)
 		ov.Configured = c.Valid() == nil
 	} else if !errors.Is(err, creds.ErrNotFound) {
 		return views, ov, err
-	}
-	if used, resetAt, err := idx.OpsThisMonth(); err == nil {
-		ov.OpsUsed, ov.OpsResetAt = used, resetAt
-	}
-	// The cost estimate. A failure here is left silent and the fields stay
-	// zero: this refreshes once a second beside everything else on the
-	// screen, and an estimate that cannot be computed is not worth turning
-	// into an error that hides the folder list behind it.
-	if snap, err := spend.Read(idx, configuredBudget(), time.Now()); err == nil {
-		ov.StoredBytes, ov.StoredObjects = snap.StoredBytes, snap.Objects
-		ov.ClassBUsed, ov.ClassBLimit = snap.ClassBOps, snap.ClassBLimit
-		ov.EstimatedUSD = snap.EstimatedUSD()
-		ov.ProjectedUSD = snap.Projected
-		ov.StorageUSD = snap.Cost.StorageUSD
-		ov.OperationsUSD = snap.Cost.ClassAUSD + snap.Cost.ClassBUSD
-		ov.WithinFreeTier = snap.Cost.WithinFreeTier
-		ov.BudgetUSD = snap.Budget.LimitUSD
-		ov.BudgetState = snap.Verdict.String()
 	}
 	if st, err := d.currentSchedule(); err == nil {
 		// A clean call means a scheduler exists on this platform, whether or
@@ -429,8 +408,7 @@ func (d *dashboard) Backup(ctx context.Context, name string, phase func(string),
 		Set: s, Index: idx, Client: a.client,
 		Trash:    backup.NewTrash(a.client, s.RetentionDays),
 		Observer: obs, DetectMoves: true,
-		Budget: a.budget(),
-		Place:  a.place,
+		Place: a.place,
 	})
 	recordRun(s.Name, rep, runErr)
 
@@ -460,7 +438,7 @@ func recordRun(name string, rep *backup.Report, runErr error) {
 	} else if rep != nil {
 		past.Duration = rep.Elapsed.Seconds()
 		past.Uploaded, past.Moved, past.Deleted = rep.Uploaded, rep.Moved, rep.Deleted
-		past.Unchanged, past.Bytes, past.Operations = rep.Unchanged, rep.Bytes, rep.Operations
+		past.Unchanged, past.Bytes = rep.Unchanged, rep.Bytes
 		past.Problems, past.Failures, past.Collisions = len(rep.Problems), len(rep.Failures), len(rep.Collisions)
 		past.Examples = examples(rep)
 	}

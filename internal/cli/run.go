@@ -11,7 +11,6 @@ import (
 
 	"github.com/saurabhhbansal/r2backup/internal/backup"
 	"github.com/saurabhhbansal/r2backup/internal/config"
-	"github.com/saurabhhbansal/r2backup/internal/cost"
 	"github.com/saurabhhbansal/r2backup/internal/progress"
 	"github.com/saurabhhbansal/r2backup/internal/runstate"
 	"github.com/saurabhhbansal/r2backup/internal/sets"
@@ -104,7 +103,6 @@ func runOne(ctx context.Context, a *app, s sets.Set, out io.Writer, interactive 
 		Trash:       backup.NewTrash(a.client, s.RetentionDays),
 		Observer:    obs,
 		DetectMoves: true,
-		Budget:      a.budget(),
 		Place:       a.place,
 	})
 	if interactive {
@@ -118,7 +116,7 @@ func runOne(ctx context.Context, a *app, s sets.Set, out io.Writer, interactive 
 	} else {
 		past.Duration = rep.Elapsed.Seconds()
 		past.Uploaded, past.Moved, past.Deleted = rep.Uploaded, rep.Moved, rep.Deleted
-		past.Unchanged, past.Bytes, past.Operations = rep.Unchanged, rep.Bytes, rep.Operations
+		past.Unchanged, past.Bytes = rep.Unchanged, rep.Bytes
 		past.Problems, past.Failures, past.Collisions = len(rep.Problems), len(rep.Failures), len(rep.Collisions)
 		past.Examples = examples(rep)
 	}
@@ -167,8 +165,8 @@ func historyPath() (string, error) {
 func summarise(out io.Writer, r *backup.Report) {
 	switch {
 	case r.Planned != nil && r.Planned.Empty():
-		fmt.Fprintf(out, "%s: nothing changed (%s files unchanged, %s operations)\n",
-			r.Set, progress.FormatCount(int64(r.Unchanged)), progress.FormatCount(int64(r.Operations)))
+		fmt.Fprintf(out, "%s: nothing changed (%s files unchanged)\n",
+			r.Set, progress.FormatCount(int64(r.Unchanged)))
 	default:
 		fmt.Fprintf(out, "%s: %s uploaded (%s), %s moved, %s deleted, %s unchanged in %s\n",
 			r.Set,
@@ -224,31 +222,4 @@ func summarise(out io.Writer, r *backup.Report) {
 			fmt.Fprintf(out, "    %s: %v\n", f.Key, f.Err)
 		}
 	}
-}
-
-// configuredBudget reads this machine's spending limit.
-//
-// It returns the zero Budget -- no limit -- when the settings cannot be read,
-// and deliberately says nothing about it. The alternative is failing a backup
-// over an unreadable settings file, and between "spent money the owner did
-// not intend" and "did not back up the owner's data", this product's answer is
-// always the first. config.LoadSettings already refuses to treat a corrupt
-// file as empty, so the case this swallows is narrow: a data directory that
-// cannot be resolved at all, where nothing else would work either.
-// budget is the limit a run on this machine should respect. The limit is a
-// guess at R2's bill, so a machine backing up to Drime -- a flat plan, with no
-// charge per request -- has none.
-func (a *app) budget() cost.Budget {
-	if a.isDrime() {
-		return cost.Budget{}
-	}
-	return configuredBudget()
-}
-
-func configuredBudget() cost.Budget {
-	s, err := config.LoadSettings()
-	if err != nil {
-		return cost.Budget{}
-	}
-	return cost.Budget{LimitUSD: s.BudgetUSD, ResumedMonth: s.BudgetResumedMonth}
 }

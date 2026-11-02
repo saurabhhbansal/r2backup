@@ -81,8 +81,8 @@ type Status struct {
 	Title  string `json:"title"`
 	Detail string `json:"detail"`
 	// Action is what the status block's button does, when there is one
-	// thing worth doing about it: "cost" (the spending limit paused
-	// backups), "folder:<name>" (the one folder that needs a look) or
+	// thing worth doing about it: "folder:<name>" (the one folder that
+	// needs a look) or
 	// "backup" (carry on a run that was interrupted).
 	Action string `json:"action,omitempty"`
 }
@@ -223,15 +223,6 @@ func status(st State, ov ui.Overview, n, bad, never int, last time.Time, now tim
 			}
 		}
 		return Status{Kind: KindRunning, Title: "Backing up " + st.Running.Set, Detail: d}
-	case ov.BudgetState == "exceeded":
-		// Said here, above everything but a running backup: a paused run
-		// otherwise reads like a run with nothing to do, and the limit is
-		// the one thing that stops every folder at once.
-		d := "This month reached your spending limit."
-		if ov.BudgetUSD > 0 {
-			d = fmt.Sprintf("This month reached your $%.2f limit.", ov.BudgetUSD)
-		}
-		return Status{Kind: KindAttention, Title: "Backups are paused", Detail: d, Action: "cost"}
 	case ov.Interrupted != "":
 		return Status{Kind: KindInterrupted, Title: ov.Interrupted + " was interrupted",
 			Detail: "It carries on from where it stopped at the next run.", Action: "backup"}

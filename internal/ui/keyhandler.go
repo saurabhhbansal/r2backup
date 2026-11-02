@@ -86,8 +86,6 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.foldersKey(msg)
 	case tabSchedule:
 		return m.scheduleKey(msg)
-	case tabCost:
-		return m.costKey(msg)
 	case tabTrash:
 		return m.trashKey(msg)
 	case tabAccount:
