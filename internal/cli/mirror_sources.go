@@ -84,16 +84,18 @@ func drimeSourceEnds(ctx context.Context, a *app, src config.MirrorSource) (from
 		dc.DrimeWorkspace = src.Workspace
 	}
 	dc.Bundle = false
-	from, err = openBaseStore(ctx, dc, nil)
+	from, err = openExistingDrime(ctx, dc)
 	if err != nil {
 		return nil, nil, err
 	}
 	dest, err := s3Destination(a)
 	if err != nil {
+		closeStores(nil, from)
 		return nil, nil, err
 	}
 	store, err := openStore(ctx, dest, nil)
 	if err != nil {
+		closeStores(nil, from)
 		return nil, nil, err
 	}
 	return from, remote.Sub(store, drimeSourcePrefix(src.Name)), nil
@@ -121,10 +123,11 @@ func addDrimeSource(ctx context.Context, a *app, token string, src config.Mirror
 	if _, err := s3Destination(a); err != nil {
 		return err
 	}
-	from, _, err := drimeSourceEnds(ctx, a, src)
+	from, to, err := drimeSourceEnds(ctx, a, src)
 	if err != nil {
 		return err
 	}
+	defer closeStores(nil, from, to)
 	if _, err := from.List(ctx, ""); err != nil {
 		return fmt.Errorf("could not read %q in Drime: %w", src.Folder, err)
 	}
@@ -195,6 +198,7 @@ func runDrimeSources(ctx context.Context, a *app, names []string, dry bool, due 
 				opts.Progress = func(p mirror.Progress) { progress(name, p) }
 			}
 			res.Report, err = mirror.Run(ctx, opts)
+			closeStores(nil, from, to)
 		}
 		res.Err = err
 		out = append(out, res)

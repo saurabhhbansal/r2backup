@@ -152,6 +152,12 @@ type Options struct {
 	// watches, is the one that most needs to be.
 	Budget cost.Budget
 
+	// Place names the storage Client writes to (creds.Credentials.Place).
+	// When it differs from the one this set's records were made against,
+	// the records are checked against storage before planning, so a file the
+	// new storage lacks is sent again. Empty skips the check.
+	Place string
+
 	Now func() time.Time
 }
 
@@ -231,6 +237,10 @@ func run(ctx context.Context, opts Options) (*Report, error) {
 	// sends nothing.
 	if err := remote.FlushStore(ctx, opts.Client); err != nil {
 		return nil, fmt.Errorf("save earlier changes: %w", err)
+	}
+
+	if err := checkPlace(ctx, opts); err != nil {
+		return nil, err
 	}
 
 	// --- 1. Scan -----------------------------------------------------------

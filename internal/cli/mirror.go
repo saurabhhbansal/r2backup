@@ -211,6 +211,7 @@ func runMirror(ctx context.Context, a *app, opts *Options, names []string, f mir
 	if err != nil {
 		return err
 	}
+	defer closeStores(a.client, src, dst)
 	if srcName == dstName && src.Bucket() == dst.Bucket() {
 		return errors.New("the mirror is the same place as the main destination")
 	}
@@ -355,6 +356,7 @@ func autoMirror(ctx context.Context, a *app, out io.Writer, done map[string]*bac
 		fmt.Fprintf(out, "Mirror: %v\n", err)
 		return
 	}
+	defer closeStores(a.client, src, dst)
 	var prefixes []string
 	for _, s := range due {
 		prefixes = append(prefixes, s.KeyScope())

@@ -69,6 +69,9 @@ type manifest struct {
 	entries map[string]metaRecord
 	dirty   int
 	since   time.Time
+	// dropped is set when a flush let go of this copy so the next use reads
+	// the manifest again. Guarded by manifests.mu.
+	dropped bool
 }
 
 // manifests holds every set's manifest this Client has touched.
@@ -114,17 +117,32 @@ func (ms *manifests) get(ctx context.Context, scope string) (*manifest, error) {
 	return m, nil
 }
 
+// locked returns scope's manifest with ms.mu held, never a copy a flush has
+// let go of. The caller unlocks.
+func (ms *manifests) locked(ctx context.Context, scope string) (*manifest, error) {
+	for {
+		m, err := ms.get(ctx, scope)
+		if err != nil {
+			return nil, err
+		}
+		ms.mu.Lock()
+		if !m.dropped {
+			return m, nil
+		}
+		ms.mu.Unlock()
+	}
+}
+
 // lookup returns key's metadata, or ok=false when nothing was recorded.
 func (ms *manifests) lookup(ctx context.Context, key string) (remote.Metadata, bool, error) {
 	scope, rel, ok := setScope(key)
 	if !ok {
 		return remote.Metadata{}, false, nil
 	}
-	m, err := ms.get(ctx, scope)
+	m, err := ms.locked(ctx, scope)
 	if err != nil {
 		return remote.Metadata{}, false, err
 	}
-	ms.mu.Lock()
 	r, found := m.entries[rel]
 	ms.mu.Unlock()
 	if !found {
@@ -146,11 +164,10 @@ func (ms *manifests) set(ctx context.Context, key string, md remote.Metadata) (f
 	if !ok {
 		return "", nil
 	}
-	m, err := ms.get(ctx, scope)
+	m, err := ms.locked(ctx, scope)
 	if err != nil {
 		return "", err
 	}
-	ms.mu.Lock()
 	defer ms.mu.Unlock()
 	var mt int64
 	if !md.ModTime.IsZero() {
@@ -167,11 +184,10 @@ func (ms *manifests) remove(ctx context.Context, keys []string) error {
 		if !ok {
 			continue
 		}
-		m, err := ms.get(ctx, scope)
+		m, err := ms.locked(ctx, scope)
 		if err != nil {
 			return err
 		}
-		ms.mu.Lock()
 		if _, had := m.entries[rel]; had {
 			delete(m.entries, rel)
 			m.touch()
@@ -204,6 +220,7 @@ func (ms *manifests) forgetUnder(prefix string) {
 	for scope, m := range ms.sets {
 		switch {
 		case scope == prefix || strings.HasPrefix(scope, prefix+"/"):
+			m.dropped = true
 			delete(ms.sets, scope)
 		case strings.HasPrefix(prefix, scope+"/"):
 			sub := strings.TrimPrefix(prefix, scope+"/") + "/"
@@ -261,7 +278,26 @@ func (ms *manifests) flush(ctx context.Context, scope string) error {
 		j.m.since = time.Now()
 		ms.mu.Unlock()
 	}
+	if scope == "" && firstErr == nil {
+		ms.forgetClean()
+	}
 	return firstErr
+}
+
+// forgetClean lets go of every manifest with nothing left to save, so the
+// next use reads it again. A long-lived process (the tray) keeps one Client
+// for its whole life while scheduled backups run as processes of their own;
+// without this it would keep the copy it first read, and its next save would
+// write that old copy over the details the other process recorded.
+func (ms *manifests) forgetClean() {
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	for s, m := range ms.sets {
+		if m.dirty == 0 {
+			m.dropped = true
+			delete(ms.sets, s)
+		}
+	}
 }
 
 func encodeManifest(entries map[string]metaRecord) ([]byte, error) {

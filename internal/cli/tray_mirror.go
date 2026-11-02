@@ -168,6 +168,7 @@ func (t *trayBackend) mirrorSetup(ctx context.Context, c creds.Credentials, auto
 	if err != nil {
 		return err
 	}
+	defer closeStores(nil, store)
 	if _, err := store.List(ctx, "r2backup/"); err != nil {
 		return errors.New("could not reach it with those details: " + err.Error())
 	}

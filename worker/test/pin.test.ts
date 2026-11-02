@@ -108,6 +108,33 @@ describe("PIN", () => {
     expect(storage.keys.has(EMAIL)).toBe(false);
   });
 
+  it("hands the readable keys back again at the next sign-in if the sealed copy never arrived", async () => {
+    const legacy = { primary: { provider: "drime", drime_token: "tok" } };
+    await storage.putKeys(EMAIL, { ...(await sealKeys(JSON.stringify(legacy), EMAIL, KEYS_SECRET)), updated_at: 1 });
+    const old = await token({});
+    const setup = await handlePinSetup(post("/auth/pin/setup", old, { salt: SALT, kdf_params: KDF, proof: proof(1) }), ctx);
+    expect(setup.status).toBe(200);
+    // The client dropped off before PUT /keys. Setup cannot be repeated...
+    const again = await handlePinSetup(post("/auth/pin/setup", old, { salt: SALT, kdf_params: KDF, proof: proof(1) }), ctx);
+    expect(again.status).toBe(409);
+    // ...but signing in with the PIN hands the keys back.
+    const res = await handlePinVerify(post("/auth/pin", pinTok, { proof: proof(1) }), ctx);
+    expect(res.status).toBe(200);
+    const out = (await res.json()) as Record<string, unknown>;
+    expect(out.legacy_keys).toEqual(legacy);
+    await handlePutKeys(
+      new Request("https://r2backup.flexpod.cc/keys", {
+        method: "PUT",
+        headers: { authorization: `Bearer ${out.token}`, "content-type": "application/json" },
+        body: JSON.stringify({ sealed: { ciphertext: "abc", nonce: "def" } }),
+      }),
+      ctx,
+    );
+    expect(storage.keys.has(EMAIL)).toBe(false);
+    const later = await handlePinVerify(post("/auth/pin", pinTok, { proof: proof(1) }), ctx);
+    expect(((await later.json()) as Record<string, unknown>).legacy_keys).toBeUndefined();
+  });
+
   it("does not take a full session for setup", async () => {
     const full = await token({ scope: "full", pv: 1 });
     const res = await handlePinSetup(post("/auth/pin/setup", full, { salt: SALT, kdf_params: KDF, proof: proof(1) }), ctx);

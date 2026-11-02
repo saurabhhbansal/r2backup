@@ -305,6 +305,15 @@ func (t *tree) forgetIDs(ids map[string]bool) {
 	}
 }
 
+// refresh drops folder p's cached listing, so the next use lists it again.
+// The folder itself is still known to exist.
+func (t *tree) refresh(p string) {
+	p = strings.Trim(p, "/")
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	delete(t.dirs, p)
+}
+
 // forgetDir drops a folder and everything under it from the cache, after it
 // was deleted on the server.
 func (t *tree) forgetDir(p string) {

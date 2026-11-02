@@ -430,6 +430,7 @@ func (d *dashboard) Backup(ctx context.Context, name string, phase func(string),
 		Trash:    backup.NewTrash(a.client, s.RetentionDays),
 		Observer: obs, DetectMoves: true,
 		Budget: a.budget(),
+		Place:  a.place,
 	})
 	recordRun(s.Name, rep, runErr)
 
