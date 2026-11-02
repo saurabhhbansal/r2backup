@@ -198,10 +198,21 @@ func (t *trayBackend) startMirror(everything, reverse bool) error {
 	_ = a.sets.Reload()
 	var list []sets.Set
 	prefixes := []string{"machines/"}
+	// A folder turned off for the secondary backup is left alone there,
+	// unless this is a copy back, which is for getting files back.
+	var skip []string
+	if everything && !reverse {
+		skip = secondarySkips(a.sets.List())
+	}
 	if !everything {
 		list = a.sets.List()
 		if len(list) == 0 {
 			return errors.New("add a folder first")
+		}
+		if !reverse {
+			if list = forSecondary(list); len(list) == 0 {
+				return errors.New("every folder is turned off for the secondary backup")
+			}
 		}
 		prefixes = nil
 		for _, s := range list {
@@ -233,7 +244,7 @@ func (t *trayBackend) startMirror(everything, reverse bool) error {
 	go func() {
 		defer cancel()
 		rep, err := mirror.Run(ctx, mirror.Options{
-			Src: src, Dst: dst, Prefixes: prefixes,
+			Src: src, Dst: dst, Prefixes: prefixes, Skip: skip,
 			// Copying back never removes anything from where backups go:
 			// it is for getting files back, and a mirror that is behind
 			// must not be able to take them away.

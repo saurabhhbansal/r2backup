@@ -132,6 +132,17 @@ main::-webkit-scrollbar-thumb:hover { background: var(--faint); }
 /* footer */
 footer { display: flex; align-items: center; gap: 10px; padding: 10px var(--gut) 12px; border-top: 1px solid var(--line); }
 
+/* The dock: status and Back up now, one card floating over the bottom of
+   the list. The list ends --dock-h (measured) above the panel's foot, so
+   its last row can always be scrolled clear of the card. */
+.dock { position: absolute; left: var(--gut); right: var(--gut); bottom: 12px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--lift); }
+.dock .status { margin: 0; border: 0; border-radius: var(--radius) var(--radius) 0 0; background: none; }
+.dock-go { display: flex; padding: 10px 12px 12px; border-top: 1px solid var(--line); }
+#list { padding-bottom: calc(var(--dock-h, 124px) + 20px); }
+body:not(:has(.sheet.open)) .toast { bottom: calc(var(--dock-h, 124px) + 20px); }
+.day.has-clear { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 8px; padding-bottom: 0; }
+.day .textbtn { padding: 4px 0; }
+
 /* sheets */
 .sheet { position: absolute; inset: 0; background: var(--bg); display: flex; flex-direction: column; transform: translateX(100%); border-radius: 10px; }
 .sheet.open { transform: none; }
@@ -401,17 +412,11 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
 <body>
 <header>
   <div class="logo top" role="img" aria-label="r2backup"></div>
+  <button class="icon-btn" id="b-add" title="Add a folder" aria-label="Add a folder"><svg viewBox="0 0 24 24"><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2.2h7a2 2 0 0 1 2 2v7.8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M12 11v5.5M9.25 13.75h5.5"/></svg></button>
   <button class="icon-btn" id="b-restore" title="Backups" aria-label="Backups"><svg viewBox="0 0 24 24"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1M3.5 4.5v4h4"/><path d="M12 7.5V12l3 2"/></svg></button>
   <button class="icon-btn" id="b-trash" title="Deleted files" aria-label="Deleted files"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M5.5 7l1 12a1.5 1.5 0 0 0 1.5 1.4h8a1.5 1.5 0 0 0 1.5-1.4l1-12M9 7V4.5h6V7"/></svg></button>
   <button class="icon-btn" id="b-set" title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
 </header>
-
-<section class="status" id="status" aria-live="polite">
-  <div class="badge" id="badge"></div>
-  <div style="min-width:0"><h1 id="s-title">Loading…</h1><p id="s-detail">&nbsp;</p></div>
-  <div class="s-acts" id="s-acts"></div>
-  <div class="bar" id="bar" hidden><i id="bar-fill" style="width:0"></i></div>
-</section>
 
 <nav role="tablist">
   <button role="tab" id="t-folders" aria-selected="true">Folders<span class="n" id="n-folders"></span></button>
@@ -420,9 +425,19 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
 
 <main id="list"></main>
 
-<footer>
-  <button class="primary" id="b-all"><svg viewBox="0 0 24 24"><path d="M12 16V4m0 0-4.5 4.5M12 4l4.5 4.5M5 20h14"/></svg><span id="b-all-t">Back up now</span></button>
-</footer>
+<!-- How things stand, and backing up now: one card that floats over the
+     bottom of the list. The list scrolls behind it and is padded to end above it. -->
+<div class="dock" id="dock">
+  <section class="status" id="status" aria-live="polite">
+    <div class="badge" id="badge"></div>
+    <div style="min-width:0"><h1 id="s-title">Loading…</h1><p id="s-detail">&nbsp;</p></div>
+    <div class="s-acts" id="s-acts"></div>
+    <div class="bar" id="bar" hidden><i id="bar-fill" style="width:0"></i></div>
+  </section>
+  <div class="dock-go">
+    <button class="primary" id="b-all"><svg viewBox="0 0 24 24"><path d="M12 16V4m0 0-4.5 4.5M12 4l4.5 4.5M5 20h14"/></svg><span id="b-all-t">Back up now</span></button>
+  </div>
+</div>
 
 <div class="toast" id="toast" role="status"></div>
 
@@ -456,9 +471,6 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
         <div class="t"><b>Start with Windows</b></div>
         <button class="toggle" id="sw-login" role="switch" aria-checked="false" aria-label="Start with Windows"></button>
       </div>
-    </div>
-    <div class="group">
-      <button class="item link" id="b-add"><div class="t"><b>Add a folder…</b></div></button>
     </div>
     <div class="group">
       <button class="item link" id="b-dfold"><div class="t"><b>Drime folders</b><span>Copy another app’s Drime backups to S3 storage</span></div></button>
@@ -598,6 +610,12 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
         <button class="item link" id="f-excl"><div class="t"><b>What is backed up</b></div><span class="v" id="f-excl-sub"></span></button>
         <button class="item link" id="f-open"><div class="t"><b>Open folder</b></div></button>
         <button class="item link" id="f-restore"><div class="t"><b>Restore files…</b></div></button>
+      </div>
+      <div class="group" id="f-sec-g" hidden>
+        <div class="item">
+          <div class="t"><b>Secondary backup</b><span id="f-sec-sub"></span></div>
+          <button class="toggle" id="f-sec" role="switch" aria-checked="true" aria-label="Secondary backup"></button>
+        </div>
       </div>
       <div class="group">
         <button class="item link" id="f-rename"><div class="t"><b>Rename…</b><span id="f-rename-sub"></span></div></button>
@@ -1016,7 +1034,11 @@ function renderList() {
     } else {
       let day = "";
       S.recent.forEach((r, i) => {
-        if (r.day !== day) { day = r.day; html += '<div class="day">' + esc(day) + "</div>"; }
+        if (r.day !== day) {
+          day = r.day;
+          html += i === 0 ? '<div class="day has-clear"><span>' + esc(day) + '</span><button class="textbtn" data-act="clear-activity">Clear</button></div>'
+            : '<div class="day">' + esc(day) + "</div>";
+        }
         html += '<div class="row" data-run="' + i + '" tabindex="0" role="button" aria-label="' + esc(r.set + ", " + r.time + ", " + r.text) + '"><div class="ic i-' + r.kind + '">' + (ICON.run[r.kind] || ICON.run.nochange) + "</div>" +
           '<div class="t"><b>' + esc(r.set) + "</b><span" + (r.kind === "failed" ? ' class="err"' : "") + ' title="' + esc(r.text) + '">' + esc(r.text) + "</span></div>" +
           '<span class="r">' + esc(r.time) + "</span></div>";
@@ -1032,6 +1054,23 @@ function setTab(t) {
   $("t-recent").setAttribute("aria-selected", t === "recent");
   $("list").scrollTop = 0;
   renderList();
+}
+
+// The list ends above the dock, however tall a running backup makes it.
+new ResizeObserver(() => document.body.style.setProperty("--dock-h", $("dock").offsetHeight + "px")).observe($("dock"));
+
+// Clear: forgets the list of recent backups. The backups themselves stay.
+function clearActivity() {
+  ask({
+    title: "Clear activity?", go: "Clear",
+    text: "The list of recent backups is emptied. Your backups and files are not touched.",
+    run: async () => {
+      await call("clearActivity");
+      if (S) S.recent = [];
+      renderList();
+      return "Activity cleared.";
+    },
+  });
 }
 
 $("t-folders").onclick = () => setTab("folders");
@@ -1153,7 +1192,7 @@ async function startConnect() {
   try { p = (await call("purposeGet")).purpose; } catch (e) { /* asked below */ }
   if (p) purposeSetup(p); else showGate("purpose", true);
 }
-const actions = { connect: () => startConnect(),"restore-set": (name) => openRestore(name), add: () => openAdd(), "restore-other": () => openRestore() };
+const actions = { connect: () => startConnect(),"restore-set": (name) => openRestore(name), add: () => openAdd(), "restore-other": () => openRestore(), "clear-activity": () => clearActivity() };
 
 // Done: the folders list takes over, which is where a new person goes next.
 function connected(msg) {
@@ -1560,6 +1599,7 @@ async function openFolder(name) {
   openSheet("sheet-folder");
   $("f-facts").textContent = "";
   $("f-missing").hidden = true;
+  $("f-sec-g").hidden = true;
   showErr("f-err", "");
   fShow("home");
   try {
@@ -1574,8 +1614,40 @@ async function openFolder(name) {
     $("f-backup").disabled = !F.info.rootExists || !!(S && (S.running || S.busy));
     $("f-rename-sub").textContent = F.info.storedAs ? "Stored as " + F.info.storedAs : "";
     fillKeep($("f-keep"), F.info.retention, false);
+    drawSecondary(F.info.secondary !== false);
   } catch (e) { $("f-facts").textContent = e.message; }
 }
+
+// Secondary backup: whether this folder is copied on to the second copy.
+// Only there to switch when a second copy is set up.
+function drawSecondary(on) {
+  const has = !!(S && S.second);
+  $("f-sec-g").hidden = !has;
+  $("f-sec").setAttribute("aria-checked", on);
+  $("f-sec-sub").textContent = has ? (on ? "Copied to " : "Not copied to ") + S.second : "";
+}
+$("f-sec").onclick = () => {
+  const name = F.name, sw = $("f-sec");
+  const set = async (on, drop) => {
+    await call("folderSecondary", { name, on, drop });
+    if (F.name === name) { F.info.secondary = on; drawSecondary(on); }
+  };
+  if (sw.getAttribute("aria-checked") !== "true") {
+    sw.disabled = true;
+    set(true, false).then(() => toast(name + " is copied to " + S.second + " again.")).catch((e) => toast(e.message)).finally(() => { sw.disabled = false; });
+    return;
+  }
+  ask({
+    title: "Stop copying " + name + " to " + S.second + "?", go: "Turn off",
+    text: "Your backup of " + name + " is not touched.",
+    opts: [["keep", "Keep what’s there", "Files already in " + S.second + " stay. New changes are not copied.", false],
+      ["drop", "Delete from secondary backup", "Removes " + name + " from " + S.second + ". Permanent.", true]],
+    run: async (w) => {
+      await set(false, w === "drop");
+      return w === "drop" ? name + " is deleted from " + S.second + "." : "";
+    },
+  });
+};
 
 // Keep deleted files for: the lengths offered, plus whatever a folder
 // already has if that is something else.
@@ -2309,21 +2381,30 @@ const MD = { where: "primary", run: null };
 function ask(o) {
   $("md-title").textContent = o.title;
   $("md-text").textContent = o.text || "";
-  const choose = !!o.choose && !!(S && S.second);
-  MD.where = choose ? "both" : "primary";
+  // Choices, when there are any: [value, title, line, danger]. The first
+  // is picked to start with, and run gets the one picked. A choice's own
+  // danger, when given, colours Go while it is picked.
+  let choices = o.opts || null;
+  if (!choices && o.choose && S && S.second) {
+    choices = [["both", "Both", primaryName() + " and " + S.second], ["primary", "Only " + primaryName(), "The second copy keeps it"]];
+  }
+  MD.where = choices ? choices[0][0] : "primary";
   const opts = $("md-opts");
-  opts.hidden = !choose;
+  opts.hidden = !choices;
   opts.innerHTML = "";
-  if (choose) {
-    const opt = (w, b, sub) => '<button class="opt" data-w="' + w + '" role="radio" aria-checked="' + (w === MD.where) + '"><div class="dot-r"></div><div><b>' + esc(b) + "</b><span>" + esc(sub) + "</span></div></button>";
-    opts.innerHTML = opt("both", "Both", primaryName() + " and " + S.second) +
-      opt("primary", "Only " + primaryName(), "The second copy keeps it");
+  const goDanger = () => {
+    const c = choices && choices.find((x) => x[0] === MD.where);
+    $("md-go").classList.toggle("danger", c && c[3] !== undefined ? !!c[3] : o.danger !== false);
+  };
+  if (choices) {
+    const opt = ([w, b, sub]) => '<button class="opt" data-w="' + esc(w) + '" role="radio" aria-checked="' + (w === MD.where) + '"><div class="dot-r"></div><div><b>' + esc(b) + "</b><span>" + esc(sub) + "</span></div></button>";
+    opts.innerHTML = choices.map(opt).join("");
     opts.querySelectorAll("[data-w]").forEach((b) => {
-      b.onclick = () => { MD.where = b.dataset.w; opts.querySelectorAll("[data-w]").forEach((x) => x.setAttribute("aria-checked", x === b)); };
+      b.onclick = () => { MD.where = b.dataset.w; opts.querySelectorAll("[data-w]").forEach((x) => x.setAttribute("aria-checked", x === b)); goDanger(); };
     });
   }
   $("md-go").querySelector("span").textContent = o.go || "Delete";
-  $("md-go").classList.toggle("danger", o.danger !== false);
+  goDanger();
   showErr("md-err", "");
   MD.run = o.run;
   $("modal").hidden = false;

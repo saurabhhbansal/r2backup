@@ -215,3 +215,26 @@ func TestOneFailureDoesNotStopTheRest(t *testing.T) {
 		t.Fatalf("got %+v", rep)
 	}
 }
+
+// A skipped folder is neither copied nor trimmed, even under a wider prefix:
+// what the secondary backup already has of it stays as it is.
+func TestSkipLeavesAFolderAlone(t *testing.T) {
+	src, dst := newMem(time.Unix(0, 0)), newMem(time.Unix(0, 0))
+	src.put(t, scope+"current/a.txt", "a")
+	src.put(t, "machines/pc/Off/current/new.txt", "n")
+	dst.put(t, "machines/pc/Off/current/old.txt", "o")
+	rep, err := Run(context.Background(), Options{Src: src, Dst: dst, Prefixes: []string{"machines/"},
+		Skip: []string{"machines/pc/Off/"}, Delete: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Copied != 1 || rep.Deleted != 0 {
+		t.Fatalf("report: %+v", rep)
+	}
+	if _, ok := dst.objs["machines/pc/Off/current/new.txt"]; ok {
+		t.Fatal("a skipped folder was copied")
+	}
+	if dst.content("machines/pc/Off/current/old.txt") != "o" {
+		t.Fatal("a skipped folder was trimmed")
+	}
+}

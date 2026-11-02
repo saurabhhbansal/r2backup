@@ -91,4 +91,77 @@ func TestActivityListsRunsAndShowsOne(t *testing.T) {
 	if _, err := r2b(t, nil, "activity", "9"); err == nil {
 		t.Error("showed a run that is not there")
 	}
+
+	// Clear is the Activity tab's Clear: it asks, and empties the list.
+	if _, err := r2b(t, nil, "activity", "clear"); err != errNeedsYes {
+		t.Fatalf("cleared with nobody to ask and no --yes: %v", err)
+	}
+	if _, err := r2b(t, nil, "activity", "clear", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	out, err = r2b(t, nil, "activity")
+	if err != nil || !strings.Contains(out, "No backups yet.") {
+		t.Fatalf("after clearing (%v):\n%s", err, out)
+	}
+}
+
+// `r2b mirror folder` is the Secondary backup switch in a folder's settings.
+func TestMirrorFolderOffKeepsOrDeletesAndCopiesSkipIt(t *testing.T) {
+	main, second := parityWorld(t, true, folder(t, "Docs"), folder(t, "Photos"))
+	main.put("machines/testpc/Docs/current/a.txt", "machines/testpc/Photos/current/new.jpg")
+	second.put("machines/testpc/Photos/current/old.jpg")
+
+	if _, err := r2b(t, nil, "mirror", "folder", "Photos", "off"); err != nil {
+		t.Fatal(err)
+	}
+	a, err := openApp()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, _ := a.sets.Get("Photos")
+	a.close()
+	if !s.NoSecondary {
+		t.Fatal("Photos is still marked for the second copy")
+	}
+
+	// A copy of everything leaves Photos alone: nothing new copied, nothing
+	// already there removed.
+	if _, err := r2b(t, nil, "mirror", "--everything"); err != nil {
+		t.Fatal(err)
+	}
+	if !second.has("machines/testpc/Docs/current/a.txt") {
+		t.Error("Docs was not copied")
+	}
+	if second.has("machines/testpc/Photos/current/new.jpg") || !second.has("machines/testpc/Photos/current/old.jpg") {
+		t.Error("Photos was touched by a copy while turned off")
+	}
+	out, err := r2b(t, nil, "mirror", "Photos")
+	if err != nil || !strings.Contains(out, "skipped") || second.has("machines/testpc/Photos/current/new.jpg") {
+		t.Fatalf("copying Photos by name while off (%v):\n%s", err, out)
+	}
+
+	// Off with --delete asks, then empties it from the second copy only.
+	if _, err := r2b(t, nil, "mirror", "folder", "Photos", "off", "--delete"); err != errNeedsYes {
+		t.Fatalf("deleted with nobody to ask and no --yes: %v", err)
+	}
+	if _, err := r2b(t, nil, "mirror", "folder", "Photos", "off", "--delete", "--yes"); err != nil {
+		t.Fatal(err)
+	}
+	if second.has("machines/testpc/Photos/") || !main.has("machines/testpc/Photos/") {
+		t.Error("--delete did not delete from the second copy only")
+	}
+
+	// On again, and the next copy takes it.
+	if _, err := r2b(t, nil, "mirror", "folder", "Photos", "on"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := r2b(t, nil, "mirror"); err != nil {
+		t.Fatal(err)
+	}
+	if !second.has("machines/testpc/Photos/current/new.jpg") {
+		t.Error("Photos was not copied after turning it back on")
+	}
+	if _, err := r2b(t, nil, "mirror", "folder", "Photos", "on", "--delete"); err == nil {
+		t.Error("--delete with on was accepted")
+	}
 }

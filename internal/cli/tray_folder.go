@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/saurabhhbansal/r2backup/internal/remote"
+	"github.com/saurabhhbansal/r2backup/internal/runstate"
 	"github.com/saurabhhbansal/r2backup/internal/scan"
 	"github.com/saurabhhbansal/r2backup/internal/sets"
 	"github.com/saurabhhbansal/r2backup/internal/tray"
@@ -214,7 +215,8 @@ func (t *trayBackend) folderCall(ctx context.Context, method string, raw []byte)
 		}
 		res := map[string]any{"name": s.Name, "root": s.Root, "rootExists": exists, "excluded": len(s.Excludes),
 			"trash": s.TrashEnabled(), "retention": s.RetentionDays,
-			"missing": s.Status == sets.StatusNeedsAttention && !exists}
+			"missing": s.Status == sets.StatusNeedsAttention && !exists,
+			"secondary": !s.NoSecondary}
 		if s.StatusNote != "" {
 			res["note"] = tray.Plain(s.StatusNote)
 		}
@@ -264,8 +266,75 @@ func (t *trayBackend) folderCall(ctx context.Context, method string, raw []byte)
 		}
 		return nil, true, err
 
+	case "folderSecondary":
+		var a struct {
+			Name string `json:"name"`
+			On   bool   `json:"on"`
+			// Drop, turning it off, also deletes what the secondary
+			// backup has of this folder. Without it, that stays.
+			Drop bool `json:"drop"`
+		}
+		if err := decodeArgs(raw, &a); err != nil {
+			return nil, true, err
+		}
+		err := t.setFolderSecondary(ctx, a.Name, a.On, a.Drop)
+		t.invalidate()
+		return nil, true, err
+
+	case "clearActivity":
+		p, err := historyPath()
+		if err != nil {
+			return nil, true, err
+		}
+		err = runstate.ClearHistory(p)
+		t.invalidate()
+		return nil, true, err
 	}
 	return nil, false, nil
+}
+
+// setFolderSecondary turns one folder's secondary backup on or off. Off with
+// drop also deletes what the secondary backup holds of it; off without drop
+// leaves that there and only stops copying.
+func (t *trayBackend) setFolderSecondary(ctx context.Context, name string, on, drop bool) error {
+	if on && drop {
+		return errors.New("only a folder turned off can have its secondary backup deleted")
+	}
+	a := t.d.app
+	_ = a.sets.Reload()
+	s, err := a.sets.Get(name)
+	if err != nil {
+		return err
+	}
+	if drop {
+		t.mu.Lock()
+		copying := t.mj != nil && !t.mj.done
+		t.mu.Unlock()
+		if copying {
+			return errors.New("a copy to the secondary backup is running. Try again when it has finished")
+		}
+	}
+	if s.NoSecondary != !on {
+		s.NoSecondary = !on
+		if err := a.sets.Update(s); err != nil {
+			return err
+		}
+	}
+	if !drop {
+		return nil
+	}
+	st, err := t.secondStore(ctx)
+	if err != nil {
+		return err
+	}
+	if st == nil {
+		return errors.New("there is no secondary backup")
+	}
+	if _, err := st.DeletePrefix(ctx, s.KeyScope()); err != nil {
+		closeStores(nil, st)
+		return fmt.Errorf("could not delete it from the secondary backup: %w", err)
+	}
+	return remote.CloseStore(ctx, st)
 }
 
 // refuseWhileRunning is the panel's busy check for a terminal command: a

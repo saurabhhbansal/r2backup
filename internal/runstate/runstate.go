@@ -200,6 +200,13 @@ func ReadHistory(path string) (*History, error) {
 	return &h, nil
 }
 
+// ClearHistory forgets every finished run. It writes an empty history rather
+// than removing the file, by the same atomic rename as Record, so a reader
+// sees either the old list or the empty one.
+func ClearHistory(path string) error {
+	return writeJSON(path, History{Runs: []Past{}})
+}
+
 // Last returns the most recent run for a set.
 func (h *History) Last(set string) (Past, bool) {
 	for _, r := range h.Runs {

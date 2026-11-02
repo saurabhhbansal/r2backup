@@ -162,6 +162,11 @@ var tuiSurface = map[string]surface{
 		"the terminal interface does not offer it yet."},
 	"r2b pack --second-copy": {NA: "part of r2b pack."},
 	"r2b mirror off":         {NA: "part of r2b mirror, which the interface does not yet offer."},
+	"r2b mirror folder": {NA: "leaving one folder out of the second copy is the Secondary backup switch in the taskbar " +
+		"panel's folder settings and here; the terminal interface does not offer it yet."},
+	"r2b mirror folder --delete": {NA: "part of r2b mirror folder."},
+	"r2b activity clear": {NA: "clearing the list of recent runs is the taskbar panel's Activity tab and this command; " +
+		"the full-screen view keeps no such list."},
 }
 
 func TestEveryCommandAndFlagIsReachableFromTheInterface(t *testing.T) {

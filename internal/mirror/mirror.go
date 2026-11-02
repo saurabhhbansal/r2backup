@@ -33,6 +33,11 @@ type Options struct {
 	// KeyScope, or "machines/" for everything; "" is the whole store, for a
 	// Drime folder copied as it is.
 	Prefixes []string
+	// Skip are prefixes, each ending in "/", left alone on both sides:
+	// nothing under them is copied, and nothing under them is removed. A
+	// folder kept out of the secondary backup is skipped this way when a
+	// wider prefix, such as "machines/", would otherwise take it in.
+	Skip []string
 	// Delete removes what the destination has and the source does not.
 	Delete bool
 	// DryRun works out and reports what would happen, and changes nothing.
@@ -184,6 +189,27 @@ func plan(src, dst []remote.ListEntry, del bool) Plan {
 	return p
 }
 
+// skipped returns the entries that fall under none of the skip prefixes.
+func skipped(es []remote.ListEntry, skip []string) []remote.ListEntry {
+	if len(skip) == 0 {
+		return es
+	}
+	out := es[:0:0]
+	for _, e := range es {
+		keep := true
+		for _, s := range skip {
+			if strings.HasPrefix(e.Key, s) {
+				keep = false
+				break
+			}
+		}
+		if keep {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
 // Run mirrors opts.Prefixes from opts.Src to opts.Dst.
 func Run(ctx context.Context, opts Options) (*Report, error) {
 	if opts.Src == nil || opts.Dst == nil {
@@ -208,7 +234,7 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 		if err != nil {
 			return nil, fmt.Errorf("list destination %s: %w", prefix, err)
 		}
-		p := plan(src, dst, opts.Delete)
+		p := plan(skipped(src, opts.Skip), skipped(dst, opts.Skip), opts.Delete)
 		all.Copies = append(all.Copies, p.Copies...)
 		all.Deletes = append(all.Deletes, p.Deletes...)
 		all.Unchanged += p.Unchanged
