@@ -105,6 +105,7 @@ func TestLoadReportsUnconfigured(t *testing.T) {
 var overviewZeroOnAFreshlyConfiguredMachine = map[string]string{
 	"Scheduled":         "no OS scheduler entry has been registered",
 	"Interval":          "meaningless without Scheduled",
+	"DailyAt":           "meaningless without Scheduled, and only set when it runs once a day",
 	"NextRun":           "meaningless without Scheduled",
 	"LastRun":           "meaningless without Scheduled",
 	"RunsWhenSignedOut": "meaningless without Scheduled",

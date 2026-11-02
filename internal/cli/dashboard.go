@@ -282,6 +282,7 @@ func (d *dashboard) Load(ctx context.Context) ([]ui.SetView, ui.Overview, error)
 		ov.SchedulerAvailable = true
 		if st.Registered {
 			ov.Scheduled, ov.Interval, ov.RunsWhenSignedOut = true, st.Interval, st.RunsWhenSignedOut
+			ov.DailyAt = st.DailyAt
 			// NextRun and LastRun are best-effort -- some platforms can't say
 			// and leave them zero on Status itself -- but when the OS does
 			// report them, the Schedule tab should show them rather than the
@@ -566,6 +567,32 @@ func (d *dashboard) Schedule(ctx context.Context, every int, off bool) error {
 	return nil
 }
 
+// ScheduleDaily is Schedule for once a day at a time ("HH:MM").
+func (d *dashboard) ScheduleDaily(ctx context.Context, at string) error {
+	if !schedule.Supported() {
+		return errors.New("no scheduler is available on this platform")
+	}
+	h, m, err := schedule.ParseDailyAt(at)
+	if err != nil {
+		return err
+	}
+	self, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	binary, _ := scheduledBinary(runtime.GOOS, self, fileExists)
+	if err := scheduleInstall(schedule.Entry{
+		Name:       scheduleName(),
+		DailyAt:    schedule.FormatDailyAt(h, m),
+		BinaryPath: binary,
+		Args:       scheduledRunArgs(runtime.GOOS, config.DataDirArgs()),
+	}); err != nil {
+		return err
+	}
+	d.invalidateScheduleCache()
+	return nil
+}
+
 // RepairSchedule is `r2b schedule --repair`.
 //
 // The OS scheduler stores an absolute path, so moving or renaming the binary
@@ -590,5 +617,8 @@ func (d *dashboard) RepairSchedule(ctx context.Context) (bool, error) {
 	// back -- possibly stale by up to scheduleCacheTTL, which is harmless
 	// here since the interval it's keying off doesn't change on its own --
 	// doesn't linger once the repair itself has run.
+	if st.DailyAt != "" {
+		return true, d.ScheduleDaily(ctx, st.DailyAt)
+	}
 	return true, d.Schedule(ctx, repairMinutes(st), false)
 }

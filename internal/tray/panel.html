@@ -173,6 +173,18 @@ body:not(:has(.sheet.open)) .toast { bottom: calc(var(--dock-h, 124px) + 20px); 
 .group .link:only-child { border-radius: var(--radius); }
 .danger b { color: var(--bad); }
 .foot { color: var(--faint); font-size: 11px; text-align: center; padding: 6px 0 4px; }
+.foot.upd { padding-top: 0; }
+.foot .textbtn { font-size: 11px; color: var(--faint); }
+.foot .textbtn.ready { color: var(--accent); font-weight: 500; }
+#b-quit .t { text-align: center; }
+.sched-custom { flex-wrap: wrap; }
+.sched-custom input { width: 84px; }
+.sched-custom input[type="time"] { width: 110px; }
+.sched-custom .sc-f { display: flex; align-items: center; gap: 6px; }
+.sched-custom .mini { margin-left: auto; }
+.keybtns { display: flex; gap: 8px; margin-bottom: 12px; }
+.keybtns .wide { flex: 1; }
+.keybtns .wide svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .sect { color: var(--muted); font-size: 12px; font-weight: 500; padding: 4px 2px 6px; }
 
 /* switches */
@@ -452,18 +464,28 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
     </div>
     <div class="group">
       <div class="item">
-        <div class="t"><b>Back up automatically</b><span id="sched-help"></span></div>
-        <button class="toggle" id="sw-sched" role="switch" aria-checked="false" aria-label="Back up automatically"></button>
-      </div>
-      <div class="item">
-        <div class="t"><b>How often</b></div>
-        <select id="sel-every" aria-label="How often">
+        <div class="t"><b>Back up automatically</b></div>
+        <select id="sel-every" aria-label="Back up automatically">
+          <option value="off">Off</option>
           <option value="15">Every 15 minutes</option>
-          <option value="30" selected>Every 30 minutes</option>
+          <option value="30">Every 30 minutes</option>
           <option value="60">Every hour</option>
           <option value="240">Every 4 hours</option>
           <option value="1440">Once a day</option>
+          <option value="custom">Custom…</option>
         </select>
+      </div>
+      <div class="item sched-custom" id="sched-custom" hidden>
+        <select id="sel-ckind" aria-label="How to repeat">
+          <option value="every">Every</option>
+          <option value="daily">Every day at</option>
+        </select>
+        <span class="sc-f" id="sc-every">
+          <input id="in-cnum" type="number" min="1" max="1440" step="1" inputmode="numeric" aria-label="How many">
+          <select id="sel-cunit" aria-label="Minutes or hours"><option value="m">minutes</option><option value="h">hours</option></select>
+        </span>
+        <input id="in-ctime" type="time" aria-label="Time of day" hidden>
+        <button class="mini" id="b-csave">Set</button>
       </div>
     </div>
     <div class="group">
@@ -472,20 +494,15 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
         <button class="toggle" id="sw-login" role="switch" aria-checked="false" aria-label="Start with Windows"></button>
       </div>
     </div>
-    <div class="group">
-      <button class="item link" id="b-dfold"><div class="t"><b>Drime folders</b><span>Copy another app’s Drime backups to S3 storage</span></div></button>
-    </div>
-    <div class="group">
-      <button class="item link" id="b-export"><div class="t"><b>Export keys…</b><span id="b-export-sub">An encrypted file to set up another computer</span></div></button>
-      <button class="item link" id="b-import"><div class="t"><b>Import keys…</b><span>From a key file made on another computer</span></div></button>
-    </div>
-    <div class="group">
-      <button class="item link" id="b-update"><div class="t"><b id="update-t">Check for updates</b><span id="update-sub"></span></div></button>
+    <div class="keybtns">
+      <button class="wide" id="b-import"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5v10M8 9.5l4 4 4-4M4.5 14.5v3a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-3"/></svg>Import keys</button>
+      <button class="wide" id="b-export"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 13.5v-10M8 7.5l4-4 4 4M4.5 14.5v3a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-3"/></svg>Export keys</button>
     </div>
     <div class="group">
       <button class="item link danger" id="b-quit"><div class="t"><b>Quit r2backup</b></div></button>
     </div>
     <p class="foot" id="ver"></p>
+    <p class="foot upd"><button class="textbtn" id="b-update"><span id="update-t">Check for updates</span></button></p>
   </main>
 </section>
 
@@ -943,7 +960,7 @@ function render(state) {
   $("b-restore").disabled = $("b-trash").disabled = !state.configured;
   // Signed in, another computer gets the keys by signing in. A file is for
   // computers that will not.
-  $("b-export-sub").textContent = onAccount()
+  $("b-export").title = onAccount()
     ? "Not needed with your account: signing in brings your keys"
     : "An encrypted file to set up another computer";
 
@@ -965,10 +982,7 @@ function render(state) {
   $("b-all-t").textContent = state.running ? "Backing up…" : (state.busy || "Back up now");
 
   const sc = state.schedule;
-  $("sw-sched").setAttribute("aria-checked", sc.on);
-  $("sw-sched").disabled = !sc.available || !state.configured;
-  if (sc.on && sc.every) $("sel-every").value = String(sc.every);
-  $("sel-every").disabled = !sc.available || !state.configured;
+  renderSchedule(sc, state.configured);
   $("sw-login").setAttribute("aria-checked", state.startAtLogin);
   $("b-add").disabled = !state.configured;
   $("ver").textContent = "r2backup " + (state.version ? "v" + state.version : "");
@@ -976,8 +990,8 @@ function render(state) {
   if (state.notice && state.noticeAt !== lastNotice) { lastNotice = state.noticeAt; toast(state.notice); }
   $("upd-dot").hidden = !state.update;
   $("b-set").setAttribute("aria-label", state.update ? "Settings, an update is ready" : "Settings");
-  if (state.update) { $("update-t").textContent = "Update to " + state.update; $("update-sub").textContent = "Restarts by itself"; }
-  else if (!updChecked) { $("update-t").textContent = "Check for updates"; $("update-sub").textContent = ""; }
+  if (state.update) { $("update-t").textContent = "Update to " + state.update; $("b-update").classList.add("ready"); }
+  else if (!updChecked) { $("update-t").textContent = "Check for updates"; $("b-update").classList.remove("ready"); }
   renderStatusActions(state);
   renderList();
 }
@@ -1080,8 +1094,65 @@ $("b-back").onclick = () => $("sheet").classList.remove("open");
 $("b-all").onclick = () => send("backup", "");
 $("b-add").onclick = () => openAdd();
 $("b-quit").onclick = () => send("quit");
-$("sw-sched").onclick = () => { const on = $("sw-sched").getAttribute("aria-checked") !== "true"; send("schedule", (on ? "on:" : "off:") + $("sel-every").value); };
-$("sel-every").onchange = () => send("schedule", "on:" + $("sel-every").value);
+// Back up automatically: one dropdown. Custom opens a row for a number of
+// minutes or hours, or a time of day. schedEditing keeps a refresh from
+// putting the dropdown back while that row is being filled in.
+const SCHED_PRESETS = ["15", "30", "60", "240", "1440"];
+let schedEditing = false;
+function schedKind() {
+  const daily = $("sel-ckind").value === "daily";
+  $("sc-every").hidden = daily;
+  $("in-ctime").hidden = !daily;
+}
+function fillCustom(sc) {
+  if (sc && sc.on && sc.dailyAt) {
+    $("sel-ckind").value = "daily"; $("in-ctime").value = sc.dailyAt;
+  } else {
+    const n = (sc && sc.on && sc.every) || 45;
+    $("sel-ckind").value = "every";
+    if (n >= 60 && n % 60 === 0) { $("in-cnum").value = n / 60; $("sel-cunit").value = "h"; }
+    else { $("in-cnum").value = n; $("sel-cunit").value = "m"; }
+    if (!$("in-ctime").value) $("in-ctime").value = "21:00";
+  }
+  schedKind();
+}
+function renderSchedule(sc, configured) {
+  $("sel-every").disabled = !sc.available || !configured;
+  if (schedEditing) return;
+  let v = "off";
+  if (sc.on) v = sc.dailyAt ? "custom" : (SCHED_PRESETS.includes(String(sc.every)) ? String(sc.every) : "custom");
+  $("sel-every").value = v;
+  $("sched-custom").hidden = v !== "custom";
+  if (v === "custom") fillCustom(sc);
+}
+$("sel-every").onchange = () => {
+  const v = $("sel-every").value;
+  if (v === "custom") {
+    schedEditing = true;
+    fillCustom(S && S.schedule);
+    $("sched-custom").hidden = false;
+    $("in-cnum").focus();
+    return;
+  }
+  schedEditing = false;
+  $("sched-custom").hidden = true;
+  send("schedule", v === "off" ? "off:" : "on:" + v);
+};
+$("sched-custom").addEventListener("input", () => { schedEditing = true; });
+$("sel-ckind").addEventListener("change", schedKind);
+$("b-csave").onclick = () => {
+  if ($("sel-ckind").value === "daily") {
+    const t = $("in-ctime").value;
+    if (!/^\d{1,2}:\d{2}$/.test(t)) { toast("Pick a time of day."); return; }
+    schedEditing = false;
+    send("schedule", "daily:" + t);
+    return;
+  }
+  const n = Number($("in-cnum").value) * ($("sel-cunit").value === "h" ? 60 : 1);
+  if (!Number.isInteger(n) || n < 5 || n > 1440) { toast("Pick a time between 5 minutes and 24 hours."); return; }
+  schedEditing = false;
+  send("schedule", "on:" + n);
+};
 $("sw-login").onclick = () => send("login", $("sw-login").getAttribute("aria-checked") !== "true");
 $("list").addEventListener("keydown", (e) => {
   const r = e.target.closest(".row[data-folder], .row[data-run]");
@@ -2613,7 +2684,6 @@ async function runDrime(name) {
 }
 async function finishDrime() { clearInterval(jobPoll); try { await call("mirrorDismiss"); } catch (e) { /* nothing */ } openDrimeFolders(); }
 $("df-back").onclick = () => { if (DF.view === "add") { dfShow("home"); dfDraw(); } else { clearInterval(jobPoll); closeSheet("sheet-dfold"); } };
-$("b-dfold").onclick = () => openDrimeFolders();
 
 // --- Ultra fast mode (experimental) ----------------------------------------------------------------
 // Drime to S3 storage cloud to cloud, through a Worker in the person's own
@@ -2809,20 +2879,21 @@ let updBusy = false;
 $("b-update").onclick = async () => {
   if (updBusy) return;
   updBusy = true;
-  const t = $("update-t"), sub = $("update-sub");
+  const t = $("update-t"), b = $("b-update");
   try {
     if (S && S.update) {
-      t.textContent = "Updating…"; sub.textContent = "";
+      t.textContent = "Updating…";
       const r = await call("updateApply");
-      t.textContent = "Updated to " + r.version; sub.textContent = "Restarting…";
+      b.classList.remove("ready");
+      t.textContent = "Updated to " + r.version + ". Restarting…";
       return;
     }
     t.textContent = "Checking…";
     const r = await call("updateCheck");
     updChecked = true;
-    if (r.version) { if (S) S.update = r.version; t.textContent = "Update to " + r.version; sub.textContent = "Restarts by itself"; $("upd-dot").hidden = false; }
-    else { t.textContent = "Up to date"; sub.textContent = "v" + r.current; }
-  } catch (e) { t.textContent = S && S.update ? "Update to " + S.update : "Check for updates"; sub.textContent = e.message; }
+    if (r.version) { if (S) S.update = r.version; t.textContent = "Update to " + r.version; b.classList.add("ready"); $("upd-dot").hidden = false; }
+    else { t.textContent = "Up to date"; b.classList.remove("ready"); }
+  } catch (e) { t.textContent = S && S.update ? "Update to " + S.update : "Check for updates"; toast(e.message); }
   finally { updBusy = false; }
 };
 $("b-set").insertAdjacentHTML("beforeend", '<span class="dot" id="upd-dot" hidden></span>');

@@ -255,7 +255,7 @@ func runSetup(ctx context.Context, a *app, opts *Options, f setupFlags) error {
 			return setupFinish(ctx, a, opts, p)
 		}
 	}
-	if err := a.creds.Save(c); err != nil {
+	if err := a.saveCreds(c); err != nil {
 		return err
 	}
 	fmt.Fprintln(p.out, "\nSaved.")
@@ -539,7 +539,7 @@ func pullCredentials(ctx context.Context, a *app, p *prompter, client *account.C
 	case err != nil:
 		return false, err
 	}
-	if err := a.creds.Save(*k.Primary); err != nil {
+	if err := a.saveCreds(*k.Primary); err != nil {
 		return false, err
 	}
 	if k.Second != nil && !a.mirror.Exists() {

@@ -118,6 +118,10 @@ var tuiSurface = map[string]surface{
 	"r2b schedule --every":  {Keys: []string{"e"}, Where: "Schedule: e changes how often"},
 	"r2b schedule --remove": {Keys: []string{"s"}, Where: "Schedule: s turns automatic backups off"},
 	"r2b schedule --repair": {Keys: []string{"p"}, Where: "Schedule: p re-points the task at this copy of r2b"},
+	"r2b schedule every": {Keys: []string{"e"}, Where: "Schedule: e changes how often"},
+	"r2b schedule daily": {NA: "backing up once a day at a set time is in the taskbar panel's Settings (Back up automatically, Custom) and here on the command line; " +
+		"the terminal interface does not offer it yet."},
+	"r2b schedule off": {Keys: []string{"s"}, Where: "Schedule: s turns automatic backups off"},
 
 	"r2b rename": {Keys: []string{"n"}, Where: "Folders: n renames"},
 	"r2b relink": {Keys: []string{"m"}, Where: "Folders: m says where a folder went"},

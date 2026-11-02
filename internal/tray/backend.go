@@ -23,6 +23,8 @@ type Backend interface {
 	AddFolder(path string) error
 	// SetSchedule turns automatic backups on, every so many minutes, or off.
 	SetSchedule(ctx context.Context, on bool, everyMinutes int) error
+	// SetScheduleDaily backs up once a day at a time of day, "HH:MM".
+	SetScheduleDaily(ctx context.Context, at string) error
 
 	// Call answers one request from the page that wants a reply -- connect
 	// storage, list files to restore, and so on. The method is a name, the

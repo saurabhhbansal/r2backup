@@ -147,9 +147,19 @@ func windowsTaskXMLAs(e Entry, userID, logonType string) (string, error) {
 	command := xmlEscapeText(windowsQuoteArg(e.BinaryPath))
 	arguments := xmlEscapeText(windowsCommandLine(e.Args))
 	user := xmlEscapeText(userID)
+	when := fmt.Sprintf("every %s", e.Interval)
+	start := "2020-01-01T00:00:00"
+	if e.DailyAt != "" {
+		h, m, err := ParseDailyAt(e.DailyAt)
+		if err != nil {
+			return "", err
+		}
+		start = fmt.Sprintf("2020-01-01T%02d:%02d:00", h, m)
+		when = "daily at " + FormatDailyAt(h, m)
+	}
 	desc := xmlEscapeText(fmt.Sprintf(
-		"r2backup scheduled run %q, every %s. Installed by r2backup; edits made here are overwritten on the next install.",
-		e.Name, e.Interval))
+		"r2backup scheduled run %q, %s. Installed by r2backup; edits made here are overwritten on the next install.",
+		e.Name, when))
 
 	var b strings.Builder
 	// Declared as UTF-16 because the file on disk is UTF-16 with a BOM --
@@ -165,17 +175,19 @@ func windowsTaskXMLAs(e Entry, userID, logonType string) (string, error) {
 	// A fixed StartBoundary in the past plus a daily ScheduleByDay is just
 	// the anchor Task Scheduler needs before it will accept a Repetition --
 	// the actual cadence comes entirely from Repetition/Interval below.
-	b.WriteString("      <StartBoundary>2020-01-01T00:00:00</StartBoundary>\n")
+	fmt.Fprintf(&b, "      <StartBoundary>%s</StartBoundary>\n", start)
 	b.WriteString("      <Enabled>true</Enabled>\n")
 	b.WriteString("      <ScheduleByDay>\n        <DaysInterval>1</DaysInterval>\n      </ScheduleByDay>\n")
-	b.WriteString("      <Repetition>\n")
-	// The interval that actually matters: how often r2backup runs.
-	fmt.Fprintf(&b, "        <Interval>%s</Interval>\n", interval)
-	// Duration=P1D + StopAtDurationEnd=false: the repetition re-anchors
-	// every day and keeps firing forever, instead of stopping after one day.
-	b.WriteString("        <Duration>P1D</Duration>\n")
-	b.WriteString("        <StopAtDurationEnd>false</StopAtDurationEnd>\n")
-	b.WriteString("      </Repetition>\n")
+	if e.DailyAt == "" {
+		b.WriteString("      <Repetition>\n")
+		// The interval that actually matters: how often r2backup runs.
+		fmt.Fprintf(&b, "        <Interval>%s</Interval>\n", interval)
+		// Duration=P1D + StopAtDurationEnd=false: the repetition re-anchors
+		// every day and keeps firing forever, instead of stopping after one day.
+		b.WriteString("        <Duration>P1D</Duration>\n")
+		b.WriteString("        <StopAtDurationEnd>false</StopAtDurationEnd>\n")
+		b.WriteString("      </Repetition>\n")
+	}
 	b.WriteString("    </CalendarTrigger>\n")
 	// A second trigger, at logon. StartWhenAvailable above already catches
 	// up a tick the machine slept or was switched off through, but "catch
@@ -314,6 +326,20 @@ func windowsParseTaskInterval(xmlOutput string) (time.Duration, error) {
 		return 0, fmt.Errorf("schedule: no <Interval> element found in task XML")
 	}
 	return parseISO8601Duration(m[1])
+}
+
+var startBoundaryRe = regexp.MustCompile(`<StartBoundary>\d{4}-\d{2}-\d{2}T(\d{2}):(\d{2}):\d{2}`)
+
+// windowsParseTaskDailyAt returns "HH:MM" for a once-a-day task definition,
+// or "" for one that repeats on an interval (or has no calendar trigger).
+func windowsParseTaskDailyAt(xmlOutput string) string {
+	if repetitionIntervalRe.MatchString(xmlOutput) {
+		return ""
+	}
+	if m := startBoundaryRe.FindStringSubmatch(xmlOutput); m != nil {
+		return m[1] + ":" + m[2]
+	}
+	return ""
 }
 
 // parseSchtasksListOutput reads the "Key:    Value" text schtasks prints for

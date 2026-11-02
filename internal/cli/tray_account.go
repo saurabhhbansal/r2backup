@@ -125,7 +125,7 @@ func (t *trayBackend) syncKeys(ctx context.Context) (keysSyncOut, error) {
 	if remote != nil && remote.Primary != nil && local.Primary == nil {
 		if err := reachable(ctx, *remote.Primary); err != nil {
 			out.Err = "Your account has keys saved, but " + err.Error()
-		} else if err := a.creds.Save(*remote.Primary); err != nil {
+		} else if err := a.saveCreds(*remote.Primary); err != nil {
 			return out, err
 		} else {
 			t.d.forgetClient()

@@ -17,6 +17,7 @@ import (
 	"github.com/saurabhhbansal/r2backup/internal/creds"
 	"github.com/saurabhhbansal/r2backup/internal/index"
 	"github.com/saurabhhbansal/r2backup/internal/runstate"
+	"github.com/saurabhhbansal/r2backup/internal/schedule"
 	"github.com/saurabhhbansal/r2backup/internal/sets"
 	"github.com/saurabhhbansal/r2backup/internal/tray"
 	"github.com/saurabhhbansal/r2backup/internal/ui"
@@ -329,7 +330,16 @@ func (t *trayBackend) AddFolder(path string) error {
 }
 
 func (t *trayBackend) SetSchedule(ctx context.Context, on bool, every int) error {
+	if on {
+		if err := schedule.ValidateIntervalMinutes(every); err != nil {
+			return err
+		}
+	}
 	return t.d.Schedule(ctx, every, !on)
+}
+
+func (t *trayBackend) SetScheduleDaily(ctx context.Context, at string) error {
+	return t.d.ScheduleDaily(ctx, at)
 }
 
 func (t *trayBackend) StorageURL() string {

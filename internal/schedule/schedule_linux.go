@@ -26,6 +26,9 @@ func Install(e Entry) error {
 	if err := e.validate(); err != nil {
 		return err
 	}
+	if e.DailyAt != "" {
+		return ErrDailyUnsupported
+	}
 	if systemdAvailable() {
 		return installSystemd(e)
 	}

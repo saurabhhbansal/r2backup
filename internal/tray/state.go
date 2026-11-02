@@ -137,6 +137,7 @@ type Schedule struct {
 	On        bool   `json:"on"`
 	Every     int    `json:"every"` // minutes
 	EveryText string `json:"everyText"`
+	DailyAt   string `json:"dailyAt,omitempty"` // "HH:MM" when it runs once a day
 	Next      string `json:"next,omitempty"`
 }
 
@@ -164,7 +165,12 @@ func Summarize(views []ui.SetView, ov ui.Overview, hist []runstate.Past, now tim
 		st.Provider = "r2"
 	}
 	if ov.Scheduled {
-		st.Sched.EveryText = progress.FormatInterval(ov.Interval)
+		if ov.DailyAt != "" {
+			st.Sched.DailyAt = ov.DailyAt
+			st.Sched.EveryText = "day"
+		} else {
+			st.Sched.EveryText = progress.FormatInterval(ov.Interval)
+		}
 		if !ov.NextRun.IsZero() {
 			st.Sched.Next = clock(ov.NextRun, now)
 		}

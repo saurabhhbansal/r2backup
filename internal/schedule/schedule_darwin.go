@@ -23,6 +23,9 @@ func Install(e Entry) error {
 	if err := e.validate(); err != nil {
 		return err
 	}
+	if e.DailyAt != "" {
+		return ErrDailyUnsupported
+	}
 	dir, err := launchAgentsDir()
 	if err != nil {
 		return err

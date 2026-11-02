@@ -104,7 +104,7 @@ func importKeys(ctx context.Context, a *app, path, passphrase string) (importedK
 		if err := reachable(ctx, *k.Primary); err != nil {
 			return out, fmt.Errorf("the key file's storage keys do not work: %w", err)
 		}
-		if err := a.creds.Save(*k.Primary); err != nil {
+		if err := a.saveCreds(*k.Primary); err != nil {
 			return out, err
 		}
 		out.Primary = destLabel(*k.Primary)
