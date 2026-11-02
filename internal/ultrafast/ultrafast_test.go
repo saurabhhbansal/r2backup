@@ -359,3 +359,37 @@ func TestReadyWaitsForANewAddress(t *testing.T) {
 		t.Fatal("a relay refusing the password counted as ready")
 	}
 }
+
+func TestUltraFastWaitsForAReplacedWorkerToSwitchOver(t *testing.T) {
+	r := newRig(t)
+	r.src.add(pre+"a", pattern(100, 1), remote.Metadata{ModTime: time.Unix(10, 0)})
+	r.relay.version.Store("0")
+	switchOverWait, switchOverPoll = 5*time.Second, 50*time.Millisecond
+	t.Cleanup(func() { switchOverWait, switchOverPoll = 75*time.Second, 3*time.Second })
+	// Cloudflare keeps serving the old script for a while after the upload.
+	r.cf.onUpload = func(name, secret string) {
+		go func() {
+			time.Sleep(300 * time.Millisecond)
+			r.relay.version.Store(relay.Version)
+		}()
+	}
+	rep, err := mirror.Run(context.Background(), mirror.Options{Src: r.src, Dst: r.dst, Prefixes: []string{""}, Relay: r.copier(1)})
+	if err != nil || rep.Relayed != 1 || rep.RelayStopped != nil {
+		t.Fatalf("report = %+v err = %v", rep, err)
+	}
+}
+
+func TestUltraFastGivesUpOnAWorkerThatNeverSwitches(t *testing.T) {
+	r := newRig(t)
+	r.src.add(pre+"a", pattern(100, 1), remote.Metadata{ModTime: time.Unix(10, 0)})
+	r.relay.version.Store("0") // and it stays old
+	switchOverWait, switchOverPoll = 200*time.Millisecond, 20*time.Millisecond
+	t.Cleanup(func() { switchOverWait, switchOverPoll = 75*time.Second, 3*time.Second })
+	rep, err := mirror.Run(context.Background(), mirror.Options{Src: r.src, Dst: r.dst, Prefixes: []string{""}, Relay: r.copier(1)})
+	if err != nil || rep.Copied != 1 || rep.Relayed != 0 || rep.RelayStopped == nil {
+		t.Fatalf("report = %+v err = %v", rep, err)
+	}
+	if !strings.Contains(rep.RelayStopped.Error(), "does not answer as the new one yet") {
+		t.Fatalf("reason = %v", rep.RelayStopped)
+	}
+}

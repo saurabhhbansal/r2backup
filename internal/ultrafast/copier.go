@@ -16,6 +16,13 @@ import (
 // partsAtOnce is how many parts of one file the Worker copies at a time.
 const partsAtOnce = 4
 
+// switchOverWait is how long a replaced Worker is given to start answering
+// as the new one, checked every switchOverPoll. Tests shorten both.
+var (
+	switchOverWait = 75 * time.Second
+	switchOverPoll = 3 * time.Second
+)
+
 // linkMargin is how long a download link must still work for a part to be
 // started with it; one closer to expiring is asked for again.
 const linkMargin = 10 * time.Minute
@@ -67,8 +74,28 @@ func (c *Copier) ready(ctx context.Context) error {
 			c.readyErr = stopped("the Worker is out of date and could not be replaced: %v", err)
 			return
 		}
-		if v, err = c.rc.health(hctx); err != nil || v != relay.Version {
-			c.readyErr = stopped("the Worker was replaced but does not answer as the new one yet")
+		// Cloudflare takes up to a minute to start serving a replaced
+		// script; until then the old one answers. Waiting here costs a
+		// minute once, where giving up would send the whole run through
+		// this PC.
+		deadline := time.Now().Add(switchOverWait)
+		for {
+			pctx, pcancel := context.WithTimeout(ctx, 15*time.Second)
+			v, err = c.rc.health(pctx)
+			pcancel()
+			if err == nil && v == relay.Version {
+				return
+			}
+			if time.Now().After(deadline) || ctx.Err() != nil {
+				c.readyErr = stopped("the Worker was replaced but does not answer as the new one yet")
+				return
+			}
+			select {
+			case <-ctx.Done():
+				c.readyErr = ctx.Err()
+				return
+			case <-time.After(switchOverPoll):
+			}
 		}
 	})
 	return c.readyErr
