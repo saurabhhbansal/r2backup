@@ -44,7 +44,8 @@ func newMirrorCmd(opts *Options) *cobra.Command {
 			"  r2b mirror --reverse      copy back from the mirror instead\n" +
 			"  r2b mirror auto on        mirror after every backup, scheduled ones too\n" +
 			"  r2b mirror off            stop keeping a second copy\n" +
-			"  r2b mirror drime ...      copy Drime folders another app backs up to",
+			"  r2b mirror drime ...      copy Drime folders another app backs up to\n" +
+			"  r2b mirror ultra on       Ultra fast mode (experimental): Drime to S3 cloud to cloud",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := openApp()
 			if err != nil {
@@ -60,7 +61,7 @@ func newMirrorCmd(opts *Options) *cobra.Command {
 	cmd.Flags().BoolVar(&everything, "everything", false, "mirror every computer's backups, not only this one's sets")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "say what would be copied and removed, and change nothing")
 	cmd.Flags().BoolVar(&keep, "keep", false, "never remove anything from the destination")
-	cmd.AddCommand(newMirrorSetupCmd(opts), newMirrorAutoCmd(opts), newMirrorOffCmd(opts), newMirrorDrimeCmd(opts))
+	cmd.AddCommand(newMirrorSetupCmd(opts), newMirrorAutoCmd(opts), newMirrorOffCmd(opts), newMirrorDrimeCmd(opts), newMirrorUltraCmd(opts))
 	return cmd
 }
 
@@ -254,6 +255,7 @@ func runMirror(ctx context.Context, a *app, opts *Options, names []string, f mir
 		// behind must not be able to take them away.
 		Delete: !f.keep && !f.reverse, DryRun: f.dryRun,
 		Progress: mirrorProgressPrinter(opts.Out, interactive()),
+		Relay:    mirrorRelay(a, f.reverse),
 	})
 	if rep == nil {
 		return runErr
@@ -300,6 +302,11 @@ func printMirrorReport(out io.Writer, r *mirror.Report, dry bool) {
 	if r.SkippedDeletes > 0 {
 		fmt.Fprintf(out, "Left %d file(s) on the mirror that the source does not list: the source looked empty,\n"+
 			"which is more often a wrong account or an outage than a real deletion.\n", r.SkippedDeletes)
+	}
+	if !dry {
+		for _, l := range relayLines(r) {
+			fmt.Fprintln(out, l)
+		}
 	}
 	for i, f := range r.Failures {
 		if i == 3 {
@@ -361,7 +368,7 @@ func autoMirror(ctx context.Context, a *app, out io.Writer, done map[string]*bac
 	for _, s := range due {
 		prefixes = append(prefixes, s.KeyScope())
 	}
-	rep, err := mirror.Run(ctx, mirror.Options{Src: src, Dst: dst, Prefixes: prefixes, Delete: true})
+	rep, err := mirror.Run(ctx, mirror.Options{Src: src, Dst: dst, Prefixes: prefixes, Delete: true, Relay: mirrorRelay(a, false)})
 	if rep == nil {
 		fmt.Fprintf(out, "Mirror to %s did not run: %v\n", dstName, err)
 		return

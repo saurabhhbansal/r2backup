@@ -77,6 +77,10 @@ type mirrorStatusOut struct {
 	Failed    int     `json:"failed"`
 	Bytes     string  `json:"bytes,omitempty"`
 	Held      int     `json:"held"`
+	// Relayed counts files Ultra fast mode copied cloud to cloud, and
+	// RelayNote says what to know about it: that it stopped, and why.
+	Relayed   int    `json:"relayed"`
+	RelayNote string `json:"relayNote,omitempty"`
 }
 
 func (j *mirrorJob) status() mirrorStatusOut {
@@ -95,6 +99,10 @@ func (j *mirrorJob) status() mirrorStatusOut {
 	if r := j.rep; r != nil {
 		st.Copied, st.Removed, st.Unchanged, st.Failed = r.Copied, r.Deleted, r.Unchanged, len(r.Failures)
 		st.Bytes, st.Held = progress.FormatBytes(r.Bytes), r.SkippedDeletes
+		st.Relayed = r.Relayed
+		if lines := relayLines(r); len(lines) > 0 {
+			st.RelayNote = strings.Join(lines, " ")
+		}
 		if j.done && j.err == "" {
 			st.Percent = 100
 		}
@@ -230,6 +238,7 @@ func (t *trayBackend) startMirror(everything, reverse bool) error {
 			// it is for getting files back, and a mirror that is behind
 			// must not be able to take them away.
 			Delete: !reverse,
+			Relay:  mirrorRelay(a, reverse),
 			Progress: func(p mirror.Progress) {
 				j.mu.Lock()
 				j.p = p
@@ -361,6 +370,31 @@ func (t *trayBackend) mirrorCall(ctx context.Context, method string, raw []byte)
 		t.mu.Unlock()
 		return nil, true, nil
 
+	// Ultra fast mode (experimental). See ultrafast.go.
+	case "ultraInfo":
+		return ultraInfo(t.d.app), true, nil
+
+	case "ultraOn":
+		var a struct {
+			Token   string `json:"token"`
+			Account string `json:"account"`
+		}
+		if err := decodeArgs(raw, &a); err != nil {
+			return nil, true, err
+		}
+		res, err := ultraOn(ctx, t.d.app, a.Token, a.Account)
+		return res, true, err
+
+	case "ultraOff":
+		t.mu.Lock()
+		running := t.mj != nil && !t.mj.done
+		t.mu.Unlock()
+		if running {
+			return nil, true, errors.New("a copy is running. Stop it first")
+		}
+		res, err := ultraOff(ctx, t.d.app)
+		return res, true, err
+
 	case "mirrorForget":
 		t.mu.Lock()
 		running := t.mj != nil && !t.mj.done
@@ -456,6 +490,12 @@ func (t *trayBackend) startDrimeSources(name string) error {
 				total.Bytes += r.Report.Bytes
 				total.Failures = append(total.Failures, r.Report.Failures...)
 				total.SkippedDeletes += r.Report.SkippedDeletes
+				total.Relayed += r.Report.Relayed
+				total.RelayedBytes += r.Report.RelayedBytes
+				total.RelayFellBack += r.Report.RelayFellBack
+				if total.RelayStopped == nil {
+					total.RelayStopped = r.Report.RelayStopped
+				}
 			}
 		}
 		j.mu.Lock()

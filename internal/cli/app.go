@@ -13,6 +13,7 @@ import (
 	"github.com/saurabhhbansal/r2backup/internal/index"
 	"github.com/saurabhhbansal/r2backup/internal/remote"
 	"github.com/saurabhhbansal/r2backup/internal/sets"
+	"github.com/saurabhhbansal/r2backup/internal/ultrafast"
 )
 
 // app is everything a command needs, opened once and closed once.
@@ -41,6 +42,8 @@ type app struct {
 	// for someone who backs up to Drime with another app. See
 	// mirror_sources.go.
 	source *creds.Store
+	// ultra is Ultra fast mode's relay, when it is set up. See ultrafast.go.
+	ultra *ultrafast.Store
 }
 
 // openApp opens local state only. Commands that never touch the network --
@@ -74,6 +77,7 @@ func openApp() (*app, error) {
 		creds:  creds.Open(filepath.Join(dir, "credentials")),
 		mirror: creds.Open(filepath.Join(dir, "credentials-mirror")),
 		source: creds.Open(filepath.Join(dir, "credentials-source")),
+		ultra:  ultrafast.Open(filepath.Join(dir, "ultrafast")),
 	}, nil
 }
 

@@ -192,7 +192,7 @@ func runDrimeSources(ctx context.Context, a *app, names []string, dry bool, due 
 		res := drimeSourceResult{Name: src.Name}
 		from, to, err := drimeSourceEnds(ctx, a, src)
 		if err == nil {
-			opts := mirror.Options{Src: from, Dst: to, Prefixes: []string{""}, Delete: true, DryRun: dry}
+			opts := mirror.Options{Src: from, Dst: to, Prefixes: []string{""}, Delete: true, DryRun: dry, Relay: drimeSourceRelay(a)}
 			if progress != nil {
 				name := src.Name
 				opts.Progress = func(p mirror.Progress) { progress(name, p) }
@@ -358,4 +358,17 @@ func newMirrorDrimeCmd(opts *Options) *cobra.Command {
 	}
 	cmd.AddCommand(add, ls, run, rm)
 	return cmd
+}
+
+// drimeSourceRelay is Ultra fast mode's relay for Drime folders, if it is on.
+func drimeSourceRelay(a *app) mirror.Relay {
+	dc, err := drimeSourceCreds(a)
+	if err != nil {
+		return nil
+	}
+	dest, err := s3Destination(a)
+	if err != nil {
+		return nil
+	}
+	return relayFor(a, dc, dest)
 }
