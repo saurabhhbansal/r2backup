@@ -110,3 +110,21 @@ func printRun(out io.Writer, r tray.Recent) {
 		fmt.Fprintln(out, "\nThe next backup tries these again.")
 	}
 }
+
+// dayLabel names the day t falls on as the panel does: "Today",
+// "Yesterday", or "Mon 26 Oct".
+func dayLabel(t, now time.Time) string {
+	t, now = t.Local(), now.Local()
+	same := func(a, b time.Time) bool {
+		y1, m1, d1 := a.Date()
+		y2, m2, d2 := b.Date()
+		return y1 == y2 && m1 == m2 && d1 == d2
+	}
+	switch {
+	case same(t, now):
+		return "Today"
+	case same(t, now.AddDate(0, 0, -1)):
+		return "Yesterday"
+	}
+	return t.Format("Mon 2 Jan")
+}

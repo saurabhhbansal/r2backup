@@ -169,7 +169,7 @@ func newMirrorAutoCmd(opts *Options) *cobra.Command {
 				return err
 			}
 			if on {
-				fmt.Fprintln(opts.Out, "Backups will be mirrored after each run.")
+				fmt.Fprintln(opts.Out, "Copying after every backup.")
 			} else {
 				fmt.Fprintln(opts.Out, "Automatic mirroring is off. r2b mirror still works by hand.")
 			}
@@ -220,6 +220,24 @@ func runMirror(ctx context.Context, a *app, opts *Options, names []string, f mir
 	defer closeStores(a.client, src, dst)
 	if srcName == dstName && src.Bucket() == dst.Bucket() {
 		return errors.New("the mirror is the same place as the main destination")
+	}
+	// The panel's Copy back: every computer's backups, filling in what is
+	// missing and removing nothing, after a second press.
+	if f.reverse {
+		if len(names) == 0 {
+			f.everything = true
+		}
+		if !f.dryRun {
+			ok, err := decide(opts, newPrompter(opts), "Copy back from "+srcName+" to "+dstName+
+				"? Fills in what’s missing. Removes nothing. [y/N]", false)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				fmt.Fprintln(opts.Out, "Nothing copied.")
+				return nil
+			}
+		}
 	}
 
 	var prefixes []string

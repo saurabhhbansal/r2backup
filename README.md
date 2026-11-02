@@ -155,6 +155,7 @@ What the panel does, and the command that does it:
 
 | in the panel | in the terminal |
 |---|---|
+| What r2backup is for here · Not now (no second copy yet) | `r2b setup purpose both\|s3` · `r2b setup --second none` |
 | Use without an account · sign in · Forgot PIN? | `r2b setup` · `r2b account login` · `r2b account reset-pin` |
 | Export keys · Import keys | `r2b keys export <file>` · `r2b keys import <file>` |
 | Settings → Account | `r2b account` |
@@ -164,11 +165,12 @@ What the panel does, and the command that does it:
 | Drime folders | `r2b mirror drime add\|ls\|run\|rm` |
 | Keys not saved → Save now | `r2b account save-keys` |
 | Rename this computer · the computers | `r2b account rename <name>` · `r2b account devices` |
-| Add a folder · what it includes · keep deleted files | `r2b add <folder>` · `r2b edit <set>` · `r2b edit <set> --retention <days>` |
+| Add a folder · what it includes · keep deleted files | `r2b add <folder>` · `r2b edit <set>` (or `--exclude`/`--include <path>`) · `r2b edit <set> --retention <days>` |
 | Back up automatically, and how often | `r2b schedule --every <minutes>` · `--remove` |
 | Back up now, with progress | `r2b backup [set]` · `r2b status --watch` |
 | Backups (every computer's) · delete one | `r2b backups` · `r2b backups delete <name>` |
-| Restore | `r2b restore <set>` (`--machine` for another computer's) |
+| Activity · a run's details | `r2b activity` · `r2b activity <number>` |
+| Restore · browse a backup · pick files | `r2b restore <set>` (`--machine` for another computer's) · `r2b ls <set> [folder]` · `--only <path>`, repeated |
 | Deleted files · recover · delete forever · empty | `r2b trash ls` · `r2b trash recover <set> <path>` · `r2b trash rm <set> <path>` · `r2b trash empty` |
 | Stop backing up · and delete the backup | `r2b remove <set>` · `r2b remove <set> --purge` |
 | Usage and cost · monthly limit | `r2b usage` · `r2b budget set <amount>` |
@@ -221,11 +223,12 @@ scripts use.
 |---|---|
 | `r2b setup` | Get this computer ready. `--keys` to re-enter your keys, `--provider` to name where |
 | `r2b add <folder>` | Choose what to include, then back it up. `--name`, `--retention`, `--all` |
-| `r2b edit <set>` | Change what a folder includes. `--retention <days>` for how long deleted files are kept |
+| `r2b edit <set>` | Change what a folder includes. `--exclude`/`--include <path>`, `--retention <days>` for how long deleted files are kept |
 | `r2b backup [set]` | Back up now — all folders, or one |
-| `r2b restore <set>` | Bring a folder back. `--to`, `--only`, `--verify`, `--deleted`, `--machine` |
+| `r2b restore <set>` | Bring a folder back. `--to`, `--only` (repeat for more), `--verify`, `--deleted`, `--machine` |
 | `r2b status` | What ran, when, and what is next. `--watch` follows a run |
-| `r2b ls [set]` | What is stored |
+| `r2b ls [set] [folder]` | What is stored. With a set, one folder of its backup at a time, read from storage. `--machine` |
+| `r2b activity [number]` | Recent backups, and what one did |
 | `r2b backups` | Every backup in your storage, by computer. `delete <name>` |
 | `r2b trash` | Deleted files. `ls`, `recover <set> <path>`, `rm <set> <path>`, `empty` |
 | `r2b schedule` | Automatic runs. `--every`, `--remove`, `--repair` |

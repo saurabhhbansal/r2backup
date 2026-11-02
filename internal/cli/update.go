@@ -33,6 +33,9 @@ func newUpdateCmd(opts *Options) *cobra.Command {
 				return nil
 			}
 
+			if err := refuseWhileRunning(); err != nil {
+				return err
+			}
 			fmt.Fprintln(opts.Out, "Downloading and verifying...")
 			bin, err := selfupdate.Fetch(cmd.Context(), rel)
 			if err != nil {

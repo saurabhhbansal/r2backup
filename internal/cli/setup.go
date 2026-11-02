@@ -408,10 +408,20 @@ func signIn(ctx context.Context, p *prompter, client *account.Client) (*account.
 
 // askCode asks for the email code, forgiving a typo or two.
 func askCode(ctx context.Context, p *prompter, client *account.Client, email string) (*account.PINChallenge, error) {
+	fmt.Fprintln(p.out, "No email? Type new for a new code.")
 	for attempt := 1; ; attempt++ {
 		code, err := p.askRequired("Code")
 		if err != nil {
 			return nil, err
+		}
+		// The panel's "Send a new code".
+		if strings.EqualFold(strings.TrimSpace(code), "new") {
+			if err := client.RequestCode(ctx, email); err != nil {
+				return nil, friendlyAccountErr(err)
+			}
+			fmt.Fprintf(p.out, "  A new code is on its way to %s.\n", email)
+			attempt = 0
+			continue
 		}
 		ch, err := client.Verify(ctx, email, strings.ReplaceAll(code, " ", ""))
 		if err == nil {
@@ -749,14 +759,14 @@ func askForS3(p *prompter, kind string) (creds.Credentials, error) {
 	}
 	label := "Access key ID"
 	if kind == creds.ProviderB2 {
-		label = "keyID"
+		label = "Key ID"
 	}
 	if c.AccessKeyID, err = p.askRequired(label); err != nil {
 		return c, err
 	}
 	secretLabel := "Secret access key"
 	if kind == creds.ProviderB2 {
-		secretLabel = "applicationKey"
+		secretLabel = "Application key"
 	}
 	if c.SecretAccessKey, err = p.secret(secretLabel); err != nil {
 		return c, err

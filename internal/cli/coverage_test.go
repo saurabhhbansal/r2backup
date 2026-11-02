@@ -148,6 +148,8 @@ var tuiSurface = map[string]surface{
 	"r2b remove --keep-second-copy": {NA: "the terminal interface does not keep a second copy yet; " +
 		"the taskbar panel asks the same question when you delete a backup."},
 
+	"r2b edit --exclude": {Keys: []string{"e"}, Where: "Folders: e reopens the picker, where any path can be left out"},
+	"r2b edit --include": {Keys: []string{"e"}, Where: "Folders: e reopens the picker, where any path can be put back"},
 	"r2b edit --retention": {NA: "how long deleted files are kept is in the taskbar panel's folder settings and here; " +
 		"the terminal interface sets it only when a folder is added."},
 
