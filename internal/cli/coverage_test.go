@@ -101,6 +101,11 @@ var tuiSurface = map[string]surface{
 	"r2b status --watch": {Keys: []string{"w"}, Where: "w reopens the progress screen, including for a run the scheduler started"},
 
 	"r2b ls": {Keys: []string{"f"}, Where: "Folders: f lists what is stored for the highlighted folder, with sizes"},
+	"r2b ls --machine": {NA: "browsing another computer's backup folder by folder is the taskbar panel's Restore and this " +
+		"command; the full-screen view restores another computer's backup from c without browsing it."},
+
+	"r2b activity": {NA: "the list of recent runs is the taskbar panel's Activity tab and this command; the full-screen " +
+		"view shows each folder's last run on the Folders screen."},
 
 	"r2b trash":    {Keys: []string{"4"}, Where: "the Trash mode"},
 	"r2b trash ls": {Keys: []string{"4"}, Where: "the Trash mode lists what is recoverable and until when"},

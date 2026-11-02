@@ -87,6 +87,12 @@ func newMirrorSetupCmd(opts *Options) *cobra.Command {
 				return err
 			}
 			defer a.close()
+			// S3 storage only has no second copy, as in the panel. Switching
+			// to the first purpose sets one up.
+			if currentPurpose(a) == purposeS3 && !a.mirror.Exists() {
+				return errors.New("this computer is set up for S3 storage only, which has no second copy. " +
+					"To back up to Drime with a second copy: r2b setup purpose both")
+			}
 			return runMirrorSetup(cmd.Context(), a, opts, provider)
 		},
 	}

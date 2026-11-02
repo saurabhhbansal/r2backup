@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -508,20 +509,29 @@ func watchProgress(ctx context.Context, opts *Options) error {
 }
 
 func newListCmd(opts *Options) *cobra.Command {
-	return &cobra.Command{
-		Use:   "ls [set]",
+	var machine string
+	cmd := &cobra.Command{
+		Use:   "ls [set] [folder]",
 		Short: "What is in the backup",
-		Args:  cobra.MaximumNArgs(1),
+		Long: "With no set, how many files each folder on this computer has backed up.\n" +
+			"With a set, what its backup holds in storage, one folder at a time, as\n" +
+			"the panel's Restore shows it: any computer's backup (--machine), and\n" +
+			"backups no folder here uses.",
+		Args: cobra.MaximumNArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := openApp()
 			if err != nil {
 				return err
 			}
 			defer a.close()
-			var only string
-			if len(args) == 1 {
-				only = args[0]
+			if len(args) >= 1 {
+				dir := ""
+				if len(args) == 2 {
+					dir = args[1]
+				}
+				return listStored(cmd.Context(), a, opts.Out, args[0], machine, dir)
 			}
+			var only string
 			list, err := a.resolveSets(only)
 			if err != nil {
 				return err
@@ -537,19 +547,60 @@ func newListCmd(opts *Options) *cobra.Command {
 					return err
 				}
 				fmt.Fprintf(opts.Out, "%s: %s\n", s.Name, countOf(int64(n), "object", "objects"))
-				if only != "" {
-					recs, err := idx.All(s.Name)
-					if err != nil {
-						return err
-					}
-					for _, r := range recs {
-						fmt.Fprintf(opts.Out, "  %10s  %s\n", progress.FormatBytes(r.Size), r.Key)
-					}
-				}
 			}
 			return nil
 		},
 	}
+	cmd.Flags().StringVar(&machine, "machine", "", "list another computer's backup")
+	return cmd
+}
+
+// listStored prints one folder of what a backup holds in storage: folders
+// first, each with its size and file count, then files with size and date.
+func listStored(ctx context.Context, a *app, out io.Writer, set, machine, dir string) error {
+	if err := a.connect(ctx); err != nil {
+		return err
+	}
+	root, err := storedTree(ctx, a, set, machine)
+	if err != nil {
+		return err
+	}
+	n := root.at(dir)
+	if n == nil || !n.dir {
+		return fmt.Errorf("%q is not a folder in this backup", strings.Trim(dir, "/"))
+	}
+	where := set
+	if d := strings.Trim(dir, "/"); d != "" {
+		where += "/" + d
+	}
+	fmt.Fprintf(out, "%s: %s, %s\n", where, countOf(int64(n.files), "file", "files"), progress.FormatBytes(n.size))
+	names := make([]string, 0, len(n.kids))
+	for name := range n.kids {
+		names = append(names, name)
+	}
+	sort.Slice(names, func(i, j int) bool {
+		x, y := n.kids[names[i]], n.kids[names[j]]
+		if x.dir != y.dir {
+			return x.dir
+		}
+		return strings.ToLower(names[i]) < strings.ToLower(names[j])
+	})
+	for _, name := range names {
+		k := n.kids[name]
+		if k.dir {
+			fmt.Fprintf(out, "  %10s  %s/  (%s)\n", progress.FormatBytes(k.size), name, countOf(int64(k.files), "file", "files"))
+			continue
+		}
+		when := ""
+		if !k.mod.IsZero() {
+			when = "  " + k.mod.Local().Format("2 Jan 2006 15:04")
+		}
+		fmt.Fprintf(out, "  %10s  %s%s\n", progress.FormatBytes(k.size), name, when)
+	}
+	if len(names) > 0 {
+		fmt.Fprintf(out, "To bring some back: r2b restore %s --only <path> (repeat --only for more)\n", set)
+	}
+	return nil
 }
 
 // countOf renders a count with its noun, singular or plural: "1 object",
@@ -1394,7 +1445,7 @@ func newTrashCmd(opts *Options) *cobra.Command {
 func newRestoreCmd(opts *Options) *cobra.Command {
 	var (
 		to        string
-		only      string
+		only      []string
 		machine   string
 		overwrite bool
 		verify    bool
@@ -1427,7 +1478,8 @@ func newRestoreCmd(opts *Options) *cobra.Command {
 				Set:           s,
 				Client:        a.client,
 				Target:        to,
-				Only:          only,
+				Only:          onlyOne(only),
+				OnlyAny:       onlyMany(only),
 				SourceMachine: machine,
 				Deleted:       deleted,
 				Overwrite:     overwrite,
@@ -1461,11 +1513,11 @@ func newRestoreCmd(opts *Options) *cobra.Command {
 				}
 				return fmt.Errorf("nothing is stored for %q yet, so nothing was restored", s.Name)
 			}
-			if only != "" && rep.Downloaded == 0 && rep.SkippedExisting == 0 && len(rep.Failures) == 0 {
-				return fmt.Errorf("--only %q matched none of the %s objects stored for %q, so nothing was restored. "+
+			if len(only) > 0 && rep.Downloaded == 0 && rep.SkippedExisting == 0 && len(rep.Failures) == 0 {
+				return fmt.Errorf("--only %s matched none of the %s objects stored for %q, so nothing was restored. "+
 					"A bare name restores everything under it (--only docs), and \"*\" does not cross a \"/\" "+
 					"(use --only 'docs/**')",
-					only, progress.FormatCount(rep.ListedFiles), s.Name)
+					strings.Join(quoted(only), ", "), progress.FormatCount(rep.ListedFiles), s.Name)
 			}
 			fmt.Fprintf(opts.Out, "%s: %s restored (%s) into %s in %s\n",
 				rep.Set, progress.FormatCount(int64(rep.Downloaded)),
@@ -1500,8 +1552,8 @@ func newRestoreCmd(opts *Options) *cobra.Command {
 		},
 	}
 	cmd.Flags().StringVar(&to, "to", "", "restore into this directory instead")
-	cmd.Flags().StringVar(&only, "only", "",
-		`restore only matching paths: a bare name takes everything under it ("docs"), or glob it ("docs/**", "*.pdf") -- "*" does not cross a "/"`)
+	cmd.Flags().StringArrayVar(&only, "only", nil,
+		`restore only matching paths, repeat for more: a bare name takes everything under it ("docs"), or glob it ("docs/**", "*.pdf") -- "*" does not cross a "/"`)
 	cmd.Flags().StringVar(&machine, "machine", "", "restore from another computer's backup")
 	cmd.Flags().StringVar(&deleted, "deleted", "", "recover a deleted file from trash")
 	cmd.Flags().BoolVar(&overwrite, "overwrite", false, "replace files that already exist")
@@ -1543,4 +1595,29 @@ func (o *restoreObserver) Progress(s progress.Snapshot) {
 	line := progress.Render(s, 40)
 	fmt.Fprintln(o.out, line)
 	o.lastLines = strings.Count(line, "\n") + 1
+}
+
+// onlyOne and onlyMany split restore's --only between restore.Options.Only
+// (one pattern) and OnlyAny (several, any of which restores a path), the
+// latter being what the panel uses for files and folders picked together.
+func onlyOne(only []string) string {
+	if len(only) == 1 {
+		return only[0]
+	}
+	return ""
+}
+
+func onlyMany(only []string) []string {
+	if len(only) > 1 {
+		return only
+	}
+	return nil
+}
+
+func quoted(ss []string) []string {
+	out := make([]string, len(ss))
+	for i, s := range ss {
+		out[i] = strconv.Quote(s)
+	}
+	return out
 }

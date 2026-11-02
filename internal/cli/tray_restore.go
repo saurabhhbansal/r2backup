@@ -95,6 +95,22 @@ func (t *trayBackend) restoreTree(ctx context.Context, set, machine string, refr
 	if err != nil {
 		return nil, err
 	}
+	root, err := storedTree(ctx, a, set, machine)
+	if err != nil {
+		return nil, err
+	}
+	t.mu.Lock()
+	if t.trees == nil {
+		t.trees = map[string]cachedTree{}
+	}
+	t.trees[cacheKey] = cachedTree{root, time.Now()}
+	t.mu.Unlock()
+	return root, nil
+}
+
+// storedTree reads what a backup holds from storage, as a tree of folders
+// with sizes and file counts. a must be connected.
+func storedTree(ctx context.Context, a *app, set, machine string) (*treeNode, error) {
 	s, err := resolveRestoreSet(ctx, a, set, machine)
 	if err != nil {
 		return nil, err
@@ -118,14 +134,7 @@ func (t *trayBackend) restoreTree(ctx context.Context, set, machine string, refr
 		}
 		keys, sizes, mods = append(keys, rel), append(sizes, e.Size), append(mods, e.ModTime)
 	}
-	root := buildTree(keys, sizes, mods)
-	t.mu.Lock()
-	if t.trees == nil {
-		t.trees = map[string]cachedTree{}
-	}
-	t.trees[cacheKey] = cachedTree{root, time.Now()}
-	t.mu.Unlock()
-	return root, nil
+	return buildTree(keys, sizes, mods), nil
 }
 
 type restoreSetOut struct {
