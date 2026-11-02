@@ -30,6 +30,11 @@ type app struct {
 	client remote.Store
 	// provider is which kind of storage client talks to, once connected.
 	provider string
+	// place names the storage client writes to; see creds.Credentials.Place.
+	place string
+	// retired are clients forgetClient replaced. A backup still running may
+	// be using one, so they are closed on the way out, not when replaced.
+	retired []remote.Store
 	// mirror is the second destination `r2b mirror` copies to, if any.
 	mirror *creds.Store
 	// source is a Drime account whose folders are mirrored to S3 storage,
@@ -96,9 +101,13 @@ func (a *app) close() {
 	// A store that holds writes back (Drime's manifest of file dates) is
 	// flushed on the way out, whatever the command was: a trash restore or a
 	// remove changes it as much as a backup does.
-	if a.client != nil {
+	// Closing also removes the temporary files a bundling store keeps.
+	for _, s := range append(a.retired, a.client) {
+		if s == nil {
+			continue
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
-		_ = remote.FlushStore(ctx, a.client)
+		_ = remote.CloseStore(ctx, s)
 		cancel()
 	}
 	if a.index != nil {
@@ -149,6 +158,7 @@ func (a *app) connect(ctx context.Context) error {
 		return err
 	}
 	a.provider = c.Provider
+	a.place = c.Place()
 	a.client = client
 	return nil
 }
@@ -170,6 +180,9 @@ func (a *app) connect(ctx context.Context) error {
 // dashboard.forgetClient, which is the only caller that should reach here
 // from the dashboard.
 func (a *app) forgetClient() {
+	if a.client != nil {
+		a.retired = append(a.retired, a.client)
+	}
 	a.client = nil
 }
 

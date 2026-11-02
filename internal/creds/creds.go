@@ -16,6 +16,8 @@
 package creds
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -67,6 +69,28 @@ type Credentials struct {
 	// DrimeRoot is the folder in Drime that backups go under; empty is
 	// "r2backup".
 	DrimeRoot string `json:"drime_root,omitempty"`
+}
+
+// Place names the storage these credentials point at: two credentials with
+// the same Place write to the same files. Keys may change (a rotated secret,
+// a new Drime token for the same account) without moving the storage, but a
+// different provider, endpoint, account, bucket, workspace, root folder or
+// packing setting does. The Drime token is part of it, hashed, because it is
+// the only thing that tells two Drime accounts apart.
+func (c Credentials) Place() string {
+	if c.IsDrime() {
+		sum := sha256.Sum256([]byte(strings.TrimSpace(c.DrimeToken)))
+		root := c.DrimeRoot
+		if root == "" {
+			root = "r2backup"
+		}
+		return fmt.Sprintf("drime|%s|%s|%s|%t|%s", c.Endpoint, c.DrimeWorkspace, root, c.Bundle, hex.EncodeToString(sum[:8]))
+	}
+	provider := c.Provider
+	if provider == "" {
+		provider = ProviderR2
+	}
+	return fmt.Sprintf("s3|%s|%s|%s|%s|%t", provider, strings.TrimRight(c.Endpoint, "/"), c.AccountID, c.Bucket, c.Bundle)
 }
 
 // IsDrime reports whether these credentials are for Drime.

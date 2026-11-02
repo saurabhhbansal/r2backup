@@ -34,19 +34,20 @@ func accountSession() (token string, key []byte, err error) {
 }
 
 // finishSignIn saves a session from the PIN step and registers this computer.
-// Keys an account kept from before PINs come back once with the session; they
-// are saved sealed straight away, which is what makes the server delete the
-// copy it could read.
+// Keys an account kept from before PINs come back with the session until a
+// sealed copy is saved; they are sealed here, before the session is saved,
+// which is what makes the server delete the copy it could read. If that
+// fails, nothing is saved, so signing in again tries the move again.
 func finishSignIn(ctx context.Context, s *account.Session) error {
-	if err := account.SaveSession(s); err != nil {
-		return err
-	}
 	c := accountClient()
 	if s.LegacyKeys != nil && (s.LegacyKeys.Primary != nil || s.LegacyKeys.Second != nil) {
 		if err := c.PutKeys(ctx, s.Token, s.SealKey, *s.LegacyKeys); err != nil {
-			return fmt.Errorf("signed in, but the keys your account kept could not be locked with the PIN: %w",
+			return fmt.Errorf("the keys your account kept could not be locked with your PIN, so you are not signed in yet. Sign in again to retry: %w",
 				friendlyAccountErr(err))
 		}
+	}
+	if err := account.SaveSession(s); err != nil {
+		return err
 	}
 	_ = c.RegisterDevice(ctx, s.Token, machineName(), runtime.GOOS)
 	return nil

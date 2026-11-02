@@ -105,6 +105,7 @@ func runOne(ctx context.Context, a *app, s sets.Set, out io.Writer, interactive 
 		Observer:    obs,
 		DetectMoves: true,
 		Budget:      a.budget(),
+		Place:       a.place,
 	})
 	if interactive {
 		obs.clear()
