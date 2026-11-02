@@ -16,7 +16,7 @@
 
 /** Bumped whenever the protocol or behaviour changes, so r2backup can tell an
  * old relay from the one it carries and upload the new one. */
-export const VERSION = "1";
+export const VERSION = "2";
 
 /** Headers the caller may set on the upload. Presigned S3 uploads sign the
  * metadata and content-type headers, so they must be sent exactly. */
@@ -117,11 +117,15 @@ async function snippet(resp) {
  * @param {Deps} deps
  */
 export async function copy(req, deps) {
+  // Called bare, never as deps.fetch(...): the Workers runtime refuses a
+  // fetch whose `this` is anything but the global scope ("Illegal
+  // invocation"), where Node does not mind.
+  const fetchFn = deps.fetch;
   const srcHeaders = new Headers();
   if (req.src.start !== undefined) {
     srcHeaders.set("range", `bytes=${req.src.start}-${req.src.end}`);
   }
-  const down = await deps.fetch(req.src.url, { headers: srcHeaders, redirect: "follow" });
+  const down = await fetchFn(req.src.url, { headers: srcHeaders, redirect: "follow" });
   const wantStatus = req.src.start !== undefined ? 206 : 200;
   if (down.status !== wantStatus) {
     return json(502, {
@@ -156,7 +160,7 @@ export async function copy(req, deps) {
   const upHeaders = new Headers(req.dst.headers ?? {});
   let up;
   try {
-    up = await deps.fetch(req.dst.url, { method: "PUT", body: readable, headers: upHeaders });
+    up = await fetchFn(req.dst.url, { method: "PUT", body: readable, headers: upHeaders });
   } catch (e) {
     giveUp();
     return json(502, { ok: false, stage: "destination", status: 0, error: `the upload failed: ${String(e)}` });
@@ -212,7 +216,12 @@ export default {
    * @param {{ RELAY_SECRET?: string }} env
    */
   async fetch(request, env) {
-    // @ts-ignore FixedLengthStream is a Workers runtime global.
-    return handle(request, env, { fetch, FixedLengthStream: globalThis.FixedLengthStream });
+    // fetch is wrapped so it is always called on the global scope, which is
+    // the only `this` the Workers runtime accepts for it.
+    return handle(request, env, {
+      fetch: (input, init) => fetch(input, init),
+      // @ts-ignore FixedLengthStream is a Workers runtime global.
+      FixedLengthStream: globalThis.FixedLengthStream,
+    });
   },
 };

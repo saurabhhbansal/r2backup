@@ -12,4 +12,4 @@ var Script []byte
 
 // Version is the relay's VERSION constant, which its /health answer reports.
 // A test keeps the two in step.
-const Version = "1"
+const Version = "2"

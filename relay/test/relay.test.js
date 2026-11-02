@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { handle, invalid, sameSecret, VERSION } from "../src/relay.js";
+import worker, { handle, invalid, sameSecret, VERSION } from "../src/relay.js";
 
 const SECRET = "s".repeat(48);
 const env = { RELAY_SECRET: SECRET };
@@ -50,8 +50,16 @@ function streamOf(data, { breakAfter = -1 } = {}) {
  */
 function network({ data = new TextEncoder().encode("hello, cloud to cloud"), source = {}, upload = {} } = {}) {
   const calls = { source: [], upload: [] };
+  // Like the Workers runtime, this fetch refuses to be called as a method of
+  // anything ("Illegal invocation"): called bare, `this` is undefined here
+  // (modules are strict) or the global scope. Node's own fetch does not
+  // check, which is how deps.fetch(...) once passed these tests and threw on
+  // every copy in a real Worker.
   /** @type {typeof fetch} */
-  const fakeFetch = async (input, init = {}) => {
+  const fakeFetch = async function (input, init = {}) {
+    if (this !== undefined && this !== globalThis) {
+      throw new TypeError("Illegal invocation: function called with incorrect `this` reference.");
+    }
     const url = String(input);
     if (url.startsWith("https://drime.example/")) {
       const headers = new Headers(init.headers);
@@ -232,5 +240,29 @@ describe("copying", () => {
     const r = await handle(req("/copy", { body: copyBody() }), env, deps);
     expect(r.status).toBe(502);
     expect((await r.json()).ok).toBe(false);
+  });
+});
+
+describe("the Worker's entry point", () => {
+  it("copies through the runtime's own globals, calling fetch as the runtime requires", async () => {
+    const { deps, calls } = network();
+    const realFetch = globalThis.fetch;
+    const realFLS = globalThis.FixedLengthStream;
+    globalThis.fetch = deps.fetch;
+    globalThis.FixedLengthStream = FixedLengthStream;
+    try {
+      const r = await worker.fetch(req("/copy", { body: copyBody() }), env);
+      expect(await r.json()).toEqual({ ok: true, etag: '"abc123"', bytes: 5 });
+      expect(new TextDecoder().decode(calls.upload[0].body)).toBe("cloud");
+    } finally {
+      globalThis.fetch = realFetch;
+      if (realFLS === undefined) delete globalThis.FixedLengthStream;
+      else globalThis.FixedLengthStream = realFLS;
+    }
+  });
+
+  it("the strict fetch really refuses a method call", async () => {
+    const { deps } = network();
+    await expect(deps.fetch("https://drime.example/f")).rejects.toThrow(/Illegal invocation/);
   });
 });
