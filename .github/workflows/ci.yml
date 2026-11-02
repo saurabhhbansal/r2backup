@@ -110,6 +110,22 @@ jobs:
       - name: Test
         run: go test ./... -race -count=1 -v -timeout 20m
 
+  # Ultra fast mode's Worker, in relay/. Its tests run in Node; the script is
+  # uploaded to people's Cloudflare accounts byte for byte as tested.
+  relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: relay
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci
+      - run: npm test
+
   # Proves the binaries every platform ships actually compile, from one runner.
   cross-compile:
     if: github.ref == 'refs/heads/main' || github.event_name == 'pull_request'

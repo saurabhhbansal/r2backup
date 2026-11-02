@@ -296,12 +296,12 @@ func (s *linkSource) List(ctx context.Context, prefix string) ([]remote.ListEntr
 	return out, nil
 }
 
-func (s *linkSource) Put(context.Context, remote.PutInput) error            { panic("source is read only") }
+func (s *linkSource) Put(context.Context, remote.PutInput) error               { panic("source is read only") }
 func (s *linkSource) Head(context.Context, string) (*remote.HeadResult, error) { panic("not used") }
-func (s *linkSource) ListPrefixes(context.Context, string) ([]string, error) { panic("not used") }
-func (s *linkSource) Copy(context.Context, string, string) error              { panic("not used") }
-func (s *linkSource) Delete(context.Context, string) error                    { panic("not used") }
-func (s *linkSource) DeleteBatch(context.Context, []string) error             { panic("not used") }
+func (s *linkSource) ListPrefixes(context.Context, string) ([]string, error)   { panic("not used") }
+func (s *linkSource) Copy(context.Context, string, string) error               { panic("not used") }
+func (s *linkSource) Delete(context.Context, string) error                     { panic("not used") }
+func (s *linkSource) DeleteBatch(context.Context, []string) error              { panic("not used") }
 func (s *linkSource) DeletePrefix(context.Context, string) (remote.PrefixDeletion, error) {
 	panic("not used")
 }
