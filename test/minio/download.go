@@ -2,16 +2,26 @@ package minio
 
 import (
 	"fmt"
-	"io"
-	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
-	"time"
 )
 
+// minioModule is the MinIO server release the tests run against, built from
+// source. MinIO stopped publishing community binaries in late 2025: the
+// dl.min.io URLs this harness used to download from answer 410 Gone, and the
+// GitHub releases carry source only. A Go module version cannot move under
+// us the way a "latest" download URL did, so this is also a pin.
+//
+// RELEASE.2025-10-15T17-29-55Z.
+const minioModule = "github.com/minio/minio@v0.0.0-20251015172955-9e49d5e7a648"
+
+// EnvMinioBinary names a MinIO server binary to use instead of building one.
+const EnvMinioBinary = "R2BACKUP_MINIO_BIN"
+
 // binaryName is "minio" everywhere except Windows, which needs the ".exe"
-// suffix both in the cached filename and in the release URL.
+// suffix.
 func binaryName() string {
 	if runtime.GOOS == "windows" {
 		return "minio.exe"
@@ -19,33 +29,8 @@ func binaryName() string {
 	return "minio"
 }
 
-// downloadURL returns the release URL for this platform's MinIO server
-// binary. MinIO publishes a fixed URL per OS/arch under dl.min.io that
-// always resolves to their current stable build -- there is no version
-// segment to pin in that path.
-func downloadURL() (string, error) {
-	var osName string
-	switch runtime.GOOS {
-	case "linux", "darwin", "windows":
-		osName = runtime.GOOS
-	default:
-		return "", fmt.Errorf("unsupported OS for the minio test binary: %s", runtime.GOOS)
-	}
-
-	var arch string
-	switch runtime.GOARCH {
-	case "amd64", "arm64":
-		arch = runtime.GOARCH
-	default:
-		return "", fmt.Errorf("unsupported architecture for the minio test binary: %s", runtime.GOARCH)
-	}
-
-	return fmt.Sprintf("https://dl.min.io/server/minio/release/%s-%s/%s", osName, arch, binaryName()), nil
-}
-
-// cacheDir returns where downloaded MinIO binaries are kept across test
-// runs, so a full test suite run does not re-download a ~100MB binary
-// every time.
+// cacheDir returns where the MinIO binary is kept across test runs, so a
+// full test suite run does not rebuild a ~150MB binary every time.
 func cacheDir() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -54,9 +39,12 @@ func cacheDir() (string, error) {
 	return filepath.Join(home, ".cache", "r2backup-test"), nil
 }
 
-// ensureBinary returns the path to a usable MinIO server binary, downloading
-// it into cacheDir if it is not already there.
+// ensureBinary returns the path to a usable MinIO server binary, building it
+// into cacheDir if it is not already there.
 func ensureBinary() (string, error) {
+	if bin := os.Getenv(EnvMinioBinary); bin != "" {
+		return bin, nil
+	}
 	dir, err := cacheDir()
 	if err != nil {
 		return "", err
@@ -64,59 +52,36 @@ func ensureBinary() (string, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("create minio cache dir %q: %w", dir, err)
 	}
-
 	path := filepath.Join(dir, binaryName())
 	if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() && info.Size() > 0 {
 		return path, nil
 	}
-
-	url, err := downloadURL()
-	if err != nil {
-		return "", err
-	}
-	if err := downloadFile(url, path); err != nil {
+	if err := buildBinary(dir, path); err != nil {
 		return "", err
 	}
 	return path, nil
 }
 
-// downloadFile fetches url and atomically installs it at dest with the
-// executable bit set. It writes to a temp file in the same directory first
-// and renames into place, so a failed or interrupted download never leaves
-// a corrupt binary at dest for the next test run to trip over.
-func downloadFile(url, dest string) (err error) {
-	client := &http.Client{Timeout: 5 * time.Minute}
-	resp, err := client.Get(url)
+// buildBinary installs MinIO with `go install` into a directory of its own,
+// then renames it to dest. It takes a few minutes the first time on a
+// machine and is cached after that (CI caches dir across runs). Packages
+// testing in parallel may each build it; the rename means none sees half a
+// binary.
+func buildBinary(dir, dest string) error {
+	gobin, err := os.MkdirTemp(dir, ".minio-build-*")
 	if err != nil {
-		return fmt.Errorf("download %s: %w", url, err)
+		return fmt.Errorf("create minio build dir: %w", err)
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("download %s: unexpected status %s", url, resp.Status)
+	defer os.RemoveAll(gobin)
+	cmd := exec.Command("go", "install", minioModule)
+	cmd.Env = append(os.Environ(), "GOBIN="+gobin, "GOFLAGS=-mod=mod", "CGO_ENABLED=0")
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("build %s: %w\n%s", minioModule, err, out)
 	}
-
-	tmp, err := os.CreateTemp(filepath.Dir(dest), ".minio-download-*")
-	if err != nil {
-		return fmt.Errorf("create temp file for minio download: %w", err)
-	}
-	tmpPath := tmp.Name()
-	defer func() {
-		if err != nil {
-			os.Remove(tmpPath)
+	if err := os.Rename(filepath.Join(gobin, binaryName()), dest); err != nil {
+		if _, serr := os.Stat(dest); serr == nil {
+			return nil // another package's build got there first
 		}
-	}()
-
-	if _, err = io.Copy(tmp, resp.Body); err != nil {
-		tmp.Close()
-		return fmt.Errorf("save minio download: %w", err)
-	}
-	if err = tmp.Close(); err != nil {
-		return fmt.Errorf("save minio download: %w", err)
-	}
-	if err = os.Chmod(tmpPath, 0o755); err != nil {
-		return fmt.Errorf("make minio binary executable: %w", err)
-	}
-	if err = os.Rename(tmpPath, dest); err != nil {
 		return fmt.Errorf("install minio binary: %w", err)
 	}
 	return nil

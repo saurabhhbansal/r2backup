@@ -223,6 +223,16 @@ func run(ctx context.Context, opts Options) (*Report, error) {
 	started := now()
 	rep := &Report{Set: opts.Set.Name}
 
+	// A long-lived store (the tray's) may hold what it read of a bundled
+	// backup's index before another process -- a scheduled run -- changed
+	// it. Flushing saves anything still held back and drops what was read,
+	// so this run starts from the index as it is now instead of writing an
+	// old copy back over the other run's files. With nothing held back it
+	// sends nothing.
+	if err := remote.FlushStore(ctx, opts.Client); err != nil {
+		return nil, fmt.Errorf("save earlier changes: %w", err)
+	}
+
 	// --- 1. Scan -----------------------------------------------------------
 	obs.Phase(PhaseScanning, rep)
 	set := opts.Set

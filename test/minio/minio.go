@@ -28,7 +28,10 @@ const (
 	secretAccessKey = "minioadminsecret"
 	bucketName      = "r2backup-test"
 
-	readyTimeout = 20 * time.Second
+	// readyTimeout is generous: the MinIO built from source (see
+	// download.go) takes several seconds to initialize, and far longer on a
+	// machine running every test package at once.
+	readyTimeout = 90 * time.Second
 )
 
 // Start launches a local MinIO server on a free port with a temporary data
@@ -60,13 +63,13 @@ func StartWithConfig(t testing.TB, mutate func(*remote.Config)) (*remote.Client,
 
 	bin, err := ensureBinary()
 	if err != nil {
-		t.Skipf("minio test harness unavailable: %v", err)
+		unavailable(t, err)
 		return nil, nil
 	}
 
 	proc, err := startServer(bin)
 	if err != nil {
-		t.Skipf("minio test harness unavailable: %v", err)
+		unavailable(t, err)
 		return nil, nil
 	}
 
@@ -74,7 +77,7 @@ func StartWithConfig(t testing.TB, mutate func(*remote.Config)) (*remote.Client,
 	defer cancel()
 	if err := createBucket(ctx, proc.endpoint); err != nil {
 		proc.stop()
-		t.Skipf("minio test harness unavailable: %v", err)
+		unavailable(t, err)
 		return nil, nil
 	}
 
@@ -183,7 +186,9 @@ func waitReady(endpoint string, timeout time.Duration) error {
 
 	var lastErr error
 	for time.Now().Before(deadline) {
-		resp, err := client.Get(endpoint + "/minio/health/live")
+		// "ready", not "live": live answers as soon as the process listens,
+		// and S3 requests then fail with XMinioServerNotInitialized.
+		resp, err := client.Get(endpoint + "/minio/health/ready")
 		if err != nil {
 			lastErr = err
 		} else {
@@ -218,8 +223,28 @@ func createBucket(ctx context.Context, endpoint string) error {
 		o.Region = "auto"
 	})
 
-	if _, err := cli.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucketName)}); err != nil {
-		return fmt.Errorf("create bucket %q: %w", bucketName, err)
+	// Ready can still be a moment early; try until the deadline.
+	for {
+		_, err := cli.CreateBucket(ctx, &s3.CreateBucketInput{Bucket: aws.String(bucketName)})
+		if err == nil {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("create bucket %q: %w", bucketName, err)
+		case <-time.After(250 * time.Millisecond):
+		}
 	}
-	return nil
+}
+
+// unavailable skips the test, or fails it where the whole suite must run:
+// CI sets R2BACKUP_REQUIRE_FULL_SUITE, so a harness that quietly stopped
+// working (as it did when MinIO's download URL went away) turns the build
+// red instead of hiding every test that needs it.
+func unavailable(t testing.TB, err error) {
+	t.Helper()
+	if os.Getenv("R2BACKUP_REQUIRE_FULL_SUITE") != "" {
+		t.Fatalf("minio test harness unavailable: %v", err)
+	}
+	t.Skipf("minio test harness unavailable: %v", err)
 }

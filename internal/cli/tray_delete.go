@@ -82,6 +82,9 @@ func (t *trayBackend) deleteStoredBackup(ctx context.Context, machine, name stri
 			}
 		}
 		scope := f.Prefix + "/"
+		if err := remote.FlushStore(ctx, a.client); err != nil {
+			return "", err
+		}
 		gone, err := a.client.DeletePrefix(ctx, scope)
 		if err != nil {
 			return "", err

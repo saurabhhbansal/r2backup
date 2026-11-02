@@ -242,6 +242,10 @@ type space struct {
 	// staleDirect are objects of their own that a packed entry replaced,
 	// deleted at the next Flush.
 	staleDirect []string
+	// failed is a pack that could not be sent. Files already added to it
+	// were accepted by their Puts, so the next Flush reports it: a run must
+	// not record them as backed up.
+	failed error
 }
 
 func (s *Store) space(ns string) *space {
@@ -327,6 +331,15 @@ func (sp *space) set(rel string, e entry) {
 	}
 	sp.idx.Entries[rel] = e
 	sp.dirty = true
+}
+
+// dropOpen forgets rel's entry in the pack being filled, so a copy or move
+// onto rel is not overwritten by it when the pack is sealed. Its bytes stay
+// in the pack as dead space. Called with sp.mu held.
+func (sp *space) dropOpen(rel string) {
+	if sp.open != nil {
+		delete(sp.open.entries, rel)
+	}
 }
 
 // remove forgets rel, reporting whether it was an object of its own that the
@@ -461,7 +474,11 @@ func (s *Store) seal(ctx context.Context, sp *space) error {
 		Metadata: remote.Metadata{ModTime: s.opts.Now(), Size: size, Mode: 0o644, Kind: remote.KindFile},
 	})
 	if err != nil {
-		return fmt.Errorf("bundle: send pack: %w", err)
+		err = fmt.Errorf("bundle: send a pack of %d files: %w", len(sp2.entries), err)
+		if sp.failed == nil {
+			sp.failed = err
+		}
+		return err
 	}
 	sp.idx.Packs[sp2.id] = size
 	for rel, e := range sp2.entries {
@@ -529,6 +546,7 @@ func (s *Store) copyOrMove(ctx context.Context, srcKey, dstKey string, move bool
 		if old, ok := sp.idx.Entries[drel]; ok && !old.packed() {
 			sp.staleDirect = append(sp.staleDirect, dstKey)
 		}
+		sp.dropOpen(drel)
 		sp.idx.Entries[drel] = withWritten(e, s.now())
 		sp.dirty = true
 		if move {
@@ -542,6 +560,7 @@ func (s *Store) copyOrMove(ctx context.Context, srcKey, dstKey string, move bool
 	}
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
+	sp.dropOpen(drel)
 	sp.idx.Entries[drel] = withWritten(e, s.now())
 	if move {
 		delete(sp.idx.Entries, srel)
@@ -886,12 +905,45 @@ func (s *Store) Flush(ctx context.Context) error {
 func (s *Store) flushSpace(ctx context.Context, sp *space) error {
 	sp.mu.Lock()
 	defer sp.mu.Unlock()
-	if !sp.loaded || sp.passthrough {
+	if !sp.loaded {
+		return nil
+	}
+	if sp.passthrough {
+		sp.unload()
 		return nil
 	}
 	if err := s.seal(ctx, sp); err != nil {
+		sp.failed = nil // reported now
 		return err
 	}
+	failed := sp.failed
+	sp.failed = nil
+	if err := s.flushIndex(ctx, sp); err != nil {
+		return err
+	}
+	if failed != nil {
+		return failed
+	}
+	// Everything is on record. Forget the index, so the next use reads it
+	// again: a long-lived Store (the tray's) must not write an index it read
+	// before another process -- a scheduled backup -- changed it.
+	sp.unload()
+	return nil
+}
+
+// unload drops what was read of sp's index, so it is read again when next
+// needed. Called with sp.mu held, with nothing waiting to be written.
+func (sp *space) unload() {
+	if sp.open != nil || sp.dirty || len(sp.staleDirect) > 0 {
+		return
+	}
+	sp.loaded, sp.passthrough = false, false
+	sp.idx = indexFile{}
+}
+
+// flushIndex tidies sp and writes its index if anything changed. Called with
+// sp.mu held, after seal.
+func (s *Store) flushIndex(ctx context.Context, sp *space) error {
 	if !sp.dirty && len(sp.staleDirect) == 0 {
 		return nil
 	}
