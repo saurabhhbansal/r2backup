@@ -15,7 +15,6 @@ import (
 
 	"github.com/saurabhhbansal/r2backup/internal/backup"
 	"github.com/saurabhhbansal/r2backup/internal/config"
-	"github.com/saurabhhbansal/r2backup/internal/index"
 	"github.com/saurabhhbansal/r2backup/internal/progress"
 	"github.com/saurabhhbansal/r2backup/internal/remote"
 	"github.com/saurabhhbansal/r2backup/internal/restore"
@@ -410,10 +409,9 @@ func printStatus(a *app, opts *Options) error {
 			} else if last.Error != "" {
 				fmt.Fprintf(opts.Out, "  last run %s — failed: %s\n", when, last.Error)
 			} else {
-				fmt.Fprintf(opts.Out, "  last run %s — %s uploaded, %s unchanged, %s operations\n",
+				fmt.Fprintf(opts.Out, "  last run %s — %s uploaded, %s unchanged\n",
 					when, progress.FormatCount(int64(last.Uploaded)),
-					progress.FormatCount(int64(last.Unchanged)),
-					progress.FormatCount(int64(last.Operations)))
+					progress.FormatCount(int64(last.Unchanged)))
 				if last.Failures > 0 || last.Collisions > 0 || last.Problems > 0 {
 					fmt.Fprintf(opts.Out, "  %d failed, %d unreadable, %d name collisions\n",
 						last.Failures, last.Problems, last.Collisions)
@@ -425,14 +423,6 @@ func printStatus(a *app, opts *Options) error {
 		fmt.Fprintln(opts.Out)
 	}
 
-	// The operation count against the free tier, counted locally because we
-	// perform every one of them ourselves.
-	if used, resetAt, err := idx.OpsThisMonth(); err == nil {
-		fmt.Fprintf(opts.Out, "Operations this month: %s of %s free (resets %s)\n",
-			progress.FormatCount(int64(used)),
-			progress.FormatCount(int64(index.FreeTierOpsPerMonth)),
-			resetAt.Format("2 Jan"))
-	}
 	if st, err := scheduleCurrent(scheduleName()); err == nil && st.Registered {
 		if st.Interval > 0 {
 			fmt.Fprintf(opts.Out, "Scheduled: every %s\n", progress.FormatInterval(st.Interval))

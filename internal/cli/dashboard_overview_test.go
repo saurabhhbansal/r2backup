@@ -60,9 +60,6 @@ func TestLoadPopulatesConfigured(t *testing.T) {
 	if ov.Version == "" {
 		t.Error("Version is empty")
 	}
-	if ov.OpsLimit == 0 {
-		t.Error("OpsLimit is zero, so the footer can't show the free-tier limit")
-	}
 
 	assertOverviewFullyPopulated(t, ov)
 }
@@ -106,8 +103,6 @@ func TestLoadReportsUnconfigured(t *testing.T) {
 // which is exactly the silence that let Configured and Version both ship
 // unassigned.
 var overviewZeroOnAFreshlyConfiguredMachine = map[string]string{
-	"OpsUsed": "no operation has been billed against a brand new month yet",
-
 	"Scheduled":         "no OS scheduler entry has been registered",
 	"Interval":          "meaningless without Scheduled",
 	"NextRun":           "meaningless without Scheduled",
@@ -126,17 +121,6 @@ var overviewZeroOnAFreshlyConfiguredMachine = map[string]string{
 	"PendingDone":  "no large upload has ever been started",
 	"PendingTotal": "meaningless without PendingDone",
 	"PendingFiles": "meaningless without PendingDone",
-
-	"StoredBytes":   "nothing has been uploaded yet",
-	"StoredObjects": "meaningless without StoredBytes",
-	"ClassBUsed":    "no restore has read anything back yet",
-
-	"EstimatedUSD":  "a machine inside the free tier has spent nothing, which is the ordinary case",
-	"ProjectedUSD":  "projecting nothing forward is still nothing",
-	"StorageUSD":    "meaningless without EstimatedUSD",
-	"OperationsUSD": "meaningless without EstimatedUSD",
-
-	"BudgetUSD": "no spending limit is set, and none is ever set for someone -- see internal/cost.Budget",
 }
 
 // assertOverviewFullyPopulated walks every field of ui.Overview by name and

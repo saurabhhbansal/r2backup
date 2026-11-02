@@ -32,7 +32,6 @@ type tab int
 const (
 	tabFolders tab = iota
 	tabSchedule
-	tabCost
 	tabTrash
 	tabAccount
 	numTabs
@@ -44,8 +43,6 @@ func (t tab) String() string {
 		return "Folders"
 	case tabSchedule:
 		return "Schedule"
-	case tabCost:
-		return "Cost"
 	case tabTrash:
 		return "Trash"
 	case tabAccount:

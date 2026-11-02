@@ -249,7 +249,7 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
 .facts div + div { margin-top: 2px; }
 .facts .bad { color: var(--bad); }
 
-/* folder settings, usage */
+/* folder settings */
 .erow { display: grid; grid-template-columns: 1fr auto auto; gap: 10px; align-items: center; padding: 3px 8px; border-radius: var(--r-md); }
 .erow:hover { background: var(--card); }
 .erow .go { display: flex; align-items: center; gap: 8px; min-width: 0; padding: 7px 0; text-align: left; }
@@ -273,10 +273,6 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
 .inline { display: flex; gap: 8px; align-items: center; }
 .inline input { flex: 1; }
 .inline .mini { height: 34px; padding: 0 12px; }
-.inline.limit { flex: none; }
-.inline.limit { gap: 6px; }
-.inline.limit .cur { color: var(--muted); }
-.inline.limit input { width: 68px; flex: none; text-align: right; }
 .tip { color: var(--faint); font-size: 12px; padding: 0 2px 12px; }
 
 /* status actions, run detail, alerts */
@@ -954,7 +950,6 @@ function renderStatusActions(state) {
   let html = "";
   const a = state.status.action || "";
   if (state.canStop) html = '<button class="mini" data-sact="stop">Stop</button>';
-  else if (a === "cost") html = '<button class="mini" data-sact="cost">Review</button>';
   else if (a === "backup" && !state.busy) html = '<button class="mini" data-sact="backup">Carry on</button>';
   else if (a.startsWith("folder:")) html = '<button class="mini" data-sact="folder">Show me</button>';
   if (box.dataset.html !== html) { box.dataset.html = html; box.innerHTML = html; }
@@ -965,7 +960,6 @@ $("s-acts").addEventListener("click", (e) => {
   const a = S.status.action || "";
   switch (b.dataset.sact) {
     case "stop": b.disabled = true; call("backupStop").catch((err) => toast(err.message)); break;
-    case "cost": openAccount("cost"); break;
     case "backup": send("backup", ""); break;
     case "folder": openFolder(a.slice(7)); break;
   }
@@ -1138,7 +1132,7 @@ async function startConnect() {
   try { p = (await call("purposeGet")).purpose; } catch (e) { /* asked below */ }
   if (p) purposeSetup(p); else showGate("purpose", true);
 }
-const actions = { connect: () => startConnect(),cost: () => openAccount("cost"), "restore-set": (name) => openRestore(name), add: () => openAdd(), "restore-other": () => openRestore() };
+const actions = { connect: () => startConnect(),"restore-set": (name) => openRestore(name), add: () => openAdd(), "restore-other": () => openRestore() };
 
 // Done: the folders list takes over, which is where a new person goes next.
 function connected(msg) {
@@ -1666,47 +1660,6 @@ $("f-rm-go").onclick = () => {
 };
 $("f-apply").onclick = () => { send("backup", F.name); F.changed = false; closeSheet("sheet-folder"); };
 
-// --- usage and cost --------------------------------------------------------------------
-
-const usd = (n) => (n > 0 && n < 0.01 ? "under $0.01" : "$" + (n || 0).toFixed(2));
-// Usage and cost sit at the end of the account screen, filled in once it is drawn.
-async function loadCost(scroll) {
-  const box = $("ac-cost");
-  if (!box) return;
-  try { drawCost(await call("cost")); } catch (e) { box.innerHTML = '<div class="note">' + esc(e.message) + "</div>"; }
-  if (scroll && $("ac-cost")) $("ac-cost").scrollIntoView({ block: "start" });
-}
-function drawCost(c) {
-  const box = $("ac-cost");
-  if (!box) return;
-  if (c.provider === "drime") {
-    box.innerHTML = '<div class="group"><div class="stat"><span>Stored</span><b>' + esc(fmtBytes(c.storedBytes)) + '</b></div><div class="stat"><span>Files</span><b>' + (c.storedObjects || 0).toLocaleString() + '</b></div></div>';
-    return;
-  }
-  let html = "";
-  if (c.budgetState === "exceeded") html += '<div class="banner"><b>Backups paused.</b> Monthly limit of ' + usd(c.budgetUSD) + ' reached.<div class="inline" style="margin-top:8px"><button class="mini" id="k-resume">Carry on this month</button></div></div>';
-  else if (c.budgetState === "near") html += '<div class="banner">Close to your monthly limit of ' + usd(c.budgetUSD) + ".</div>";
-  html += '<div class="group">' +
-    '<div class="stat"><span>This month</span><b>' + esc(c.withinFreeTier ? "Free" : usd(c.estimatedUSD)) + (c.withinFreeTier ? "<small>free tier</small>" : "") + "</b></div>" +
-    (c.withinFreeTier ? "" : '<div class="stat"><span>On track for</span><b>' + esc(usd(c.projectedUSD)) + "</b></div>") +
-    '<div class="stat"><span>Stored</span><b>' + esc(fmtBytes(c.storedBytes)) + "<small>" + (c.storedObjects || 0).toLocaleString() + " files</small></b></div>" +
-    '<div class="stat"><span>Operations</span><b>' + (c.opsUsed || 0).toLocaleString() + (c.opsLimit ? "<small>of " + c.opsLimit.toLocaleString() + " free</small>" : "") + "</b></div></div>" +
-    '<div class="group"><div class="item"><div class="t"><b>Monthly limit</b><span>Backups pause when it is reached</span></div><div class="inline limit"><span class="cur" aria-hidden="true">$</span><input id="k-limit" inputmode="decimal" placeholder="None" value="' + (c.budgetUSD > 0 ? c.budgetUSD : "") + '" aria-label="Monthly limit in dollars"><button class="mini" id="k-save">Save</button></div></div></div>' +
-    // The estimate uses R2's price list whatever the storage; say so elsewhere.
-    '<p class="tip">Estimated at Cloudflare R2\u2019s prices, for r2backup\u2019s files only.' +
-    (c.provider && c.provider !== "r2" ? " " + esc(kindName(c.provider)) + " may charge differently." : "") + "</p>";
-  box.innerHTML = html;
-  const save = $("k-save");
-  save.onclick = async () => {
-    const raw = $("k-limit").value.trim().replace(/^\$/, "");
-    const n = raw === "" ? 0 : Number(raw);
-    if (!isFinite(n) || n < 0) { toast("Enter an amount like 5 or 2.50."); return; }
-    try { await call("setBudget", { usd: n }); toast(n > 0 ? "Monthly limit set to " + usd(n) + "." : "No monthly limit."); loadCost(); } catch (e) { toast(e.message); }
-  };
-  const r = $("k-resume");
-  if (r) r.onclick = async () => { try { await call("resumeBudget"); toast("Carrying on this month."); loadCost(); } catch (e) { toast(e.message); } };
-}
-
 // --- a folder: back up, rename, moved, how long deleted files are kept ------------------
 
 $("f-backup").onclick = () => { send("backup", F.name); closeSheet("sheet-folder"); };
@@ -1892,14 +1845,13 @@ const AC = { info: null, armed: false, renaming: false };
 const ICON_PEN = '<svg viewBox="0 0 24 24"><path d="M4 20h4L18.5 9.5a2.1 2.1 0 0 0-4-4L4 16v4z"/><path d="m13.5 6.5 4 4"/></svg>';
 const primaryName = () => (S && S.configured && S.destination) || "your storage";
 
-async function openAccount(focus) {
+async function openAccount() {
   if (!$("sheet-account").classList.contains("open")) { AC.renaming = false; openSheet("sheet-account"); }
   if (!AC.info) $("ac-main").innerHTML = '<div class="note">Loading…</div>';
   try { AC.info = await call("accountConfig"); }
   catch (e) { AC.info = Object.assign({}, AC.info || {}, { err: e.message }); }
   if (AC.info.needsPin) { showGate("set"); return; }
   acDraw();
-  if (AC.info && AC.info.primary) loadCost(focus === "cost");
 }
 
 // A destination, its packing switch, and Change.
@@ -1957,7 +1909,6 @@ function acDraw() {
       '<button class="mini" id="ac-ren-save"><span>Save</span></button><button class="mini" id="ac-ren-cancel"><span>Cancel</span></button></div><div class="err-line" id="ac-ren-err" hidden></div></div>'
     : '<div class="dev"><div><b>' + esc(d.name) + "</b>" + (d.this && account ? '<span class="chip">This one</span>' : "") + '</div><span class="dev-end"><span>' + esc(d.this ? (account ? "Now" : "") : seen(d.lastSeen)) + "</span>" +
       (d.this ? '<button class="icon-btn" id="ac-ren" title="Rename this computer" aria-label="Rename this computer">' + ICON_PEN + "</button>" : "") + "</span></div>").join("") + "</div>";
-  if (p) html += '<div class="sect">Usage and cost</div><div id="ac-cost"><div class="note">Loading…</div></div>';
   m.innerHTML = html;
 
   m.querySelectorAll("[data-acpurpose]").forEach((b) => { b.onclick = () => { if (b.dataset.acpurpose !== pur) changePurpose(b.dataset.acpurpose); }; });

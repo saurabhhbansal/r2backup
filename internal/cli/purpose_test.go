@@ -392,6 +392,59 @@ func TestSetupPurposeFlags(t *testing.T) {
 	}
 }
 
+// "Not now" at the second copy leaves Drime alone, as the panel's does, and
+// says where to add one later.
+func TestSetupSecondCopyNotNow(t *testing.T) {
+	noStorage(t)
+	_, stop := newFakeWorker(t)
+	defer stop()
+	t.Setenv(config.EnvDataDir, t.TempDir())
+	a, out := runSetupWith(t, setupFlags{}, "", "1", "tok", "", "", "5")
+	if c, _ := a.creds.Load(); !c.IsDrime() {
+		t.Errorf("backups go to %+v", c.Redacted())
+	}
+	if a.mirror.Exists() {
+		t.Error("Not now still set up a second copy")
+	}
+	if st, _ := config.LoadSettings(); st.MirrorAuto || st.Purpose != purposeBoth {
+		t.Errorf("settings %+v", st)
+	}
+	for _, want := range []string{"5. Not now", noSecondNow} {
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q in\n%s", want, out)
+		}
+	}
+}
+
+// --no-second does the same for a script, without asking.
+func TestSetupNoSecondFlag(t *testing.T) {
+	noStorage(t)
+	_, stop := newFakeWorker(t)
+	defer stop()
+	t.Setenv(config.EnvDataDir, t.TempDir())
+	f, err := parseSetupFlags("", "both", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.noSecond = true
+	a, out := runSetupWith(t, f, "", "tok", "", "")
+	if a.mirror.Exists() {
+		t.Error("--no-second set up a second copy")
+	}
+	if strings.Contains(out, "Where should the second copy go?") || !strings.Contains(out, noSecondNow) {
+		t.Errorf("--no-second output:\n%s", out)
+	}
+
+	for _, args := range [][]string{
+		{"setup", "--no-second", "--second", "b2"},
+		{"setup", "--no-second", "--purpose", "s3"},
+	} {
+		if _, err := r2b(t, &Options{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}, In: strings.NewReader("")}, args...); err == nil {
+			t.Errorf("r2b %s accepted", strings.Join(args, " "))
+		}
+	}
+}
+
 // A second computer signed in to an account that keeps a purpose is not
 // asked again.
 func TestSetupSecondComputerBringsThePurpose(t *testing.T) {

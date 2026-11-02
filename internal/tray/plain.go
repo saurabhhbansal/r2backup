@@ -41,11 +41,10 @@ type plainRule struct {
 // because the tail-trimming ones after them would otherwise leave half of a
 // sentence that only made sense with its command attached.
 var plainRules = []plainRule{
-	// A backup paused by the monthly limit.
-	{regexp.MustCompile(`(?s)^.*monthly spending limit reached.*?(about \$[0-9.]+ of \$[0-9.]+) this month.*$`),
-		"Backups are paused: this month reached your spending limit ($1). Carry on from Usage and cost."},
+	// A run from an older version that a spending limit stopped. There is
+	// no limit any more, so the next run goes ahead.
 	{regexp.MustCompile(`(?s)^.*monthly spending limit reached.*$`),
-		"Backups are paused: this month reached your spending limit. Carry on from Usage and cost."},
+		"An older version paused this backup for a spending limit. There is no limit now, so it runs next time."},
 	// The index is held by another copy.
 	{regexp.MustCompile(`(?s)^.*another copy of r2b is already running.*$`),
 		"Another backup was running at the same time, so this one did not start. It runs again next time."},

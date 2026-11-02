@@ -112,10 +112,10 @@ func (p *Plan) Empty() bool {
 //
 // This is a prediction, built before a single request goes out, and it stays
 // that: whether an upload or move actually lands is decided later by the
-// engine, not by anything in here. A caller billing the free tier for what a
-// run actually spent -- backup.Run does, against index.FreeTierOpsPerMonth --
-// must not use this number once the transfer has run, or a run where uploads
-// failed charges for operations that were never sent. Use TrashOps for the
+// engine, not by anything in here. A caller counting what a run actually
+// sent -- backup.Run does, in Report.Operations -- must not use this number
+// once the transfer has run, or a run where uploads failed counts requests
+// that were never sent. Use TrashOps for the
 // one part of this estimate that is not conditional on the transfer's
 // outcome (see its comment) and the engine's own reported counts for the
 // rest.

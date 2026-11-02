@@ -150,7 +150,7 @@ A monochrome world: near-black (or near-white in light mode) neutrals, with ink 
 
 ## Layout
 
-A fixed 380 by 580 window, stacked top to bottom: header (the wide logo in text colour, and three icon buttons: Backups, Deleted files, Settings; no account and no computer name, which live in Settings), status block, tabs (Folders / Activity), a scrolling list (the empty and setup states lead with the wide logo), and a footer with the full-width primary action. Everything is done in the panel; nothing sends a person to a terminal, and no text names a command or a key (messages from the shared code go through `tray.Plain` first). Settings, connecting storage, the account, the second copy, adding a folder, restoring files, deleted files, a folder's settings, one backup run and usage and cost each slide in over the whole window as a sheet from the right. The sheet opened last is moved to the end of the document, so it is drawn on top and is the one Escape or the back arrow closes; opening a sheet puts focus on its back arrow, and a closed sheet is hidden from Tab. Horizontal gutter 14px; list rows inset 8px. Rows are a three-column grid: status icon, name and detail, trailing metadata that swaps to row actions on hover or focus.
+A fixed 380 by 580 window, stacked top to bottom: header (the wide logo in text colour, and three icon buttons: Backups, Deleted files, Settings; no account and no computer name, which live in Settings), status block, tabs (Folders / Activity), a scrolling list (the empty and setup states lead with the wide logo), and a footer with the full-width primary action. Everything is done in the panel; nothing sends a person to a terminal, and no text names a command or a key (messages from the shared code go through `tray.Plain` first). Settings, connecting storage, the account, the second copy, adding a folder, restoring files, deleted files, a folder's settings and one backup run each slide in over the whole window as a sheet from the right. The sheet opened last is moved to the end of the document, so it is drawn on top and is the one Escape or the back arrow closes; opening a sheet puts focus on its back arrow, and a closed sheet is hidden from Tab. Horizontal gutter 14px; list rows inset 8px. Rows are a three-column grid: status icon, name and detail, trailing metadata that swaps to row actions on hover or focus.
 
 ## Elevation & Depth
 
@@ -172,7 +172,7 @@ Windows 11 roundness throughout: 10px window corners, 12px for the status block 
 
 ### Status block
 - Surface fill, 12px radius, hairline border, a 34px circular badge tinted with the state colour (14% fill), title and one-line detail, and a 4px progress bar while running (indeterminate slide until a percentage is known).
-- At most one Mini button on the right, when there is one thing worth doing about the status: Show me (the one folder that needs a look), Review (the spending limit paused backups), Carry on (an interrupted run), Stop (a backup this panel started).
+- At most one Mini button on the right, when there is one thing worth doing about the status: Show me (the one folder that needs a look), Carry on (an interrupted run), Stop (a backup this panel started).
 - An available update is a 7px ink dot on the Settings icon, and its label says so.
 
 ### Folder and activity rows

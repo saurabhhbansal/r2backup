@@ -112,13 +112,9 @@ func TestStatusSaysWhatToDo(t *testing.T) {
 	ok := ui.SetView{Name: "A", State: "ok", HasRun: true, LastRun: now.Add(-time.Hour)}
 	gone := ui.SetView{Name: "Photos", State: "needs attention", Note: "the folder this set points at no longer exists"}
 
-	st := Summarize([]ui.SetView{ok}, ui.Overview{Configured: true, BudgetState: "exceeded", BudgetUSD: 5}, nil, now)
-	if st.Status.Kind != KindAttention || st.Status.Action != "cost" || !strings.Contains(st.Status.Detail, "$5.00") {
-		t.Errorf("a paused budget: %+v", st.Status)
-	}
-	st = Summarize([]ui.SetView{ok}, ui.Overview{Configured: true, BudgetState: "exceeded", Running: "A"}, nil, now)
+	st := Summarize([]ui.SetView{ok}, ui.Overview{Configured: true, Running: "A"}, nil, now)
 	if st.Status.Kind != KindRunning {
-		t.Errorf("a running backup still wins: %+v", st.Status)
+		t.Errorf("a running backup leads: %+v", st.Status)
 	}
 
 	st = Summarize([]ui.SetView{ok, gone}, ui.Overview{Configured: true}, nil, now)
