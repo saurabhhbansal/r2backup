@@ -1,11 +1,13 @@
 package drime
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -31,6 +33,9 @@ type fakeDrime struct {
 	perPage   int         // forces paging when small
 	failParts map[int]int // part number -> failures left before it succeeds
 	calls     map[string]int
+	// redirect makes downloads answer as the real Drime does: a redirect to
+	// a presigned link under /blob/ that needs no token and takes Range.
+	redirect bool
 }
 
 type fakeEntry struct {
@@ -156,6 +161,17 @@ func (f *fakeDrime) serve(w http.ResponseWriter, r *http.Request) {
 		f.servePart(w, r)
 		return
 	}
+	if strings.HasPrefix(p, "/blob/") {
+		// Go keeps the token on a same-host redirect, which the fake is;
+		// real Drime storage is another host, and needs none either way.
+		e := f.entries[strings.TrimPrefix(p, "/blob/")]
+		if e == nil {
+			w.WriteHeader(404)
+			return
+		}
+		http.ServeContent(w, r, e.Name, time.Time{}, bytes.NewReader(e.data))
+		return
+	}
 	if r.Header.Get("Authorization") != "Bearer "+f.token {
 		w.WriteHeader(http.StatusUnauthorized)
 		writeJSON(w, map[string]string{"message": "Unauthenticated."})
@@ -212,6 +228,11 @@ func (f *fakeDrime) serve(w http.ResponseWriter, r *http.Request) {
 		if e == nil {
 			w.WriteHeader(404)
 			writeJSON(w, map[string]string{"message": "Not found"})
+			return
+		}
+		if f.redirect {
+			q := url.Values{"X-Amz-Expires": {"1800"}, "X-Amz-Date": {time.Now().UTC().Format("20060102T150405Z")}, "X-Amz-Signature": {"x"}}
+			http.Redirect(w, r, f.srv.URL+"/blob/"+id+"?"+q.Encode(), http.StatusFound)
 			return
 		}
 		w.Header().Set("Content-Length", strconv.Itoa(len(e.data)))

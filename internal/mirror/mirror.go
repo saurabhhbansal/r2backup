@@ -41,7 +41,30 @@ type Options struct {
 	Concurrency int
 	// Progress, if set, is called after each file is handled.
 	Progress func(Progress)
+	// Relay, if set, is tried first for each file: Ultra fast mode, which
+	// copies cloud to cloud. A file it will not take, or fails on, is copied
+	// through this computer as usual.
+	Relay Relay
 }
+
+// Relay copies one file from src to dst without it passing through this
+// computer, calling onBytes as bytes land.
+//
+// An error wrapping remote.ErrNoLink means the file is not one for the relay
+// (a file bound for a pack, say), and it quietly goes the usual way. One
+// wrapping ErrRelayStopped means the relay cannot go on at all -- the day's
+// allowance is used up, say -- and the rest of the run goes the usual way.
+// Any other error is that one file, which is then copied the usual way.
+type Relay interface {
+	Copy(ctx context.Context, src, dst remote.Store, key string, size int64, onBytes func(int64)) error
+}
+
+// ErrRelayStopped is a relay that cannot copy anything more in this run.
+var ErrRelayStopped = errors.New("ultra fast mode stopped")
+
+// relayGiveUp is how many files in a row the relay may fail on before the
+// run stops asking it.
+const relayGiveUp = 5
 
 // Progress is where a run has got to.
 type Progress struct {
@@ -67,6 +90,17 @@ type Report struct {
 	// because the source looked empty -- see Run.
 	SkippedDeletes int
 	Elapsed        time.Duration
+
+	// Relayed and RelayedBytes are what went cloud to cloud (Ultra fast
+	// mode); they are included in Copied and Bytes.
+	Relayed      int
+	RelayedBytes int64
+	// RelayFellBack counts files the relay failed on that were then copied
+	// through this computer.
+	RelayFellBack int
+	// RelayStopped, when set, is why the relay stopped partway, and the
+	// rest of the run went through this computer.
+	RelayStopped error
 }
 
 type copyJob struct {
@@ -198,7 +232,13 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 	conc := opts.Concurrency
 	if conc <= 0 {
 		conc = 4
+		if opts.Relay != nil {
+			// A relayed file costs this computer one small request, not
+			// its bytes, so more of them can be in flight.
+			conc = 8
+		}
 	}
+	rl := &relayState{relay: opts.Relay}
 	var (
 		mu        sync.Mutex
 		done      atomic.Int64
@@ -217,13 +257,24 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 		go func() {
 			defer wg.Done()
 			for j := range jobs {
-				err := copyOne(ctx, opts.Src, opts.Dst, j, func(n int64) { bytesDone.Add(n) })
+				relayed, fellBack := rl.try(ctx, opts.Src, opts.Dst, j, func(n int64) { bytesDone.Add(n) })
+				var err error
+				if !relayed {
+					err = copyOne(ctx, opts.Src, opts.Dst, j, func(n int64) { bytesDone.Add(n) })
+				}
 				mu.Lock()
 				if err != nil {
 					rep.Failures = append(rep.Failures, Failure{Key: j.key, Err: err})
 				} else {
 					rep.Copied++
 					rep.Bytes += j.size
+				}
+				if relayed {
+					rep.Relayed++
+					rep.RelayedBytes += j.size
+				}
+				if fellBack {
+					rep.RelayFellBack++
 				}
 				mu.Unlock()
 				done.Add(1)
@@ -257,6 +308,7 @@ feed:
 	if err := remote.FlushStore(fctx, opts.Dst); err != nil {
 		rep.Failures = append(rep.Failures, Failure{Key: "(file details)", Err: err})
 	}
+	rep.RelayStopped = rl.stoppedWhy()
 	rep.Elapsed = time.Since(started)
 	if ctx.Err() != nil {
 		return rep, ctx.Err()
@@ -282,4 +334,60 @@ func copyOne(ctx context.Context, src, dst remote.Store, j copyJob, onBytes func
 		ContentType: obj.ContentType,
 		Progress:    onBytes,
 	})
+}
+
+// relayState is one run's use of the relay: whether it is still being asked,
+// and why not when it stopped.
+type relayState struct {
+	relay   Relay
+	stopped atomic.Bool
+	inARow  atomic.Int32
+	mu      sync.Mutex
+	why     error
+}
+
+// try offers j to the relay. relayed is whether it copied the file; fellBack
+// is whether it tried and failed, so the file now goes through this computer.
+func (r *relayState) try(ctx context.Context, src, dst remote.Store, j copyJob, onBytes func(int64)) (relayed, fellBack bool) {
+	if r.relay == nil || r.stopped.Load() || ctx.Err() != nil {
+		return false, false
+	}
+	var sent atomic.Int64
+	err := r.relay.Copy(ctx, src, dst, j.key, j.size, func(n int64) {
+		sent.Add(n)
+		onBytes(n)
+	})
+	if err == nil {
+		r.inARow.Store(0)
+		return true, false
+	}
+	// Bytes counted for parts that landed are counted again by the copy
+	// that replaces them, so they come off the progress first.
+	if n := sent.Load(); n != 0 {
+		onBytes(-n)
+	}
+	if errors.Is(err, remote.ErrNoLink) || ctx.Err() != nil {
+		return false, false
+	}
+	if errors.Is(err, ErrRelayStopped) {
+		r.stop(err)
+	} else if r.inARow.Add(1) >= relayGiveUp {
+		r.stop(fmt.Errorf("%w: it failed on %d files in a row, the last with: %v", ErrRelayStopped, relayGiveUp, err))
+	}
+	return false, true
+}
+
+func (r *relayState) stop(err error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.why == nil {
+		r.why = err
+	}
+	r.stopped.Store(true)
+}
+
+func (r *relayState) stoppedWhy() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.why
 }

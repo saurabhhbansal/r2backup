@@ -461,3 +461,83 @@ func (a *api) download(ctx context.Context, it item) (*http.Response, error) {
 	}
 	return a.send(ctx, request{method: http.MethodGet, url: u, length: -1})
 }
+
+// errNoRedirect is a download Drime served itself rather than by pointing
+// at its storage, so there is no link to hand anyone else.
+var errNoRedirect = errors.New("drime: the download is not a link to storage")
+
+// downloadLink asks for an entry's content without following the answer:
+// Drime answers with a redirect to a presigned link on its storage, which
+// works with no token and takes Range requests. The link is what Ultra fast
+// mode's Worker downloads from, so the Drime token never leaves this
+// computer.
+func (a *api) downloadLink(ctx context.Context, it item) (string, time.Time, error) {
+	u := it.URL
+	if u == "" {
+		u = "api/v1/file-entries/" + it.ID.String() + "/download"
+	}
+	if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
+		u = a.base + strings.TrimPrefix(u, "/")
+	}
+	hc := *a.hc
+	hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	var lastErr error
+	for attempt := 1; attempt <= a.maxAttempts; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+		if err != nil {
+			return "", time.Time{}, err
+		}
+		req.Header.Set("Authorization", "Bearer "+a.token)
+		began := time.Now()
+		resp, err := hc.Do(req)
+		if traceOn {
+			trace(req, resp, err, attempt, time.Since(began))
+		}
+		if err != nil {
+			if ctx.Err() != nil {
+				return "", time.Time{}, ctx.Err()
+			}
+			lastErr = err
+		} else {
+			switch {
+			case resp.StatusCode >= 300 && resp.StatusCode < 400:
+				resp.Body.Close()
+				loc, err := resp.Location()
+				if err != nil {
+					return "", time.Time{}, fmt.Errorf("drime: download link: %w", err)
+				}
+				return loc.String(), linkExpiry(loc, began), nil
+			case resp.StatusCode >= 200 && resp.StatusCode < 300:
+				resp.Body.Close()
+				return "", time.Time{}, errNoRedirect
+			}
+			apiErr := decodeError(resp)
+			if !isRetryable(resp.StatusCode) {
+				return "", time.Time{}, apiErr
+			}
+			lastErr = apiErr
+		}
+		if attempt < a.maxAttempts {
+			if err := sleepCtx(ctx, backoff(attempt, nil)); err != nil {
+				return "", time.Time{}, err
+			}
+		}
+	}
+	return "", time.Time{}, lastErr
+}
+
+// linkExpiry reads when a presigned S3 link stops working, from its
+// X-Amz-Date and X-Amz-Expires. A link that does not say is given ten
+// minutes, counted from when it was asked for.
+func linkExpiry(u *url.URL, asked time.Time) time.Time {
+	q := u.Query()
+	secs, err := strconv.Atoi(q.Get("X-Amz-Expires"))
+	if err != nil || secs <= 0 {
+		return asked.Add(10 * time.Minute)
+	}
+	start := asked
+	if t, err := time.Parse("20060102T150405Z", q.Get("X-Amz-Date")); err == nil {
+		start = t
+	}
+	return start.Add(time.Duration(secs) * time.Second)
+}
