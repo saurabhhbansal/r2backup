@@ -371,3 +371,17 @@ func clock(t, now time.Time) string {
 	}
 	return t.Local().Format("Mon 15:04")
 }
+
+// RecentRuns is the panel's Activity list: the latest runs, newest first,
+// each worded as the panel words it. The terminal's `r2b activity` uses it
+// so the two say the same.
+func RecentRuns(hist []runstate.Past, now time.Time) []Recent { return recent(hist, now) }
+
+// RunTitle is the heading of a run's own page.
+func RunTitle(r Recent) string {
+	if r.Kind == "failed" && r.Error == "" {
+		return "Finished, with problems"
+	}
+	return map[string]string{"ok": "Backed up", "nochange": "Nothing had changed",
+		"failed": "Did not finish", "cancelled": "Stopped before it finished"}[r.Kind]
+}

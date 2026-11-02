@@ -107,14 +107,27 @@ func printAccount(ctx context.Context, t *trayBackend, out io.Writer) error {
 		fmt.Fprintf(out, "\n%s\n", c.Err)
 	}
 
+	fmt.Fprintln(out, "\nUsing r2backup for")
+	if c.Purpose == "" {
+		fmt.Fprintln(out, "  Not chosen yet. Choose: r2b setup purpose both|s3")
+	} else {
+		fmt.Fprintf(out, "  %s\n  %s\n  Change: r2b setup purpose %s\n", purposeTitle(c.Purpose), purposeText(c.Purpose),
+			map[string]string{purposeBoth: purposeS3, purposeS3: purposeBoth}[c.Purpose])
+	}
+
 	fmt.Fprintln(out, "\nWhere backups go")
 	if c.Primary == nil {
 		fmt.Fprintln(out, "  Not connected. Connect: r2b setup")
 	} else {
 		printDest(out, c.Primary, "")
 	}
-	fmt.Fprintln(out, "\nSecond copy")
+	// S3 storage only has no second copy to offer.
+	showSecond := c.Purpose != purposeS3 || c.Second != nil
+	if showSecond {
+		fmt.Fprintln(out, "\nSecond copy")
+	}
 	switch {
+	case !showSecond:
 	case c.Second != nil:
 		printDest(out, c.Second, " --second-copy")
 		fmt.Fprintf(out, "  Copy after every backup   %s\n", onOff(c.Auto))

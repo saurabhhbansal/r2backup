@@ -392,59 +392,6 @@ func TestSetupPurposeFlags(t *testing.T) {
 	}
 }
 
-// "Not now" at the second copy leaves Drime alone, as the panel's does, and
-// says where to add one later.
-func TestSetupSecondCopyNotNow(t *testing.T) {
-	noStorage(t)
-	_, stop := newFakeWorker(t)
-	defer stop()
-	t.Setenv(config.EnvDataDir, t.TempDir())
-	a, out := runSetupWith(t, setupFlags{}, "", "1", "tok", "", "", "5")
-	if c, _ := a.creds.Load(); !c.IsDrime() {
-		t.Errorf("backups go to %+v", c.Redacted())
-	}
-	if a.mirror.Exists() {
-		t.Error("Not now still set up a second copy")
-	}
-	if st, _ := config.LoadSettings(); st.MirrorAuto || st.Purpose != purposeBoth {
-		t.Errorf("settings %+v", st)
-	}
-	for _, want := range []string{"5. Not now", noSecondNow} {
-		if !strings.Contains(out, want) {
-			t.Errorf("missing %q in\n%s", want, out)
-		}
-	}
-}
-
-// --no-second does the same for a script, without asking.
-func TestSetupNoSecondFlag(t *testing.T) {
-	noStorage(t)
-	_, stop := newFakeWorker(t)
-	defer stop()
-	t.Setenv(config.EnvDataDir, t.TempDir())
-	f, err := parseSetupFlags("", "both", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-	f.noSecond = true
-	a, out := runSetupWith(t, f, "", "tok", "", "")
-	if a.mirror.Exists() {
-		t.Error("--no-second set up a second copy")
-	}
-	if strings.Contains(out, "Where should the second copy go?") || !strings.Contains(out, noSecondNow) {
-		t.Errorf("--no-second output:\n%s", out)
-	}
-
-	for _, args := range [][]string{
-		{"setup", "--no-second", "--second", "b2"},
-		{"setup", "--no-second", "--purpose", "s3"},
-	} {
-		if _, err := r2b(t, &Options{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}, In: strings.NewReader("")}, args...); err == nil {
-			t.Errorf("r2b %s accepted", strings.Join(args, " "))
-		}
-	}
-}
-
 // A second computer signed in to an account that keeps a purpose is not
 // asked again.
 func TestSetupSecondComputerBringsThePurpose(t *testing.T) {
@@ -495,7 +442,11 @@ func TestSetupPurposeCommand(t *testing.T) {
 	if out, err := run(); err != nil || !strings.Contains(out, purposeBothTitle) || !strings.Contains(out, "second copy on Backblaze B2") {
 		t.Fatalf("%q %v", out, err)
 	}
-	out, err := run("s3")
+	// Moving where backups go asks first, as the panel does.
+	if _, err := run("s3"); err != errNeedsYes || storedPurpose() == purposeS3 {
+		t.Fatalf("switched with nobody to ask: %v", err)
+	}
+	out, err := run("s3", "--yes")
 	if err != nil || !strings.Contains(out, "Backups go to Backblaze B2 · second now") || !strings.Contains(out, purposeS3Title) {
 		t.Fatalf("%q %v", out, err)
 	}
@@ -530,5 +481,44 @@ func TestSetupAgainAsksAboutTheSecondCopyOnce(t *testing.T) {
 	}
 	if a.mirror.Exists() || !strings.Contains(out, "No more copies to Drime") {
 		t.Errorf("the Drime second copy stayed for S3 storage only:\n%s", out)
+	}
+}
+
+// "Not now" leaves the second copy for later, as the panel's does, and
+// setup still finishes: the Drime keys reach the account.
+func TestSetupCanLeaveTheSecondCopyForLater(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		flags setupFlags
+		lines []string
+	}{
+		{"asked", setupFlags{}, []string{"1", "tok", "", "", "5"}},
+		{"flag", setupFlags{purpose: purposeBoth, second: secondNone}, []string{"tok", "", ""}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			noStorage(t)
+			_, stop := newFakeWorker(t)
+			defer stop()
+			t.Setenv(config.EnvDataDir, t.TempDir())
+			signIn := []string{"me@example.com", "123456", testPIN, testPIN}
+			a, out := runSetupWith(t, tc.flags, append(signIn, tc.lines...)...)
+			if a.mirror.Exists() {
+				t.Fatal("a second copy was set up")
+			}
+			if !strings.Contains(out, secondSkipped) {
+				t.Errorf("missing %q in\n%s", secondSkipped, out)
+			}
+			if c, _ := a.creds.Load(); !c.IsDrime() {
+				t.Errorf("backups go to %+v", c.Redacted())
+			}
+			token, key, err := accountSession()
+			if err != nil {
+				t.Fatal(err)
+			}
+			k, err := accountClient().GetKeys(context.Background(), token, key)
+			if err != nil || k.Primary == nil || !k.Primary.IsDrime() || k.Second != nil {
+				t.Fatalf("account keeps %+v, %v", k, err)
+			}
+		})
 	}
 }

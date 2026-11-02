@@ -48,9 +48,8 @@ var tuiSurface = map[string]surface{
 	"r2b setup --provider": {Keys: []string{"k", "D"}, Where: "Account: k enters R2 keys, D a Drime token instead"},
 	"r2b setup --purpose": {NA: "answers setup's purpose question for a script; the taskbar panel asks it while getting started " +
 		"and changes it under Account."},
-	"r2b setup --second":    {NA: "part of r2b setup --purpose, for a script."},
-	"r2b setup --no-second": {NA: "part of r2b setup --purpose, for a script; the panel's getting started offers Not now."},
-	"r2b setup purpose":     {NA: "what r2backup is used for is chosen and changed in the taskbar panel (getting started, then Account) and here."},
+	"r2b setup --second": {NA: "part of r2b setup --purpose, for a script."},
+	"r2b setup purpose":  {NA: "what r2backup is used for is chosen and changed in the taskbar panel (getting started, then Account) and here."},
 
 	"r2b keys": {NA: "moving keys by file is in the taskbar panel's Settings and here on the command line; " +
 		"a terminal window has no file picker to choose where the file goes."},
@@ -102,6 +101,11 @@ var tuiSurface = map[string]surface{
 	"r2b status --watch": {Keys: []string{"w"}, Where: "w reopens the progress screen, including for a run the scheduler started"},
 
 	"r2b ls": {Keys: []string{"f"}, Where: "Folders: f lists what is stored for the highlighted folder, with sizes"},
+	"r2b ls --machine": {NA: "browsing another computer's backup folder by folder is the taskbar panel's Restore and this " +
+		"command; the full-screen view restores another computer's backup from c without browsing it."},
+
+	"r2b activity": {NA: "the list of recent runs is the taskbar panel's Activity tab and this command; the full-screen " +
+		"view shows each folder's last run on the Folders screen."},
 
 	"r2b trash":    {Keys: []string{"3"}, Where: "the Trash mode"},
 	"r2b trash ls": {Keys: []string{"3"}, Where: "the Trash mode lists what is recoverable and until when"},
@@ -139,6 +143,8 @@ var tuiSurface = map[string]surface{
 	"r2b remove --keep-second-copy": {NA: "the terminal interface does not keep a second copy yet; " +
 		"the taskbar panel asks the same question when you delete a backup."},
 
+	"r2b edit --exclude": {Keys: []string{"e"}, Where: "Folders: e reopens the picker, where any path can be left out"},
+	"r2b edit --include": {Keys: []string{"e"}, Where: "Folders: e reopens the picker, where any path can be put back"},
 	"r2b edit --retention": {NA: "how long deleted files are kept is in the taskbar panel's folder settings and here; " +
 		"the terminal interface sets it only when a folder is added."},
 

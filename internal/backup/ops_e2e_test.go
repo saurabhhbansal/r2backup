@@ -104,7 +104,7 @@ func TestAFailedUploadChargesFewerOperationsThanThePlanPredicted(t *testing.T) {
 
 	// This is the bug: rep.Operations must reflect what actually landed (2
 	// uploads), not what the plan predicted (3), or a failed upload is
-	// billed against the free tier as if it had succeeded.
+	// counted as if it had succeeded.
 	if rep.Operations != 2 {
 		t.Errorf("Operations = %d, want 2 -- charged for the plan's 3 predicted uploads instead of the 2 that actually landed", rep.Operations)
 	}

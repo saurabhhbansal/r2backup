@@ -53,12 +53,20 @@ func TestEditAnnouncesTheBackupBeforeItStarts(t *testing.T) {
 		t.Fatalf("connect: %v", err)
 	}
 
+	// Without an answer the change is only saved, as in the panel: it
+	// applies at the next backup.
+	var quiet bytes.Buffer
+	if err := finishEdit(ctx, a, &Options{Out: &quiet, Err: &quiet}, set, []string{"node_modules"}); err != nil {
+		t.Fatalf("finishEdit: %v\noutput:\n%s", err, quiet.String())
+	}
+	if !strings.Contains(quiet.String(), "Applies at the next backup.") || strings.Contains(quiet.String(), set.Name+":") {
+		t.Fatalf("edit with nobody to ask backed up, or did not say when the change applies:\n%s", quiet.String())
+	}
+
 	var out bytes.Buffer
-	opts := &Options{Out: &out, Err: &out}
-	// A chosen exclude set that differs from the set's current one (empty),
-	// so finishEdit takes the "something changed" branch instead of
-	// returning early on "No change." -- the branch that leads to a backup.
-	if err := finishEdit(ctx, a, opts, set, []string{"node_modules"}); err != nil {
+	opts := &Options{Out: &out, Err: &out, Yes: true}
+	// "Back up now" answered yes: a backup, announced first.
+	if err := finishEdit(ctx, a, opts, set, []string{"node_modules", "cache"}); err != nil {
 		t.Fatalf("finishEdit: %v\noutput:\n%s", err, out.String())
 	}
 
@@ -85,8 +93,8 @@ func TestEditAnnouncesTheBackupBeforeItStarts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(updated.Excludes) != 1 || updated.Excludes[0] != "node_modules" {
-		t.Errorf("excludes = %v, want [node_modules]", updated.Excludes)
+	if len(updated.Excludes) != 2 || updated.Excludes[0] != "node_modules" {
+		t.Errorf("excludes = %v, want [node_modules cache]", updated.Excludes)
 	}
 }
 

@@ -103,8 +103,7 @@ func (p *Plan) Empty() bool {
 	return len(p.Uploads) == 0 && len(p.Moves) == 0 && len(p.Deletes) == 0
 }
 
-// Operations estimates the Class A operations this plan will consume, so the
-// count can be shown against the free tier before anything is spent.
+// Operations estimates the write requests this plan will send.
 //
 // An upload is one PUT. A move is one server-side copy; its delete is free. A
 // delete is free on R2. Trash, when enabled, adds one copy for every object
