@@ -118,6 +118,7 @@ func NewRoot(opts *Options) *cobra.Command {
 		newBackupCmd(opts),
 		newRestoreCmd(opts),
 		newStatusCmd(opts),
+		newActivityCmd(opts),
 		newListCmd(opts),
 		newScheduleCmd(opts),
 		newRenameCmd(opts),

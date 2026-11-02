@@ -61,6 +61,17 @@ func purposeTitle(p string) string {
 	return ""
 }
 
+// purposeText is a purpose's one-line description, as the question gives it.
+func purposeText(p string) string {
+	switch p {
+	case purposeBoth:
+		return purposeBothText
+	case purposeS3:
+		return purposeS3Text
+	}
+	return ""
+}
+
 // savePurpose records the purpose on this computer.
 func savePurpose(p string) error {
 	s, err := config.LoadSettings()
@@ -220,13 +231,36 @@ func newPurposeCmd(opts *Options) *cobra.Command {
 				fmt.Fprintf(opts.Out, "%s: %s\n", purposeTitle(p), purposeLine(a, p))
 				return nil
 			}
+			if text := purposeS3Warning(a, args[0]); text != "" {
+				ok, err := decide(opts, newPrompter(opts), "Use S3 storage only? "+text+"\nContinue? [y/N]", false)
+				if err != nil {
+					return err
+				}
+				if !ok {
+					fmt.Fprintln(opts.Out, "Nothing changed.")
+					return nil
+				}
+			}
 			res, err := applyPurpose(a, args[0])
 			if err != nil {
 				return err
 			}
 			switch res.Need {
 			case needSecond:
-				return errors.New("add a second copy first: r2b mirror setup, then run this again")
+				// As the panel does: set the second copy up, then switch.
+				if !interactive() && opts.In == nil {
+					return errors.New("add a second copy first: r2b mirror setup, then run this again")
+				}
+				fmt.Fprintln(opts.Out, "First, the second copy.")
+				if err := runMirrorSetup(cmd.Context(), a, opts, ""); err != nil {
+					return err
+				}
+				if res, err = applyPurpose(a, args[0]); err != nil {
+					return err
+				}
+				if res.Need != "" {
+					return errors.New("add a second copy first: r2b mirror setup, then run this again")
+				}
 			case needS3:
 				if res.Saved {
 					break
@@ -245,6 +279,28 @@ func newPurposeCmd(opts *Options) *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// purposeS3Warning is what the panel says before switching to S3 storage
+// only, or "" when the switch moves or drops nothing (no Drime here).
+func purposeS3Warning(a *app, to string) string {
+	pp, ok := parsePurpose(to)
+	if !ok || pp != purposeS3 || currentPurpose(a) == purposeS3 {
+		return ""
+	}
+	k := localStoredKeys(a)
+	p, s := k.Primary, k.Second
+	if p != nil && !p.IsDrime() && !(s != nil && s.IsDrime()) {
+		return ""
+	}
+	switch {
+	case p != nil && p.IsDrime() && s != nil && !s.IsDrime():
+		return "Backups go to " + destLabel(*s) + " from now on, with no second copy. What’s in Drime stays. " +
+			"If the copy there is behind, copy now first (r2b mirror)."
+	case s != nil && s.IsDrime():
+		return "Nothing more is copied to " + destLabel(*s) + ". What’s there stays."
+	}
+	return "Next, choose the S3 storage backups go to. What’s in Drime stays."
 }
 
 // purposeLine describes the destinations behind a purpose.

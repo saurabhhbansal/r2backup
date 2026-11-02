@@ -411,6 +411,10 @@ func TestMirrorReverseNeverRemovesFromWhereBackupsGo(t *testing.T) {
 	}
 	defer a.close()
 	opts := &Options{Out: &bytes.Buffer{}, Err: &bytes.Buffer{}}
+	if err := runMirror(context.Background(), a, opts, nil, mirrorFlags{reverse: true}); err != errNeedsYes || main.has("machines/testpc/Docs/current/from-second.txt") {
+		t.Fatalf("copied back without asking: %v", err)
+	}
+	opts.Yes = true
 	if err := runMirror(context.Background(), a, opts, nil, mirrorFlags{reverse: true, everything: true}); err != nil {
 		t.Fatal(err)
 	}

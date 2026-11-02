@@ -327,3 +327,13 @@ func (t *trayBackend) folderCall(ctx context.Context, method string, raw []byte)
 	}
 	return nil, false, nil
 }
+
+// refuseWhileRunning is the panel's busy check for a terminal command: a
+// rename, a removal or an update waits until a running backup has finished.
+func refuseWhileRunning() error {
+	var ov ui.Overview
+	if applyLiveRun(&ov, time.Now()) {
+		return fmt.Errorf("a backup of %s is running. Try again when it has finished", ov.Running)
+	}
+	return nil
+}

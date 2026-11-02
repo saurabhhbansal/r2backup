@@ -442,7 +442,11 @@ func TestSetupPurposeCommand(t *testing.T) {
 	if out, err := run(); err != nil || !strings.Contains(out, purposeBothTitle) || !strings.Contains(out, "second copy on Backblaze B2") {
 		t.Fatalf("%q %v", out, err)
 	}
-	out, err := run("s3")
+	// Moving where backups go asks first, as the panel does.
+	if _, err := run("s3"); err != errNeedsYes || storedPurpose() == purposeS3 {
+		t.Fatalf("switched with nobody to ask: %v", err)
+	}
+	out, err := run("s3", "--yes")
 	if err != nil || !strings.Contains(out, "Backups go to Backblaze B2 · second now") || !strings.Contains(out, purposeS3Title) {
 		t.Fatalf("%q %v", out, err)
 	}
@@ -477,5 +481,44 @@ func TestSetupAgainAsksAboutTheSecondCopyOnce(t *testing.T) {
 	}
 	if a.mirror.Exists() || !strings.Contains(out, "No more copies to Drime") {
 		t.Errorf("the Drime second copy stayed for S3 storage only:\n%s", out)
+	}
+}
+
+// "Not now" leaves the second copy for later, as the panel's does, and
+// setup still finishes: the Drime keys reach the account.
+func TestSetupCanLeaveTheSecondCopyForLater(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		flags setupFlags
+		lines []string
+	}{
+		{"asked", setupFlags{}, []string{"1", "tok", "", "", "5"}},
+		{"flag", setupFlags{purpose: purposeBoth, second: secondNone}, []string{"tok", "", ""}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			noStorage(t)
+			_, stop := newFakeWorker(t)
+			defer stop()
+			t.Setenv(config.EnvDataDir, t.TempDir())
+			signIn := []string{"me@example.com", "123456", testPIN, testPIN}
+			a, out := runSetupWith(t, tc.flags, append(signIn, tc.lines...)...)
+			if a.mirror.Exists() {
+				t.Fatal("a second copy was set up")
+			}
+			if !strings.Contains(out, secondSkipped) {
+				t.Errorf("missing %q in\n%s", secondSkipped, out)
+			}
+			if c, _ := a.creds.Load(); !c.IsDrime() {
+				t.Errorf("backups go to %+v", c.Redacted())
+			}
+			token, key, err := accountSession()
+			if err != nil {
+				t.Fatal(err)
+			}
+			k, err := accountClient().GetKeys(context.Background(), token, key)
+			if err != nil || k.Primary == nil || !k.Primary.IsDrime() || k.Second != nil {
+				t.Fatalf("account keeps %+v, %v", k, err)
+			}
+		})
 	}
 }
