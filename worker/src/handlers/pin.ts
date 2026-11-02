@@ -7,7 +7,7 @@ import { bearer } from "./middleware";
 // The PIN step, after the email code. See migrations/0004_pin.sql for what is
 // stored and why.
 //
-//   POST /auth/pin        {proof}                     -> {token, key_share}
+//   POST /auth/pin        {proof}                     -> {token, key_share, legacy_keys?}
 //   POST /auth/pin/setup  {salt, kdf_params, proof}   -> {token, key_share, legacy_keys?}
 //   POST /auth/pin/reset  {salt, kdf_params, proof}   -> {token, key_share}
 //
@@ -100,7 +100,9 @@ export async function handlePinVerify(request: Request, ctx: AppContext): Promis
     return jsonResponse({ error: "wrong pin", tries_left: PIN_TRIES - (failures % PIN_TRIES) }, 401);
   }
   if (row.failures > 0 || row.locked_until > 0) await ctx.storage.clearPinFailures(email);
-  return jsonResponse(await sessionBody(ctx, email, row.version), 200);
+  const out = await sessionBody(ctx, email, row.version);
+  await addLegacyKeys(ctx, email, out);
+  return jsonResponse(out, 200);
 }
 
 async function newPin(ctx: AppContext, email: string, body: PinBody, version: number): Promise<PinRow | null> {
@@ -132,21 +134,27 @@ export async function handlePinSetup(request: Request, ctx: AppContext): Promise
   if (!row) return jsonResponse({ error: "invalid request" }, 400);
 
   const out = await sessionBody(ctx, email, row.version);
-  // Keys saved before PINs, which the server could read. They go back to the
-  // client this once so it can encrypt them itself; the row is deleted when
-  // the sealed copy arrives (PUT /keys).
-  const old = await ctx.storage.getKeys(email);
-  if (old) {
-    const plain = await openKeys(old, email, ctx.keysSecret);
-    if (plain !== null) {
-      try {
-        out.legacy_keys = JSON.parse(plain);
-      } catch {
-        // Damaged: nothing to hand back. The person enters their keys again.
-      }
-    }
-  }
+  await addLegacyKeys(ctx, email, out);
   return jsonResponse(out, 200);
+}
+
+// addLegacyKeys hands back keys saved before PINs, which the server could
+// read, so the client can encrypt them itself; the row is deleted when the
+// sealed copy arrives (PUT /keys). Setup hands them back, and so does every
+// PIN sign-in until the sealed copy has arrived: if the client could not save
+// it right after setup (a dropped connection), the next sign-in finishes the
+// move instead of leaving the keys stuck where only the server can read them.
+async function addLegacyKeys(ctx: AppContext, email: string, out: Record<string, unknown>): Promise<void> {
+  const old = await ctx.storage.getKeys(email);
+  if (!old) return;
+  if (await ctx.storage.getSealedKeys(email)) return;
+  const plain = await openKeys(old, email, ctx.keysSecret);
+  if (plain === null) return;
+  try {
+    out.legacy_keys = JSON.parse(plain);
+  } catch {
+    // Damaged: nothing to hand back. The person enters their keys again.
+  }
 }
 
 export async function handlePinReset(request: Request, ctx: AppContext): Promise<Response> {

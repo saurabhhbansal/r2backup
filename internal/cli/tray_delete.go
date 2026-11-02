@@ -53,9 +53,10 @@ func (t *trayBackend) alsoFromSecond(ctx context.Context, where deleteWhere, del
 		return err
 	}
 	if err := del(s); err != nil {
+		closeStores(nil, s)
 		return fmt.Errorf("deleted from your backups, but not from the second copy: %w", err)
 	}
-	return remote.FlushStore(ctx, s)
+	return remote.CloseStore(ctx, s)
 }
 
 // deleteStoredBackup deletes one backup that no folder on this computer

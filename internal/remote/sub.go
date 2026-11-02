@@ -104,6 +104,13 @@ func (v *sub) Bucket() string { return v.s.Bucket() }
 
 func (v *sub) Flush(ctx context.Context) error { return FlushStore(ctx, v.s) }
 
+// Close lets go of what the store underneath keeps on disk. See CloseStore.
+func (v *sub) Close() {
+	if c, ok := v.s.(interface{ Close() }); ok {
+		c.Close()
+	}
+}
+
 func (v *sub) GetRange(ctx context.Context, key string, off, n int64) (io.ReadCloser, error) {
 	if rr, ok := v.s.(RangeReader); ok {
 		return rr.GetRange(ctx, v.k(key), off, n)

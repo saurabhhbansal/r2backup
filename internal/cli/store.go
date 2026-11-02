@@ -2,7 +2,9 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/saurabhhbansal/r2backup/internal/bundle"
 	"github.com/saurabhhbansal/r2backup/internal/creds"
@@ -38,6 +40,16 @@ var testStore func(creds.Credentials) (remote.Store, bool)
 
 // openBaseStore builds the client itself.
 func openBaseStore(ctx context.Context, c creds.Credentials, resume remote.ResumeStore) (remote.Store, error) {
+	return openBase(ctx, c, resume, false)
+}
+
+// openExistingDrime opens a Drime folder only if it is already there: a
+// folder to read from, never one to create from a typo.
+func openExistingDrime(ctx context.Context, c creds.Credentials) (remote.Store, error) {
+	return openBase(ctx, c, nil, true)
+}
+
+func openBase(ctx context.Context, c creds.Credentials, resume remote.ResumeStore, existing bool) (remote.Store, error) {
 	if testStore != nil {
 		if s, ok := testStore(c); ok {
 			return s, nil
@@ -48,9 +60,13 @@ func openBaseStore(ctx context.Context, c creds.Credentials, resume remote.Resum
 			Token:       c.DrimeToken,
 			WorkspaceID: c.DrimeWorkspace,
 			Root:        c.DrimeRoot,
+			Existing:    existing,
 			BaseURL:     c.Endpoint,
 			Resume:      resume,
 		})
+		if errors.Is(err, drime.ErrFolderNotFound) {
+			return nil, fmt.Errorf("there is no folder %q in Drime. Check the name, including capitals", c.DrimeRoot)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("connect to Drime: %w", err)
 		}
@@ -70,6 +86,19 @@ func openBaseStore(ctx context.Context, c creds.Credentials, resume remote.Resum
 		return nil, fmt.Errorf("connect to %s: %w", c.Label(), err)
 	}
 	return client, nil
+}
+
+// closeStores closes every store given except keep (the app's own client,
+// which app.close closes). See remote.CloseStore.
+func closeStores(keep remote.Store, stores ...remote.Store) {
+	for _, s := range stores {
+		if s == nil || s == keep {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+		_ = remote.CloseStore(ctx, s)
+		cancel()
+	}
 }
 
 // providerLabel names c's storage for a person.

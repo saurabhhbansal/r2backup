@@ -25,6 +25,10 @@ type Config struct {
 	WorkspaceID string
 	// Root is the top-level folder backups go in. Empty is DefaultRoot.
 	Root string
+	// Existing opens Root only if it is already there, failing with
+	// ErrFolderNotFound rather than creating it. Reading a folder another app
+	// backs up to must never make one from a typo.
+	Existing bool
 
 	// BaseURL overrides DefaultBaseURL. Tests point it at a fake server.
 	BaseURL    string
@@ -46,6 +50,7 @@ type Config struct {
 type Client struct {
 	api       *api
 	root      string
+	existing  bool
 	tree      *tree
 	meta      *manifests
 	resume    remote.ResumeStore
@@ -58,6 +63,10 @@ var (
 	_ remote.Flusher = (*Client)(nil)
 	_ remote.Mover   = (*Client)(nil)
 )
+
+// ErrFolderNotFound is a folder Config.Existing asked for that is not in
+// Drime.
+var ErrFolderNotFound = errors.New("drime: no such folder")
 
 // New connects to Drime and finds (or makes) the backup root folder. It makes
 // network calls, so a bad token fails here rather than at the first upload.
@@ -87,6 +96,7 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 	c := &Client{
 		api:       &api{base: base, token: strings.TrimSpace(cfg.Token), workspace: cfg.WorkspaceID, hc: hc, maxAttempts: attempts},
 		root:      root,
+		existing:  cfg.Existing,
 		resume:    cfg.Resume,
 		threshold: cfg.Threshold,
 		partSize:  cfg.PartSize,
@@ -126,6 +136,9 @@ func (c *Client) findRoot(ctx context.Context) (string, error) {
 				id = it.ID.String()
 				break
 			}
+		}
+		if id == "" && c.existing {
+			return "", fmt.Errorf("%w: %s", ErrFolderNotFound, c.root)
 		}
 		if id == "" {
 			f, err := c.api.createFolder(ctx, parent, encodeName(name))
@@ -573,6 +586,11 @@ func manifestKey(scope string) string { return scope + "/" + ManifestName }
 
 func (c *Client) readManifest(ctx context.Context, scope string) (map[string]metaRecord, error) {
 	key := manifestKey(scope)
+	// Read from a fresh listing of the set's folder: another process may
+	// have saved the manifest since this one listed it, and each save
+	// replaces the file, so a cached entry would point at one that is gone
+	// and read as no details at all.
+	c.tree.refresh(scope)
 	it, ok, err := c.tree.lookup(ctx, key)
 	if err != nil {
 		return nil, err

@@ -76,6 +76,21 @@ func FlushStore(ctx context.Context, s Store) error {
 	return nil
 }
 
+// CloseStore is for a Store that is done with: it saves anything held back,
+// then lets go of what the store keeps on disk (a bundling store's cached
+// packs are temporary files that otherwise stay behind). It is safe on any
+// Store; one with nothing to save or let go of does nothing.
+func CloseStore(ctx context.Context, s Store) error {
+	if s == nil {
+		return nil
+	}
+	err := FlushStore(ctx, s)
+	if c, ok := s.(interface{ Close() }); ok {
+		c.Close()
+	}
+	return err
+}
+
 // Provider names which kind of storage a Store is.
 type Provider string
 

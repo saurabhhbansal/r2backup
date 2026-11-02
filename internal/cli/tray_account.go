@@ -82,6 +82,7 @@ func reachable(ctx context.Context, c creds.Credentials) error {
 	if err != nil {
 		return err
 	}
+	defer closeStores(nil, store)
 	if _, err := store.List(ctx, "r2backup/"); err != nil {
 		return errors.New("could not reach it with the saved keys: " + err.Error())
 	}

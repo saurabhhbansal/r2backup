@@ -103,6 +103,7 @@ func runOne(ctx context.Context, a *app, s sets.Set, out io.Writer, interactive 
 		Trash:       backup.NewTrash(a.client, s.RetentionDays),
 		Observer:    obs,
 		DetectMoves: true,
+		Place:       a.place,
 	})
 	if interactive {
 		obs.clear()
