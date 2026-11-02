@@ -1,0 +1,13 @@
+{
+  "name": "r2backup-relay",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Ultra fast mode's Worker: copies Drime files to S3 storage from the user's own Cloudflare account.",
+  "scripts": {
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^4.1.11"
+  }
+}

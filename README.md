@@ -163,6 +163,7 @@ What the panel does, and the command that does it:
 | Pack small files | `r2b pack on\|off` (`--second-copy` for the second copy) |
 | Second copy · Copy after every backup · Copy now · Stop | `r2b mirror setup` · `r2b mirror auto on\|off` · `r2b mirror` · `r2b mirror off` |
 | Drime folders | `r2b mirror drime add\|ls\|run\|rm` |
+| Ultra fast mode | `r2b mirror ultra on\|off` |
 | Keys not saved → Save now | `r2b account save-keys` |
 | Rename this computer · the computers | `r2b account rename <name>` · `r2b account devices` |
 | Add a folder · what it includes · keep deleted files | `r2b add <folder>` · `r2b edit <set>` (or `--exclude`/`--include <path>`) · `r2b edit <set> --retention <days>` |
@@ -237,6 +238,7 @@ scripts use.
 | `r2b pack on\|off` | Pack small files at where backups go, or `--second-copy` |
 | `r2b mirror` | The second copy. `setup`, `auto on\|off`, `off`, `--reverse`, `--dry-run` |
 | `r2b mirror drime` | Copy Drime folders another app backs up to, to S3 storage. `add`, `ls`, `run`, `rm` |
+| `r2b mirror ultra` | Ultra fast mode (experimental): Drime to S3 storage cloud to cloud. `on`, `off` |
 | `r2b update` | Update to the latest release. `--check` only looks |
 
 ## How it works
@@ -400,6 +402,44 @@ kept under `machines/drime-mirror/<name>/` on the S3 storage, so
 `r2b restore <name> --machine drime-mirror` brings it back, and it is packed if
 packing is on there. Folders added with `--auto` (the default) are copied after
 each scheduled run. In the panel this is under **Settings → Drime folders**.
+
+## Ultra fast mode (experimental)
+
+Copying Drime to S3 storage normally downloads every file to your PC and
+uploads it again. Ultra fast mode copies cloud to cloud instead: a small
+Worker in **your own** Cloudflare account downloads each file from Drime and
+uploads it straight to your S3 storage, so nothing goes through your PC. It
+applies to the second copy and to Drime folders, and it is off until you turn
+it on.
+
+```sh
+r2b mirror ultra on    # explains how it works, then asks for a Cloudflare API token
+r2b mirror ultra       # is it on?
+r2b mirror ultra off   # deletes the Worker and forgets the token
+```
+
+In the panel it is the **Ultra fast mode** switch under **Second copy** and
+**Drime folders**.
+
+- The token needs one permission: *Account → Workers Scripts → Edit*. r2backup
+  uses it to upload the Worker (its code is in [`relay/`](relay/)), turn on its
+  workers.dev address and give it a password only this computer knows. The
+  token and the password stay on this computer.
+- The Worker holds no storage keys. For each file r2backup hands it a
+  temporary Drime download link and a presigned upload link, and it pipes the
+  bytes from one to the other; big files go in 64 MB parts, several at once.
+- It runs on Cloudflare's free Workers plan: 100,000 requests a day, one per
+  file and one per 64 MB part. Backblaze B2 and Amazon S3 users need a free
+  Cloudflare account for it too.
+- With packing on, files of 4 MB or less still come to your PC to be packed,
+  so your S3 storage gets as few requests as before; only bigger files go cloud
+  to cloud. With packing off, every file goes cloud to cloud.
+- If the Worker fails, or the day's allowance runs out, the rest is copied
+  through your PC as before and the report says so.
+
+Adding a backup folder that is inside Drime's synced folder on your PC warns
+you: backing it up from there downloads everything from Drime first. Copying
+it as a Drime folder, with Ultra fast mode on, skips your PC entirely.
 
 ## Privacy and security
 

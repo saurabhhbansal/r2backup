@@ -72,9 +72,13 @@ var tuiSurface = map[string]surface{
 	"r2b mirror drime run":             {NA: "part of r2b mirror drime."},
 	"r2b mirror drime run --dry-run":   {NA: "part of r2b mirror drime."},
 	"r2b mirror drime rm":              {NA: "part of r2b mirror drime."},
-	"r2b mirror setup":                 {NA: "a one-time prompt-driven setup, like r2b setup's first run."},
-	"r2b mirror setup --provider":      {NA: "part of r2b mirror setup."},
-	"r2b mirror auto":                  {NA: "a one-word switch; set once and forgotten."},
+	"r2b mirror ultra": {NA: "Ultra fast mode is a one-time, prompt-driven setup with a pasted token, " +
+		"in the taskbar panel's second copy and here; like r2b mirror setup, it is set once and forgotten."},
+	"r2b mirror ultra --account":  {NA: "part of r2b mirror ultra."},
+	"r2b mirror ultra --yes":      {NA: "part of r2b mirror ultra."},
+	"r2b mirror setup":            {NA: "a one-time prompt-driven setup, like r2b setup's first run."},
+	"r2b mirror setup --provider": {NA: "part of r2b mirror setup."},
+	"r2b mirror auto":             {NA: "a one-word switch; set once and forgotten."},
 
 	"r2b tray": {NA: "the taskbar app is a second interface of its own, started from the Start menu " +
 		"or at sign-in; opening it from inside the terminal one would be a window opening a window."},

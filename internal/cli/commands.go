@@ -99,6 +99,22 @@ func newAddCmd(opts *Options) *cobra.Command {
 						"      Files in both are stored twice and cost operations twice.\n",
 					other.Name, other.Root)
 			}
+			// A folder in Drime's synced folder would be downloaded from
+			// Drime to be backed up; copying it from Drime is the fast way.
+			if rel, ok := drimeFolderFor(root, drimeSyncRoots()); ok {
+				fmt.Fprintln(opts.Out, drimeDriveNote(rel))
+				fmt.Fprintf(opts.Out, "  r2b mirror drime add %q   copy it from Drime instead\n", rel)
+				fmt.Fprintln(opts.Out, "  r2b mirror ultra on   and with Ultra fast mode, cloud to cloud")
+				if interactive() || opts.In != nil {
+					ok, err := confirm(newPrompter(opts), "Back it up from this PC anyway? [y/N]", false)
+					if err != nil {
+						return err
+					}
+					if !ok {
+						return nil
+					}
+				}
+			}
 
 			fmt.Fprintf(opts.Out, "Scanning %s...\n", root)
 			scanned, err := scan.Walk(cmd.Context(), scan.Options{Root: root})

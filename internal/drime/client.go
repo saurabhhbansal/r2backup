@@ -298,6 +298,37 @@ func (c *Client) Get(ctx context.Context, key string) (*remote.Object, error) {
 	}, nil
 }
 
+// DownloadLink is a presigned link to key's content on Drime's storage, for
+// fetching it from somewhere other than this computer. It needs no token and
+// stops working at Expires (half an hour, as Drime signs them now).
+func (c *Client) DownloadLink(ctx context.Context, key string) (*remote.DownloadLink, error) {
+	it, ok, err := c.tree.lookup(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("drime: link %q: %w", key, err)
+	}
+	if !ok {
+		return nil, notFound("link", key)
+	}
+	md, err := c.metadataFor(ctx, key, it)
+	if err != nil {
+		return nil, fmt.Errorf("drime: link %q: %w", key, err)
+	}
+	u, exp, err := c.api.downloadLink(ctx, it)
+	switch {
+	case errors.Is(err, errNoRedirect):
+		return nil, fmt.Errorf("drime: link %q: %w", key, remote.ErrNoLink)
+	case err != nil:
+		if isNotFound(err) {
+			return nil, notFound("link", key)
+		}
+		return nil, fmt.Errorf("drime: link %q: %w", key, err)
+	}
+	md.Size = it.FileSize
+	return &remote.DownloadLink{URL: u, Size: it.FileSize, Metadata: md, ContentType: it.Mime, Expires: exp}, nil
+}
+
+var _ remote.LinkReader = (*Client)(nil)
+
 // Head is Get without the body.
 func (c *Client) Head(ctx context.Context, key string) (*remote.HeadResult, error) {
 	it, ok, err := c.tree.lookup(ctx, key)

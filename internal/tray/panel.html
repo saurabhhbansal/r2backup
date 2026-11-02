@@ -355,6 +355,8 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
 .warnbox { border: 1px solid color-mix(in srgb, var(--bad) 40%, var(--line)); background: color-mix(in srgb, var(--bad) 7%, var(--card)); border-radius: var(--radius); padding: 12px; margin-bottom: 16px; }
 .warnbox b { display: block; font-weight: 600; margin-bottom: 4px; }
 .notebox { border: 1px solid var(--line); background: var(--card); border-radius: var(--radius); padding: 12px; margin: 0 0 14px; }
+.notebox p { color: var(--muted); font-size: 12px; }
+.notebox p + p { margin-top: 8px; }
 .warnbox p { color: var(--muted); font-size: 12px; }
 /* Ink, not white: the dark theme's red is light, and white on it is hard to read. */
 .primary.danger { background: var(--bad); color: var(--accent-ink); }
@@ -643,6 +645,7 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
     <div class="pane" data-apane="form">
       <div class="facts" id="a-path"></div>
       <div class="banner" id="a-overlap" hidden></div>
+      <div class="warnbox" id="a-drime" hidden><b>This folder is in Drime</b><p id="a-drime-t"></p><div class="btns"><button class="mini" id="a-drime-go">Copy it from Drime instead</button></div></div>
       <label class="field"><span>Name</span><input id="a-name" autocomplete="off" spellcheck="false"></label>
       <div class="err-line" id="a-name-err" hidden></div>
       <div class="group">
@@ -690,6 +693,24 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
   <main id="m-main">
     <div class="pane" data-mpane="home"></div>
     <div class="pane" data-mpane="run" hidden><div class="runbox" id="m-run" aria-live="polite"></div></div>
+  </main>
+</section>
+
+<section class="sheet" id="sheet-ultra" aria-label="Ultra fast mode">
+  <header>
+    <button class="icon-btn" id="ux-back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button>
+    <b>Ultra fast mode</b>
+  </header>
+  <main id="ux-main">
+    <div class="pane">
+      <div class="notebox" id="ux-note"></div>
+      <label class="field"><span>Cloudflare API token</span><input id="ux-token" type="password" autocomplete="off" spellcheck="false"></label>
+      <button class="textbtn getlink" id="ux-token-l">Make a token at Cloudflare</button>
+      <p class="lead" id="ux-help"></p>
+      <label class="field" id="ux-acct-f" hidden><span>Cloudflare account</span><select id="ux-acct"></select></label>
+      <div class="err-line" id="ux-err" hidden></div>
+      <button class="primary" id="ux-go"><span>Agree and turn on</span></button>
+    </div>
   </main>
 </section>
 
@@ -1714,6 +1735,8 @@ async function openAdd() {
   showErr("a-name-err", ""); showErr("a-err", "");
   $("a-overlap").hidden = !A.check.overlaps;
   $("a-overlap").textContent = A.check.overlaps ? "Overlaps " + A.check.overlaps + ". Shared files are stored twice." : "";
+  $("a-drime").hidden = !A.check.inDrime;
+  $("a-drime-t").textContent = A.check.drimeNote || "";
   fillKeep($("a-keep"), 30, true);
   $("a-sched-row").hidden = A.check.scheduled || !A.check.canSchedule;
   $("a-sched").setAttribute("aria-checked", "true");
@@ -1721,6 +1744,14 @@ async function openAdd() {
   aShow("form");
   openSheet("sheet-add");
 }
+// A folder in Drime's synced folder is better copied from Drime: Drime
+// folders, with the path filled in.
+$("a-drime-go").onclick = async () => {
+  const folder = A.check.drimeFolder || "";
+  closeSheet("sheet-add");
+  await openDrimeFolders();
+  if (DF.info && !DF.info.destErr) { dfAddForm(); $("df-folder").value = folder; }
+};
 function aShow(v) {
   A.view = v;
   document.querySelectorAll("#sheet-add [data-apane]").forEach((p) => { p.hidden = p.dataset.apane !== v; });
@@ -2329,6 +2360,7 @@ async function openMirror() {
   pane.innerHTML = '<div class="note">Loading…</div>';
   try {
     M.info = await call("mirrorInfo");
+    U.info = await call("ultraInfo").catch(() => null);
     if (!M.info.job.idle) { mShow("run"); watchJob($("m-run"), finishMirror); return; }
     mDraw();
   } catch (e) { pane.innerHTML = '<div class="empty"><b>Could not load the second copy</b><p>' + esc(e.message) + "</p></div>"; }
@@ -2346,10 +2378,12 @@ function mDraw() {
       '<button class="toggle" id="m-auto" role="switch" aria-checked="' + m.auto + '" aria-label="Copy after every backup"></button></div></div>';
     html += '<div class="group"><button class="item link" id="m-now"' + (m.haveFolders ? "" : " disabled") + '><div class="t"><b>Copy now</b></div></button>' +
       '<button class="item link" id="m-all"><div class="t"><b>Copy all computers’ backups</b></div></button></div>';
+    html += ultraRow(U.info);
     html += '<div class="group"><button class="item link" id="m-back-copy"><div class="t"><b id="m-back-t">Copy back…</b><span>Fills in what’s missing. Removes nothing.</span></div></button></div>';
   }
   pane.innerHTML = html;
   bindKinds(pane, (k) => openSecond(k, openMirror));
+  bindUltra(pane, openMirror);
   if ($("m-auto")) $("m-auto").onclick = async () => {
     const on = $("m-auto").getAttribute("aria-checked") !== "true";
     try { await call("mirrorAuto", { on }); $("m-auto").setAttribute("aria-checked", on); M.info.auto = on; toast(on ? "Copying after every backup." : "Copying after every backup is off."); }
@@ -2394,6 +2428,7 @@ function jobDraw(box, st, done) {
       (st.removed ? ", removed " + num(st.removed) : "") + ". " + num(st.unchanged) + " already there.";
     if (st.held) p += "<br>" + st.held + " kept on the copy: the source looked empty.";
     if (st.failed) p += "<br>" + st.failed + " could not be copied. The next copy tries again.";
+    if (st.relayNote) p += "<br>" + esc(st.relayNote);
     box.innerHTML = '<div class="bigicon ok">' + ICON_CHK + "</div><h2>" + (st.reverse ? "Copied back" : "Up to date") + "</h2><p>" + p + '</p><div class="btns"><button class="mini" data-jdone>Done</button></div>';
   } else if (st.done) {
     box.innerHTML = '<div class="bigicon bad"><svg viewBox="0 0 24 24"><path d="M12 7.5v5m0 3.5h.01"/></svg></div><h2>Could not finish</h2><p>' + esc(st.error) + '</p><div class="btns"><button class="mini" data-jdone>Close</button></div>';
@@ -2430,6 +2465,7 @@ async function openDrimeFolders() {
     const st = await call("mirrorStatus");
     if (!st.idle && /^Drime folder/.test(st.to || "")) { dfShow("run"); watchJob($("df-run"), finishDrime); return; }
     DF.info = await call("drimeSources");
+    U.info = await call("ultraInfo").catch(() => null);
     dfDraw();
   } catch (e) { pane.innerHTML = '<div class="empty"><b>Could not load Drime folders</b><p>' + esc(e.message) + "</p></div>"; }
 }
@@ -2449,8 +2485,10 @@ function dfDraw() {
     }
     html += '<div class="group"><button class="item link" id="df-add"><div class="t"><b>Add a Drime folder…</b></div></button>' +
       (d.sources.length > 1 ? '<button class="item link" id="df-all"><div class="t"><b>Copy all now</b></div></button>' : "") + "</div>";
+    if (d.sources.length) html += ultraRow(U.info);
   }
   pane.innerHTML = html;
+  bindUltra(pane, openDrimeFolders);
   if ($("df-dest")) $("df-dest").onclick = () => openSecond(null, openDrimeFolders);
   if ($("df-add")) $("df-add").onclick = dfAddForm;
   if ($("df-all")) $("df-all").onclick = () => runDrime("");
@@ -2492,6 +2530,70 @@ async function runDrime(name) {
 async function finishDrime() { clearInterval(jobPoll); try { await call("mirrorDismiss"); } catch (e) { /* nothing */ } openDrimeFolders(); }
 $("df-back").onclick = () => { if (DF.view === "add") { dfShow("home"); dfDraw(); } else { clearInterval(jobPoll); closeSheet("sheet-dfold"); } };
 $("b-dfold").onclick = () => openDrimeFolders();
+
+// --- Ultra fast mode (experimental) ----------------------------------------------------------------
+// Drime to S3 storage cloud to cloud, through a Worker in the person's own
+// Cloudflare account. One switch, shown with the second copy and with Drime
+// folders: both copy Drime to S3 storage. Turning it on reads how it works
+// first; nothing is set up until they agree and paste a token.
+
+const U = { info: null, back: null };
+function ultraRow(u) {
+  if (!u || !(u.applies || u.on)) return "";
+  const sub = u.on ? "On. Drime files go to S3 storage cloud to cloud, through your Cloudflare account" + (u.account ? " (" + u.account + ")" : "") + "."
+    : "Experimental. Copies Drime files to S3 storage cloud to cloud, not through this PC.";
+  return '<div class="group"><div class="item"><div class="t"><b>Ultra fast mode</b><span>' + esc(sub) + "</span></div>" +
+    '<button class="toggle" data-ultra role="switch" aria-checked="' + !!u.on + '" aria-label="Ultra fast mode"></button></div></div>';
+}
+function bindUltra(pane, back) {
+  const b = pane.querySelector("[data-ultra]");
+  if (!b) return;
+  b.onclick = () => {
+    if (!U.info.on) { openUltra(back); return; }
+    ask({
+      title: "Turn off Ultra fast mode?", go: "Turn off", danger: false,
+      text: "The Worker is deleted from your Cloudflare account and the token forgotten. Copies go through this PC again.",
+      run: async () => {
+        let msg = "Ultra fast mode is off.";
+        try { U.info = await call("ultraOff"); } catch (e) { msg = "Ultra fast mode is off. " + e.message; }
+        back();
+        return msg;
+      },
+    });
+  };
+}
+function openUltra(back) {
+  U.back = back;
+  $("ux-note").innerHTML = U.info.note.split(/\n\n/).map((p) => "<p>" + esc(p) + "</p>").join("");
+  $("ux-help").textContent = U.info.tokenHelp;
+  $("ux-token").value = "";
+  $("ux-acct").innerHTML = "";
+  $("ux-acct-f").hidden = true;
+  showErr("ux-err", "");
+  openSheet("sheet-ultra");
+  $("ux-main").scrollTop = 0;
+}
+$("ux-back").onclick = () => closeSheet("sheet-ultra");
+$("ux-token-l").onclick = () => send("open", "https://dash.cloudflare.com/profile/api-tokens");
+$("ux-go").onclick = () => working($("ux-go"), "Setting up…", async () => {
+  showErr("ux-err", "");
+  const token = $("ux-token").value.trim();
+  if (!token) { showErr("ux-err", "Paste the Cloudflare API token."); $("ux-token").focus(); return; }
+  try {
+    const res = await call("ultraOn", { token, account: $("ux-acct-f").hidden ? "" : $("ux-acct").value });
+    if (res.accounts && res.accounts.length) {
+      $("ux-acct").innerHTML = res.accounts.map((a) => '<option value="' + esc(a.id) + '">' + esc(a.name) + "</option>").join("");
+      $("ux-acct-f").hidden = false;
+      showErr("ux-err", "This token reaches more than one Cloudflare account. Choose one, then turn it on.");
+      return;
+    }
+    U.info = res;
+    closeSheet("sheet-ultra");
+    if (U.back) U.back();
+    toast(res.warming ? "Ultra fast mode is on. Its new address can take a few minutes to start working; until then, copies go through this PC." : "Ultra fast mode is on.");
+  } catch (e) { showErr("ux-err", e.message); }
+});
+$("ux-token").addEventListener("keydown", (e) => { if (e.key === "Enter" && !$("ux-go").disabled) $("ux-go").click(); });
 
 // --- key files: moving storage keys without an account ------------------------------------------
 

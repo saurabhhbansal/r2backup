@@ -32,6 +32,9 @@ func TestPanelPreview(t *testing.T) {
 		t.Skip("set R2B_PANEL_PREVIEW=host:port to preview the panel")
 	}
 	tb := trayForTest(t)
+	// Ultra fast mode talks to a fake Cloudflare, never the real one: the
+	// token that works is "cf-token".
+	ultraWorld(t)
 	// R2B_PANEL_PREVIEW_LIVE=1 signs in with the real account service
 	// instead of the fake: a real email arrives, and the account is real.
 	if os.Getenv("R2B_PANEL_PREVIEW_LIVE") != "" {

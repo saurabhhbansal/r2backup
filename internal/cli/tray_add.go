@@ -99,6 +99,12 @@ type addCheckOut struct {
 	Overlaps  string `json:"overlaps,omitempty"`
 	Scheduled bool   `json:"scheduled"`
 	CanSched  bool   `json:"canSchedule"`
+	// InDrime is set when the folder is in Drime's synced folder on this
+	// PC: DrimeNote says why backing it up from here is slow, and
+	// DrimeFolder is its path in Drime, for adding it as a Drime folder.
+	InDrime     bool   `json:"inDrime,omitempty"`
+	DrimeNote   string `json:"drimeNote,omitempty"`
+	DrimeFolder string `json:"drimeFolder,omitempty"`
 }
 
 // nameProblem says what is wrong with a name for a new folder, or "".
@@ -135,6 +141,9 @@ func (t *trayBackend) addCall(ctx context.Context, method string, raw []byte) (o
 		}
 		if other, ok := t.d.Overlaps(root); ok {
 			res.Overlaps = other
+		}
+		if rel, ok := drimeFolderFor(root, drimeSyncRoots()); ok {
+			res.InDrime, res.DrimeNote, res.DrimeFolder = true, drimeDriveNote(rel), rel
 		}
 		// A name already taken gets a number, so the suggestion is one that
 		// works rather than one that fails on the first press.
