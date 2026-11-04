@@ -177,6 +177,10 @@ type storeOut struct {
 	Hint     string `json:"hint"`     // "Token ••••3f2a"
 	// Bundle is whether small files are packed into archives here.
 	Bundle bool `json:"bundle"`
+	// Workspace and Folder are where in Drime, for the folder browser to
+	// open on: the workspace id ("" for your own drive) and the folder.
+	Workspace string `json:"workspace,omitempty"`
+	Folder    string `json:"folder,omitempty"`
 }
 
 func describeStore(c creds.Credentials) *storeOut {
@@ -187,6 +191,10 @@ func describeStore(c creds.Credentials) *storeOut {
 			root = "r2backup"
 		}
 		o.Hint = "Folder " + root + " · token " + masked(c.DrimeToken)
+		if c.DrimeWorkspace != "" {
+			o.Hint = "Workspace " + c.DrimeWorkspace + " · " + o.Hint
+		}
+		o.Workspace, o.Folder = c.DrimeWorkspace, root
 	} else {
 		o.Hint = "Bucket " + c.Bucket + " · key " + masked(c.AccessKeyID)
 		if ep := c.S3(); c.Kind() == creds.ProviderCustom {
@@ -214,7 +222,7 @@ type accountConfigOut struct {
 	Machine  string    `json:"machine"`
 	Primary  *storeOut `json:"primary"`
 	Second   *storeOut `json:"second"`
-	Auto     bool      `json:"auto"` // copy to the second after every backup
+	Auto     bool      `json:"auto"` // copy to the second after every backup: always, now
 	Saved    bool      `json:"saved"`
 	// NeedsPIN is a sign-in from before PINs: the panel asks for one
 	// (setPin) before anything else.
@@ -222,16 +230,26 @@ type accountConfigOut struct {
 	// Mode is "account" when signed in, "local" when using r2backup without
 	// an account, "" when neither has been chosen yet.
 	Mode string `json:"mode"`
-	// Purpose is what this computer is using r2backup for: "both" (Drime
-	// with a second copy) or "s3" (S3 storage only), "" before it is chosen.
-	Purpose string       `json:"purpose"`
+	// Purpose is what this computer is using r2backup for: "both" (primary
+	// and secondary backup), "copy" (secondary backup only: Drime folders
+	// copied to S3 storage) or "s3" (S3 storage only, older computers), ""
+	// before it is chosen.
+	Purpose string `json:"purpose"`
+	// Drime is the Drime folders copied to S3 storage, and DrimeToken the
+	// token they are read with, hidden, "" when there is none.
+	Drime      drimeSourcesOut `json:"drime"`
+	DrimeToken string          `json:"drimeToken,omitempty"`
 	Err     string       `json:"err,omitempty"`
 	Devices []deviceJSON `json:"devices"`
 }
 
 // accountConfig is everything the account screen shows.
 func (t *trayBackend) accountConfig(ctx context.Context) (accountConfigOut, error) {
-	out := accountConfigOut{Machine: machineName(), Devices: []deviceJSON{}, Mode: accountMode(), Purpose: currentPurpose(t.d.app)}
+	out := accountConfigOut{Machine: machineName(), Devices: []deviceJSON{}, Mode: accountMode(), Purpose: currentPurpose(t.d.app),
+		Drime: t.drimeSources()}
+	if c, err := drimeSourceCreds(t.d.app); err == nil {
+		out.DrimeToken = "Token " + masked(c.DrimeToken)
+	}
 	local := t.localKeys()
 	if local.Primary != nil {
 		out.Primary = describeStore(*local.Primary)

@@ -51,8 +51,10 @@ type Settings struct {
 	// through the hosted account, or "" before anyone has chosen.
 	AccountMode string `json:"account_mode,omitempty"`
 	// Purpose is what this computer is using r2backup for, chosen while
-	// getting started: "both" (Drime with a second copy on S3-compatible
-	// storage) or "s3" (S3 storage only). "" before anyone has chosen.
+	// getting started: "both" (Drime, with a secondary backup on S3
+	// storage), "copy" (a secondary backup only: Drime folders copied to S3
+	// storage) or "s3" (S3 storage only, no longer offered). "" before
+	// anyone has chosen.
 	Purpose string `json:"purpose,omitempty"`
 
 	// MirrorSources are Drime folders copied to S3 storage for someone who

@@ -133,8 +133,11 @@ func TestPanelPurposeOnAFreshComputer(t *testing.T) {
 	}
 }
 
-// Changing it later: S3 storage only to adding a second copy, and back.
+// Changing it later: S3 storage only to primary and secondary backup, where
+// Drime becomes the primary and the S3 storage the secondary; then to a
+// secondary backup only.
 func TestPanelPurposeSwitches(t *testing.T) {
+	noStorage(t)
 	tb := trayForTest(t)
 	a := tb.d.app
 	if err := a.creds.Save(customKeys); err != nil {
@@ -142,23 +145,57 @@ func TestPanelPurposeSwitches(t *testing.T) {
 	}
 	_ = savePurpose(purposeS3)
 
-	// No second copy yet: nothing changes until one is added.
-	if r := purposeSet(t, tb, "both"); r.Saved || r.Need != needSecond {
-		t.Fatalf("both without a second copy = %+v", r)
+	// S3 storage here: Drime first, and nothing changes until it is there.
+	if r := purposeSet(t, tb, "both"); r.Saved || r.Need != needDrime {
+		t.Fatalf("both from S3 storage alone = %+v", r)
 	}
 	if storedPurpose() != purposeS3 {
-		t.Fatal("the purpose changed before a second copy was set up")
+		t.Fatal("the purpose changed before Drime was connected")
 	}
-	// Drime added as the second copy, then the purpose holds.
-	if err := a.mirror.Save(drimeKeys); err != nil {
+	// The panel connects Drime, keeping the S3 storage as the secondary.
+	if _, err := call(t, tb, "connect", map[string]any{"provider": "drime", "token": "drime-token-1234", "keepAsSecond": true}); err != nil {
 		t.Fatal(err)
 	}
-	_ = setMirrorAuto(true)
+	if c, _ := a.creds.Load(); !c.IsDrime() {
+		t.Fatalf("backups go to %+v", c.Redacted())
+	}
+	if c, err := a.mirror.Load(); err != nil || c != customKeys {
+		t.Fatalf("secondary backup %+v, %v", c.Redacted(), err)
+	}
 	if r := purposeSet(t, tb, "both"); !r.Saved || r.Need != "" {
-		t.Fatalf("both with a second copy = %+v", r)
+		t.Fatalf("both with a secondary backup = %+v", r)
 	}
 	if storedPurpose() != purposeBoth {
 		t.Fatal("not saved")
+	}
+
+	// Secondary backup only: the S3 storage keeps the copies, the Drime
+	// token is kept to read the Drime folders, and they are asked for next.
+	r := purposeSet(t, tb, "copy")
+	if !r.Saved || r.Need != needFolders || r.Moved != destLabel(customKeys) {
+		t.Fatalf("copy = %+v", r)
+	}
+	if c, _ := a.creds.Load(); c != customKeys || a.mirror.Exists() {
+		t.Fatalf("backups go to %+v, secondary %v", c.Redacted(), a.mirror.Exists())
+	}
+	if c, err := a.source.Load(); err != nil || c.DrimeToken != drimeKeys.DrimeToken {
+		t.Fatalf("Drime token to read with %+v, %v", c.Redacted(), err)
+	}
+	if storedPurpose() != purposeCopy {
+		t.Fatal("not saved")
+	}
+}
+
+// A computer from before: S3 storage with Drime as its secondary backup.
+// S3 storage only drops the Drime secondary; backups stay put.
+func TestPanelPurposeS3DropsADrimeSecondary(t *testing.T) {
+	tb := trayForTest(t)
+	a := tb.d.app
+	_ = a.creds.Save(customKeys)
+	_ = a.mirror.Save(drimeKeys)
+	_ = setMirrorAuto(true)
+	if currentPurpose(a) != purposeBoth {
+		t.Fatalf("inferred %q", currentPurpose(a))
 	}
 
 	// Back to S3 only: the Drime second copy is dropped, backups stay put.
@@ -198,6 +235,35 @@ func TestPanelPurposeS3MovesBackupsToTheSecondCopy(t *testing.T) {
 	}
 	cfg, _ := tb.accountConfig(t.Context())
 	if cfg.Purpose != purposeS3 || cfg.Second != nil || cfg.Primary.Provider != creds.ProviderB2 {
+		t.Fatalf("accountConfig = %+v", cfg)
+	}
+}
+
+// Drime alone has no S3 storage for a secondary backup only: it is asked
+// for first. S3 storage with Drime folders already chosen needs nothing.
+func TestPanelPurposeCopy(t *testing.T) {
+	tb := trayForTest(t)
+	_ = tb.d.app.creds.Save(drimeKeys)
+	if r := purposeSet(t, tb, "copy"); r.Saved || r.Need != needS3 {
+		t.Fatalf("copy from Drime alone = %+v", r)
+	}
+	if storedPurpose() != "" {
+		t.Fatal("saved before S3 storage was connected")
+	}
+
+	tb = trayForTest(t)
+	_ = tb.d.app.creds.Save(b2Keys)
+	st, _ := config.LoadSettings()
+	st.MirrorSources = []config.MirrorSource{{Name: "Laptop", Folder: "Backups/Laptop", Auto: true}}
+	_ = config.SaveSettings(st)
+	if currentPurpose(tb.d.app) != purposeCopy {
+		t.Fatalf("S3 storage with Drime folders reads as %q", currentPurpose(tb.d.app))
+	}
+	if r := purposeSet(t, tb, "copy"); !r.Saved || r.Need != "" {
+		t.Fatalf("copy = %+v", r)
+	}
+	cfg, _ := tb.accountConfig(t.Context())
+	if cfg.Purpose != purposeCopy || len(cfg.Drime.Sources) != 1 || cfg.Drime.Dest != destLabel(b2Keys) {
 		t.Fatalf("accountConfig = %+v", cfg)
 	}
 }
@@ -303,7 +369,7 @@ func TestSetupAsksThePurpose(t *testing.T) {
 		if st, _ := config.LoadSettings(); !st.MirrorAuto || st.Purpose != purposeBoth {
 			t.Errorf("settings %+v", st)
 		}
-		for _, want := range []string{purposeQuestion, purposeBothText, purposeS3Text, "Where should the second copy go?", "Second copy:"} {
+		for _, want := range []string{purposeQuestion, purposeBothText, purposeCopyText, "Where should the second copy go?", "Second copy:"} {
 			if !strings.Contains(out, want) {
 				t.Errorf("missing %q in\n%s", want, out)
 			}
@@ -312,22 +378,22 @@ func TestSetupAsksThePurpose(t *testing.T) {
 			t.Error("offered Drime for the second copy")
 		}
 	}
-	s3only := func(t *testing.T, a *app, out string) {
+	copyOnly := func(t *testing.T, a *app, out string) {
 		if c, _ := a.creds.Load(); c.Provider != creds.ProviderB2 || !c.Bundle {
-			t.Errorf("backups go to %+v", c.Redacted())
+			t.Errorf("copies go to %+v", c.Redacted())
 		}
 		if a.mirror.Exists() {
-			t.Error("S3 storage only set up a second copy")
+			t.Error("a secondary backup only set up a second copy")
 		}
-		if storedPurpose() != purposeS3 {
+		if storedPurpose() != purposeCopy {
 			t.Errorf("purpose %q", storedPurpose())
 		}
-		if after := out[strings.Index(out, "Choose 1 or 2"):]; strings.Contains(after, "Drime") {
-			t.Errorf("S3 storage only mentioned Drime after the question:\n%s", after)
+		if !strings.Contains(out, drimeFoldersLater) {
+			t.Errorf("did not say how to choose the Drime folders later:\n%s", out)
 		}
 	}
 	bothLines := []string{"1", "tok", "", "", "4", "https://minio.local:9000", "bucket", "", "key", "secret", "", ""}
-	s3Lines := []string{"2", "2", "bucket", "us-west-004", "key", "secret", ""}
+	copyLines := []string{"2", "2", "bucket", "us-west-004", "key", "secret", "", ""}
 
 	for _, tc := range []struct {
 		name    string
@@ -336,9 +402,9 @@ func TestSetupAsksThePurpose(t *testing.T) {
 		check   check
 	}{
 		{"local both", false, bothLines, both},
-		{"local s3", false, s3Lines, s3only},
+		{"local copy", false, copyLines, copyOnly},
 		{"account both", true, bothLines, both},
-		{"account s3", true, s3Lines, s3only},
+		{"account copy", true, copyLines, copyOnly},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			noStorage(t)
@@ -439,22 +505,27 @@ func TestSetupPurposeCommand(t *testing.T) {
 	_ = a.creds.Save(drimeKeys)
 	_ = a.mirror.Save(b2Keys)
 	a.close()
-	if out, err := run(); err != nil || !strings.Contains(out, purposeBothTitle) || !strings.Contains(out, "second copy on Backblaze B2") {
+	if out, err := run(); err != nil || !strings.Contains(out, purposeBothTitle) || !strings.Contains(out, "secondary backup on Backblaze B2") {
 		t.Fatalf("%q %v", out, err)
 	}
 	// Moving where backups go asks first, as the panel does.
-	if _, err := run("s3"); err != errNeedsYes || storedPurpose() == purposeS3 {
+	if _, err := run("copy"); err != errNeedsYes || storedPurpose() == purposeCopy {
 		t.Fatalf("switched with nobody to ask: %v", err)
 	}
-	out, err := run("s3", "--yes")
-	if err != nil || !strings.Contains(out, "Backups go to Backblaze B2 · second now") || !strings.Contains(out, purposeS3Title) {
+	out, err := run("copy", "--yes")
+	if err != nil || !strings.Contains(out, "Backups go to Backblaze B2 · second now") || !strings.Contains(out, purposeCopyTitle) ||
+		!strings.Contains(out, "r2b mirror drime add") {
 		t.Fatalf("%q %v", out, err)
 	}
-	if storedPurpose() != purposeS3 {
+	if storedPurpose() != purposeCopy {
 		t.Fatal("not saved")
 	}
 	if _, err := run("both"); err == nil {
-		t.Fatal("both with no second copy was accepted")
+		t.Fatal("both with S3 storage alone and nobody to connect Drime was accepted")
+	}
+	// The older S3 storage only is still taken.
+	if out, err := run("s3"); err != nil || !strings.Contains(out, purposeS3Title) || storedPurpose() != purposeS3 {
+		t.Fatalf("s3: %q %v", out, err)
 	}
 }
 
@@ -474,13 +545,16 @@ func TestSetupAgainAsksAboutTheSecondCopyOnce(t *testing.T) {
 	_ = setMirrorAuto(true)
 	a.close()
 
-	// Move: yes; S3 storage only; Other S3 storage.
-	a, out := runSetupWith(t, setupFlags{}, "", "y", "2", "4", "https://minio.local:9000", "bucket", "", "key", "secret", "", "")
+	// Move: yes; secondary backup only; Other S3 storage; no Drime folder yet.
+	a, out := runSetupWith(t, setupFlags{}, "", "y", "2", "4", "https://minio.local:9000", "bucket", "", "key", "secret", "", "", "")
 	if strings.Contains(out, "Where should the second copy go?") || strings.Contains(out, "second copy stays on") {
 		t.Errorf("asked about the second copy:\n%s", out)
 	}
 	if a.mirror.Exists() || !strings.Contains(out, "No more copies to Drime") {
-		t.Errorf("the Drime second copy stayed for S3 storage only:\n%s", out)
+		t.Errorf("the Drime second copy stayed for a secondary backup only:\n%s", out)
+	}
+	if c, err := a.source.Load(); err != nil || c.DrimeToken != drimeKeys.DrimeToken {
+		t.Errorf("the Drime token was not kept to read the Drime folders: %v", err)
 	}
 }
 

@@ -106,7 +106,7 @@ func drimeSourceEnds(ctx context.Context, a *app, src config.MirrorSource) (from
 func addDrimeSource(ctx context.Context, a *app, token string, src config.MirrorSource) error {
 	src.Folder = strings.Trim(strings.TrimSpace(src.Folder), "/")
 	if src.Name == "" {
-		src.Name = src.Folder[strings.LastIndex(src.Folder, "/")+1:]
+		src.Name = freeSourceName(src)
 	}
 	if err := validSourceName(src.Name); err != nil {
 		return err
@@ -145,6 +145,30 @@ func addDrimeSource(ctx context.Context, a *app, token string, src config.Mirror
 	return config.SaveSettings(st)
 }
 
+// freeSourceName names a Drime folder after itself, "Laptop", unless another
+// folder of that name is copied already: then "Laptop 2", and so on. Adding
+// the same folder again keeps its name.
+func freeSourceName(src config.MirrorSource) string {
+	base := src.Folder[strings.LastIndex(src.Folder, "/")+1:]
+	st, err := config.LoadSettings()
+	if err != nil {
+		return base
+	}
+	taken := func(n string) bool {
+		for _, s := range st.MirrorSources {
+			if s.Name == n && (s.Folder != src.Folder || s.Workspace != src.Workspace) {
+				return true
+			}
+		}
+		return false
+	}
+	name := base
+	for i := 2; taken(name); i++ {
+		name = fmt.Sprintf("%s %d", base, i)
+	}
+	return name
+}
+
 // removeDrimeSource stops copying a folder. What was copied stays on the
 // destination.
 func removeDrimeSource(name string) error {
@@ -159,6 +183,51 @@ func removeDrimeSource(name string) error {
 		}
 	}
 	return fmt.Errorf("no Drime folder called %q is being copied", name)
+}
+
+// drimeFoldersLater is what setup says when the Drime folders are left for
+// later.
+const drimeFoldersLater = "Choose the Drime folders to copy later: r2b mirror drime add <folder> (r2b drime folders --source lists them)"
+
+// setUpDrimeFolders asks, for a secondary backup only, for the Drime API
+// token and the first Drime folder to copy. Either can be left for later.
+func setUpDrimeFolders(ctx context.Context, a *app, p *prompter) error {
+	if st, err := config.LoadSettings(); err == nil && len(st.MirrorSources) > 0 {
+		fmt.Fprintf(p.out, "\nCopying %d Drime folder(s) to S3 storage. To see them: r2b mirror drime ls\n", len(st.MirrorSources))
+		return nil
+	}
+	fmt.Fprintln(p.out, "\nNow the Drime backups to copy.")
+	token := ""
+	if _, err := drimeSourceCreds(a); err != nil {
+		fmt.Fprintln(p.out, "Make a Drime API token: open Drime, then Settings > Developer > Create token.")
+		fmt.Fprintln(p.out, "  https://app.drime.cloud/account-settings")
+		if token, err = p.secret("Drime API token (press enter to do this later)"); err != nil {
+			return err
+		}
+		if token = strings.TrimSpace(token); token == "" {
+			fmt.Fprintln(p.out, drimeFoldersLater)
+			return nil
+		}
+	}
+	folder, err := p.ask("Drime folder to copy, like Backups/Laptop (press enter to do this later)")
+	if err != nil {
+		return err
+	}
+	if strings.Trim(folder, "/ ") == "" {
+		if token != "" {
+			if err := a.source.Save(creds.Credentials{Provider: creds.ProviderDrime, DrimeToken: token}); err != nil {
+				return err
+			}
+		}
+		fmt.Fprintln(p.out, drimeFoldersLater)
+		return nil
+	}
+	if err := addDrimeSource(ctx, a, token, config.MirrorSource{Folder: folder, Auto: true}); err != nil {
+		fmt.Fprintf(p.out, "Could not add it: %s.\n%s\n", err.Error(), drimeFoldersLater)
+		return nil
+	}
+	fmt.Fprintf(p.out, "Copying %s to S3 storage after every backup.\n", strings.Trim(folder, "/ "))
+	return nil
 }
 
 // drimeSourceResult is how copying one folder went.

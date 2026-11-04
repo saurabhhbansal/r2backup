@@ -144,6 +144,16 @@ func previewCall(tb *trayBackend, c callPreview, scratch string, lastSaved *stri
 			return nil, err
 		}
 		if c.Method == "connect" {
+			var keep struct {
+				KeepAsSecond bool `json:"keepAsSecond"`
+			}
+			_ = json.Unmarshal(c.Args, &keep)
+			if old, err := a.creds.Load(); err == nil && keep.KeepAsSecond {
+				_ = a.mirror.Save(old)
+				_ = setMirrorAuto(true)
+			} else if c, ok := tb.drimeKeepingPlace(d.destArgs); ok {
+				k = c
+			}
 			err := a.creds.Save(k)
 			tb.d.forgetClient()
 			tb.invalidate()
@@ -158,10 +168,39 @@ func previewCall(tb *trayBackend, c callPreview, scratch string, lastSaved *stri
 			return nil, err
 		}
 		return nil, setMirrorAuto(d.Auto)
+	// Drime's folders, made up: Backups holds Laptop and Desktop.
+	case "drimeWorkspaces":
+		return []map[string]string{{"id": "", "name": "My drive"}, {"id": "5", "name": "Team"}}, nil
+	case "drimeFolders":
+		var d struct{ Workspace, Path string }
+		_ = json.Unmarshal(c.Args, &d)
+		tree := map[string][]string{"": {"Backups", "Photos", "r2backup"}, "Backups": {"Desktop", "Laptop"}}
+		if d.Workspace == "5" {
+			tree = map[string][]string{"": {"Shared"}}
+		}
+		path := strings.Trim(d.Path, "/")
+		return drimeFolderList{Workspace: d.Workspace, Path: path, Folders: append([]string{}, tree[path]...)}, nil
+	case "setDrimeLocation":
+		var d struct{ Workspace, Folder string }
+		_ = json.Unmarshal(c.Args, &d)
+		k, err := a.creds.Load()
+		if err != nil || !k.IsDrime() {
+			return nil, fmt.Errorf("backups do not go to Drime on this computer")
+		}
+		k.DrimeWorkspace, k.DrimeRoot = d.Workspace, strings.Trim(d.Folder, "/")
+		tb.invalidate()
+		return describeStore(k), a.creds.Save(k)
+	case "drimeSourceToken":
+		var d struct{ Token string }
+		_ = json.Unmarshal(c.Args, &d)
+		if strings.TrimSpace(d.Token) == "" {
+			return nil, fmt.Errorf("paste the Drime API token")
+		}
+		return tb.drimeSources(), a.source.Save(credsFromKeys(destArgs{Provider: "drime", Token: d.Token}.keys()))
 	case "drimeSourceAdd":
 		var d struct {
-			Token, Folder, Name string
-			Auto                bool
+			Token, Folder, Name, Workspace string
+			Auto                           bool
 		}
 		_ = json.Unmarshal(c.Args, &d)
 		if d.Token != "" {
@@ -174,11 +213,12 @@ func previewCall(tb *trayBackend, c callPreview, scratch string, lastSaved *stri
 			return tb.drimeSources(), err
 		}
 		d.Folder = strings.Trim(d.Folder, "/ ")
-		if d.Name == "" {
-			d.Name = d.Folder[strings.LastIndex(d.Folder, "/")+1:]
+		src := config.MirrorSource{Name: d.Name, Folder: d.Folder, Workspace: d.Workspace, Auto: d.Auto}
+		if src.Name == "" {
+			src.Name = freeSourceName(src)
 		}
 		st, _ := config.LoadSettings()
-		st.MirrorSources = append(st.MirrorSources, config.MirrorSource{Name: d.Name, Folder: d.Folder, Auto: d.Auto})
+		st.MirrorSources = append(st.MirrorSources, src)
 		err := config.SaveSettings(st)
 		return tb.drimeSources(), err
 	case "drimeSourceRun", "mirrorRun":

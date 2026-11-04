@@ -387,7 +387,7 @@ func TestMirrorSetupRefusesWhereBackupsAlreadyGo(t *testing.T) {
 	if s, _ := config.LoadSettings(); !s.MirrorAuto {
 		t.Error("a second copy was added and copying after every backup is off")
 	}
-	if !strings.Contains(said(other), "r2b mirror auto off") {
+	if !strings.Contains(said(other), "r2b mirror off") {
 		t.Errorf("did not say how to stop copying:\n%s", said(other))
 	}
 }

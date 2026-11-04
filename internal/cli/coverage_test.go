@@ -72,6 +72,15 @@ var tuiSurface = map[string]surface{
 	"r2b mirror drime run":             {NA: "part of r2b mirror drime."},
 	"r2b mirror drime run --dry-run":   {NA: "part of r2b mirror drime."},
 	"r2b mirror drime rm":              {NA: "part of r2b mirror drime."},
+	"r2b drime": {NA: "choosing a Drime workspace and folder by browsing is the taskbar panel's folder browser " +
+		"(Account: Folder… on Drime, and Add a Drime folder…) and here."},
+	"r2b drime workspaces":          {NA: "part of r2b drime."},
+	"r2b drime workspaces --source": {NA: "part of r2b drime."},
+	"r2b drime folders":             {NA: "part of r2b drime."},
+	"r2b drime folders --workspace": {NA: "part of r2b drime."},
+	"r2b drime folders --source":    {NA: "part of r2b drime."},
+	"r2b drime use":                 {NA: "part of r2b drime."},
+	"r2b drime use --workspace":     {NA: "part of r2b drime."},
 	"r2b mirror ultra": {NA: "Ultra fast mode is a one-time, prompt-driven setup with a pasted token, " +
 		"in the taskbar panel's second copy and here; like r2b mirror setup, it is set once and forgotten."},
 	"r2b mirror ultra --account":  {NA: "part of r2b mirror ultra."},

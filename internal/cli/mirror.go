@@ -42,8 +42,7 @@ func newMirrorCmd(opts *Options) *cobra.Command {
 			"  r2b mirror Documents      mirror one set\n" +
 			"  r2b mirror --everything   mirror every computer's backups\n" +
 			"  r2b mirror --reverse      copy back from the mirror instead\n" +
-			"  r2b mirror auto on        mirror after every backup, scheduled ones too\n" +
-			"  r2b mirror off            stop keeping a second copy\n" +
+			"  r2b mirror off            stop keeping a secondary backup\n" +
 			"  r2b mirror drime ...      copy Drime folders another app backs up to\n" +
 			"  r2b mirror ultra on       Ultra fast mode (experimental): Drime to S3 cloud to cloud",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -97,7 +96,7 @@ func newMirrorSetupCmd(opts *Options) *cobra.Command {
 			return runMirrorSetup(cmd.Context(), a, opts, provider)
 		},
 	}
-	cmd.Flags().StringVar(&provider, "provider", "", "drime, r2, b2, s3 or s3-custom (asked if not given)")
+	cmd.Flags().StringVar(&provider, "provider", "", "r2, b2, s3 or s3-custom (asked if not given)")
 	return cmd
 }
 
@@ -106,17 +105,16 @@ func runMirrorSetup(ctx context.Context, a *app, opts *Options, provider string)
 	if main, err := a.creds.Load(); err == nil {
 		fmt.Fprintf(p.out, "This computer backs up to %s.\n", providerLabel(main))
 		if provider == "" {
-			if main.IsDrime() {
-				fmt.Fprintln(p.out, "A mirror on Cloudflare R2 would put a second copy with a second company.")
-			} else {
-				fmt.Fprintln(p.out, "A mirror on Drime would put a second copy with a second company.")
-			}
+			fmt.Fprintln(p.out, "A secondary backup on S3 storage puts a copy with a second company.")
 		}
 	} else {
 		fmt.Fprintln(p.out, "This computer has no main destination yet. Run r2b setup first.")
 		return err
 	}
-	c, err := askForDestination(ctx, p, provider)
+	if provider == creds.ProviderDrime {
+		return errors.New("a secondary backup goes to S3 storage, with a company other than Drime: use r2, b2, s3 or s3-custom")
+	}
+	c, err := askForS3Destination(ctx, p, provider, "Where should the secondary backup go?")
 	if err != nil {
 		return err
 	}
@@ -132,14 +130,14 @@ func runMirrorSetup(ctx context.Context, a *app, opts *Options, provider string)
 	_ = t.pushKeys(ctx) // as after the panel's mirrorSetup (keysChange)
 	fmt.Fprintf(p.out, "Second copy: %s. Each backup is copied there once it finishes.\n", destLabel(c))
 	fmt.Fprintln(p.out, "To copy everything now: r2b mirror")
-	fmt.Fprintln(p.out, "To stop copying after every backup: r2b mirror auto off")
+	fmt.Fprintln(p.out, "To stop keeping a secondary backup: r2b mirror off")
 	return nil
 }
 
 func newMirrorAutoCmd(opts *Options) *cobra.Command {
 	return &cobra.Command{
 		Use:       "auto on|off",
-		Short:     "Mirror after every backup, or stop",
+		Short:     "Kept for older scripts: the secondary backup is copied after every backup",
 		Args:      cobra.ExactArgs(1),
 		ValidArgs: []string{"on", "off"},
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -164,7 +162,8 @@ func newMirrorAutoCmd(opts *Options) *cobra.Command {
 			if on {
 				fmt.Fprintln(opts.Out, "Copying after every backup.")
 			} else {
-				fmt.Fprintln(opts.Out, "Automatic mirroring is off. r2b mirror still works by hand.")
+				fmt.Fprintln(opts.Out, "The secondary backup is still copied after every backup: that is always on now. "+
+					"To stop keeping it: r2b mirror off")
 			}
 			return nil
 		},
@@ -358,7 +357,9 @@ func recordMirrored(list []sets.Set, everything bool) {
 // so and tried again next time.
 func autoMirror(ctx context.Context, a *app, out io.Writer, done map[string]*backup.Report) {
 	st, err := config.LoadSettings()
-	if err != nil || !st.MirrorAuto || !a.mirror.Exists() || len(done) == 0 {
+	// The secondary backup is always copied after a backup. MirrorAuto is
+	// still written, for older copies of r2backup, and no longer read here.
+	if err != nil || !a.mirror.Exists() || len(done) == 0 {
 		return
 	}
 	var due []sets.Set

@@ -36,6 +36,9 @@ type fakeDrime struct {
 	// redirect makes downloads answer as the real Drime does: a redirect to
 	// a presigned link under /blob/ that needs no token and takes Range.
 	redirect bool
+	// workspaces is what /me/workspaces answers; nil answers 404, as an
+	// API without workspaces would.
+	workspaces []map[string]any
 }
 
 type fakeEntry struct {
@@ -392,6 +395,14 @@ func (f *fakeDrime) serve(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		delete(f.uploads, req.UploadID)
 		w.WriteHeader(204)
+
+	case r.Method == http.MethodGet && p == "/api/v1/me/workspaces":
+		if f.workspaces == nil {
+			w.WriteHeader(404)
+			writeJSON(w, map[string]string{"message": "Not found."})
+			return
+		}
+		writeJSON(w, map[string]any{"workspaces": f.workspaces})
 
 	case r.Method == http.MethodGet && p == "/api/v1/user/space-usage":
 		writeJSON(w, SpaceUsage{Used: 10, Available: 100})

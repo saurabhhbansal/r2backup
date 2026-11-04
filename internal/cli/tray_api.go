@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/saurabhhbansal/r2backup/internal/creds"
@@ -32,11 +33,31 @@ var keysChange = map[string]bool{"connect": true, "mirrorSetup": true, "mirrorFo
 func (t *trayBackend) call(ctx context.Context, method string, raw json.RawMessage) (any, error) {
 	switch method {
 	case "connect":
-		var a destArgs
+		var a struct {
+			destArgs
+			// KeepAsSecond: Drime becomes the primary backup, and the S3
+			// storage backups went to the secondary (promoteToDrime).
+			KeepAsSecond bool `json:"keepAsSecond"`
+		}
 		if err := decodeArgs(raw, &a); err != nil {
 			return nil, err
 		}
-		err := t.d.SaveKeys(ctx, a.keys())
+		var err error
+		if a.KeepAsSecond {
+			err = promoteToDrime(ctx, t.d.app, credsFromKeys(a.keys()))
+			t.d.forgetClient()
+		} else if c, ok := t.drimeKeepingPlace(a.destArgs); ok {
+			// A new Drime token for the same Drime: backups stay in the
+			// workspace and folder chosen with the folder browser.
+			if err = c.Valid(); err == nil {
+				if err = t.d.app.creds.Save(c); err == nil {
+					t.d.forgetClient()
+					err = checkBucketReachable(ctx, t.d.app)
+				}
+			}
+		} else {
+			err = t.d.SaveKeys(ctx, a.keys())
+		}
 		t.invalidate()
 		if err == nil {
 			t.endCF() // the account and bucket it found are in the keys now
@@ -116,6 +137,21 @@ func (t *trayBackend) call(ctx context.Context, method string, raw json.RawMessa
 		return out, err
 	}
 	return nil, fmt.Errorf("unknown request %q", method)
+}
+
+// drimeKeepingPlace is a Drime token with no folder given, for backups that
+// go to Drime already: the new credentials keep the workspace and folder.
+func (t *trayBackend) drimeKeepingPlace(a destArgs) (creds.Credentials, bool) {
+	if a.Provider != creds.ProviderDrime || strings.TrimSpace(a.DrimeFolder) != "" {
+		return creds.Credentials{}, false
+	}
+	old, err := t.d.app.creds.Load()
+	if err != nil || !old.IsDrime() {
+		return creds.Credentials{}, false
+	}
+	c := credsFromKeys(a.keys())
+	c.DrimeWorkspace, c.DrimeRoot, c.Endpoint = old.DrimeWorkspace, old.DrimeRoot, old.Endpoint
+	return c, true
 }
 
 func decodeArgs(raw json.RawMessage, into any) error {
