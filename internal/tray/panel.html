@@ -2619,7 +2619,7 @@ function openDrimePicker(o) {
   dpLoad(true);
 }
 const dpArgs = (more) => Object.assign({ which: DP.which, token: DP.token, workspace: DP.ws }, more || {});
-const dpWsName = () => ((DP.workspaces || []).find((w) => w.id === DP.ws) || { name: "My drive" }).name;
+const dpWsName = () => ((DP.workspaces || []).find((w) => w.id === DP.ws) || { name: "My workspace" }).name;
 async function dpLoad(workspaces) {
   $("dp-list").innerHTML = '<div class="note">Loading…</div>';
   $("dp-use").disabled = true;

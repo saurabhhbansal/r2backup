@@ -170,7 +170,7 @@ func previewCall(tb *trayBackend, c callPreview, scratch string, lastSaved *stri
 		return nil, setMirrorAuto(d.Auto)
 	// Drime's folders, made up: Backups holds Laptop and Desktop.
 	case "drimeWorkspaces":
-		return []map[string]string{{"id": "", "name": "My drive"}, {"id": "5", "name": "Team"}}, nil
+		return []map[string]string{{"id": "", "name": "Ada’s workspace"}, {"id": "5", "name": "Team"}}, nil
 	case "drimeFolders":
 		var d struct{ Workspace, Path string }
 		_ = json.Unmarshal(c.Args, &d)

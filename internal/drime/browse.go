@@ -53,16 +53,16 @@ func refused(err error) error {
 	return err
 }
 
-// Workspaces lists the workspaces the token reaches, the person's own drive
-// first. Drime keeps workspaces at /me/workspaces; an account without any,
-// or an API that does not answer there, lists the own drive alone.
+// Workspaces lists the workspaces the token reaches, the person's own
+// workspace first. GET /me/workspaces lists the team ones and the personal
+// one's name, which Drime leaves null until it is renamed; Drime's own app
+// then calls it "<first name>'s workspace", and so does this.
 func Workspaces(ctx context.Context, cfg Config) ([]Workspace, error) {
 	cfg.WorkspaceID = ""
 	a, err := browser(cfg)
 	if err != nil {
 		return nil, err
 	}
-	out := []Workspace{{ID: "", Name: "My drive"}}
 	// The token is checked first, on a call every account answers, so a bad
 	// token is an error and not an empty list of workspaces.
 	if _, err := a.listFolder(ctx, "", true); err != nil {
@@ -73,10 +73,18 @@ func Workspaces(ctx context.Context, cfg Config) ([]Workspace, error) {
 			ID   json.Number `json:"id"`
 			Name string      `json:"name"`
 		} `json:"workspaces"`
+		Personal struct {
+			Name *string `json:"name"`
+		} `json:"personal"`
 	}
 	if err := a.call(ctx, http.MethodGet, "/me/workspaces", nil, nil, &res, nil); err != nil {
-		return out, nil
+		return []Workspace{{ID: "", Name: a.personalName(ctx, "")}}, nil
 	}
+	own := ""
+	if res.Personal.Name != nil {
+		own = *res.Personal.Name
+	}
+	out := []Workspace{{ID: "", Name: a.personalName(ctx, own)}}
 	for _, w := range res.Workspaces {
 		if w.ID.String() == "" || w.ID.String() == "0" {
 			continue
@@ -88,6 +96,33 @@ func Workspaces(ctx context.Context, cfg Config) ([]Workspace, error) {
 		out = append(out, Workspace{ID: w.ID.String(), Name: name})
 	}
 	return out, nil
+}
+
+// personalName is the name to show for the person's own workspace: the one
+// Drime has, else "<first name>'s workspace" from /users/me, else "My
+// workspace".
+func (a *api) personalName(ctx context.Context, name string) string {
+	if n := strings.TrimSpace(name); n != "" {
+		return n
+	}
+	var me struct {
+		User struct {
+			FirstName   string `json:"first_name"`
+			DisplayName string `json:"display_name"`
+		} `json:"user"`
+	}
+	if err := a.call(ctx, http.MethodGet, "/users/me", nil, nil, &me, nil); err == nil {
+		first := strings.TrimSpace(me.User.FirstName)
+		if first == "" {
+			if f := strings.Fields(me.User.DisplayName); len(f) > 0 {
+				first = f[0]
+			}
+		}
+		if first != "" {
+			return first + "’s workspace"
+		}
+	}
+	return "My workspace"
 }
 
 // Folders lists the names of the folders directly inside dir, a path from the

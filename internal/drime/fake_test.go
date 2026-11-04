@@ -39,6 +39,10 @@ type fakeDrime struct {
 	// workspaces is what /me/workspaces answers; nil answers 404, as an
 	// API without workspaces would.
 	workspaces []map[string]any
+	// personal is the own workspace's name in /me/workspaces (nil is JSON
+	// null, as Drime leaves it), and firstName is /users/me's first_name.
+	personal  *string
+	firstName string
 }
 
 type fakeEntry struct {
@@ -402,7 +406,10 @@ func (f *fakeDrime) serve(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, map[string]string{"message": "Not found."})
 			return
 		}
-		writeJSON(w, map[string]any{"workspaces": f.workspaces})
+		writeJSON(w, map[string]any{"workspaces": f.workspaces, "personal": map[string]any{"name": f.personal}})
+
+	case r.Method == http.MethodGet && p == "/api/v1/users/me":
+		writeJSON(w, map[string]any{"user": map[string]any{"first_name": f.firstName, "display_name": f.firstName}})
 
 	case r.Method == http.MethodGet && p == "/api/v1/user/space-usage":
 		writeJSON(w, SpaceUsage{Used: 10, Available: 100})

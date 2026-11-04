@@ -43,7 +43,9 @@ func fakeDrimeTree(t *testing.T) string {
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{"current_page": 1, "last_page": 1, "data": tree[r.URL.Query().Get("folderId")]})
 		case "/api/v1/me/workspaces":
-			_, _ = w.Write([]byte(`{"workspaces":[{"id":5,"name":"Team"}]}`))
+			_, _ = w.Write([]byte(`{"workspaces":[{"id":5,"name":"Team"}],"personal":{"name":null}}`))
+		case "/api/v1/users/me":
+			_, _ = w.Write([]byte(`{"user":{"first_name":"Ada","display_name":"Ada Lovelace"}}`))
 		default:
 			t.Errorf("fake drime: unexpected %s %s", r.Method, r.URL)
 			w.WriteHeader(http.StatusNotFound)
@@ -65,7 +67,7 @@ func TestPanelBrowsesDrimeAndMovesWhereBackupsGo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ws := out.([]drime.Workspace); !reflect.DeepEqual(ws, []drime.Workspace{{ID: "", Name: "My drive"}, {ID: "5", Name: "Team"}}) {
+	if ws := out.([]drime.Workspace); !reflect.DeepEqual(ws, []drime.Workspace{{ID: "", Name: "Ada’s workspace"}, {ID: "5", Name: "Team"}}) {
 		t.Fatalf("workspaces = %v", ws)
 	}
 	out, err = call(t, tb, "drimeFolders", map[string]string{"which": "primary", "path": "Backups"})
