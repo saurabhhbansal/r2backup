@@ -36,9 +36,27 @@ type Live struct {
 	ByteRate float64 `json:"byte_rate"`
 	FileRate float64 `json:"file_rate"`
 
+	// ETASeconds is the remaining time as it should be shown -- already
+	// past the warm-up, coarsened and held steady by progress.Presenter --
+	// not the estimator's every-second answer.
 	ETASeconds float64 `json:"eta_seconds"`
 	ETAKnown   bool    `json:"eta_known"`
+
+	// Paused is true while someone has asked the run to hold (see package
+	// pause). The file keeps being rewritten while paused, so a paused run
+	// is still live, not stale.
+	Paused bool `json:"paused,omitempty"`
+
+	// FoundFiles and FoundBytes are how much the scan has found so far,
+	// published while Phase is PhaseFinding, before any total is known.
+	FoundFiles int64 `json:"found_files,omitempty"`
+	FoundBytes int64 `json:"found_bytes,omitempty"`
 }
+
+// PhaseFinding is the Phase a run publishes while it is still walking the
+// folder and working out what changed: nothing to put a bar against yet,
+// only how much it has found.
+const PhaseFinding = "finding"
 
 // Stale reports whether this file is describing a run that is no longer
 // happening. A killed process leaves its last update behind forever, and

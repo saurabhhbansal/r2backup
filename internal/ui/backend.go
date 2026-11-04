@@ -73,6 +73,16 @@ type Overview struct {
 	Running    string
 	RunPercent float64
 	RunETA     string
+	// RunPaused is true while that run has been paused (r2b pause, the
+	// panel, or p on the progress screen).
+	RunPaused bool
+	// RunFinding is true while the run is still scanning: there is no total
+	// yet, only RunFoundFiles and RunFoundBytes found so far.
+	RunFinding                   bool
+	RunFoundFiles, RunFoundBytes int64
+	// The counts behind RunPercent, once the run is uploading.
+	RunFilesDone, RunFilesTotal int64
+	RunBytesDone, RunBytesTotal int64
 
 	// Interrupted names a run that stopped without finishing -- the machine
 	// was shut down, the lid closed, the process killed. It is a different
@@ -229,6 +239,12 @@ type Keys struct {
 // so the screens can be driven in tests without credentials, a bucket or a
 // scheduler, and so this package cannot grow a second copy of logic that
 // already sits behind a command.
+// Pauser is a Backend that can pause and resume the backup running now,
+// wherever it was started. Optional, so a test backend need not have it.
+type Pauser interface {
+	PauseRun(on bool) error
+}
+
 type Backend interface {
 	// Load reads current state. Called on open, on refresh, and once a
 	// second to pick up a scheduled run's progress -- so it must not touch

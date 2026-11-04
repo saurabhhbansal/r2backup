@@ -14,6 +14,7 @@ import (
 
 	"github.com/saurabhhbansal/r2backup/internal/engine"
 	"github.com/saurabhhbansal/r2backup/internal/index"
+	"github.com/saurabhhbansal/r2backup/internal/pause"
 	"github.com/saurabhhbansal/r2backup/internal/plan"
 	"github.com/saurabhhbansal/r2backup/internal/progress"
 	"github.com/saurabhhbansal/r2backup/internal/remote"
@@ -219,8 +220,9 @@ func run(ctx context.Context, opts Options) (*Report, error) {
 	obs.Phase(PhaseScanning, rep)
 	set := opts.Set
 	scanned, err := scan.Walk(ctx, scan.Options{
-		Root: set.Root,
-		Skip: func(key string, isDir bool) bool { return set.Excluded(key) },
+		Root:  set.Root,
+		Skip:  func(key string, isDir bool) bool { return set.Excluded(key) },
+		Found: foundFunc(obs),
 	})
 	if err != nil {
 		if errors.Is(err, scan.ErrRootMissing) {
@@ -276,6 +278,9 @@ func run(ctx context.Context, opts Options) (*Report, error) {
 	// --- 4. Transfer -------------------------------------------------------
 	obs.Phase(PhaseUploading, rep)
 	tracker := progress.New(p.UploadBytes, int64(len(p.Uploads)), now)
+	if g := pause.FromContext(ctx); g != nil {
+		tracker.FollowPause(g.Paused)
+	}
 
 	tickEvery := opts.ProgressEvery
 	if tickEvery == 0 {

@@ -20,16 +20,25 @@ import (
 // progress.json for anyone watching a scheduled one. Both, always: a run
 // started by hand can still be watched from another terminal.
 type terminalObserver struct {
-	out          io.Writer
-	set          string
-	progressPath string
-	interactive  bool
-	lastLines    int
-	phase        backup.Phase
+	out         io.Writer
+	set         string
+	live        livePublisher
+	interactive bool
+	lastLines   int
+	phase       backup.Phase
 }
+
+// Found publishes how much the scan has found so far.
+func (o *terminalObserver) Found(files, bytes int64) { o.live.found(files, bytes, false) }
 
 func (o *terminalObserver) Phase(p backup.Phase, r *backup.Report) {
 	o.phase = p
+	switch p {
+	case backup.PhaseScanning:
+		o.live.found(0, 0, true)
+	case backup.PhasePlanning:
+		o.live.found(r.ScannedFiles, r.ScannedBytes, true)
+	}
 	if !o.interactive {
 		return
 	}
@@ -48,15 +57,7 @@ func (o *terminalObserver) Phase(p backup.Phase, r *backup.Report) {
 }
 
 func (o *terminalObserver) Progress(s progress.Snapshot) {
-	if o.progressPath != "" {
-		_ = runstate.WriteLive(o.progressPath, runstate.Live{
-			Set: o.set, Phase: string(o.phase),
-			BytesDone: s.BytesDone, BytesTotal: s.BytesTotal,
-			FilesDone: s.FilesDone, FilesTotal: s.FilesTotal,
-			ByteRate: s.ByteRate, FileRate: s.FileRate,
-			ETASeconds: s.ETA.Seconds(), ETAKnown: s.ETAKnown,
-		})
-	}
+	o.live.progress(string(o.phase), s)
 	if !o.interactive {
 		return
 	}
@@ -93,7 +94,10 @@ func runOne(ctx context.Context, a *app, s sets.Set, out io.Writer, interactive 
 	if err != nil {
 		return nil, err
 	}
-	obs := &terminalObserver{out: out, set: s.Name, progressPath: progressPath, interactive: interactive}
+	ctx, gate, stopPause := watchPause(ctx, progressPath)
+	defer stopPause()
+	obs := &terminalObserver{out: out, set: s.Name, interactive: interactive,
+		live: livePublisher{path: progressPath, set: s.Name, gate: gate}}
 	defer runstate.ClearLive(progressPath)
 
 	rep, runErr := backup.Run(ctx, backup.Options{

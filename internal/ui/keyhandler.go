@@ -220,6 +220,9 @@ func (m *Model) overlayKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		case key.Matches(msg, keys.Quit):
 			return m.quitNow()
+		case key.Matches(msg, keys.Pause):
+			m.togglePause()
+			return m, nil
 		}
 		return m, nil
 
@@ -739,5 +742,26 @@ func (m *Model) checkUpdate() tea.Cmd {
 			return errMsg{err}
 		}
 		return updateMsg{version: v}
+	}
+}
+
+// togglePause pauses the backup on the progress screen, or resumes it. The
+// run holds between files: whatever is being sent finishes first.
+func (m *Model) togglePause() {
+	p, ok := m.backend.(Pauser)
+	if !ok {
+		return
+	}
+	on := !(m.runSnap.Paused || m.ov.RunPaused)
+	if err := p.PauseRun(on); err != nil {
+		m.notice = err.Error()
+		return
+	}
+	// Shown at once rather than at the next snapshot, a second from now.
+	m.runSnap.Paused, m.ov.RunPaused = on, on
+	if on {
+		m.notice = "Paused. Files already being sent will finish. p carries on."
+	} else {
+		m.notice = "Carrying on."
 	}
 }

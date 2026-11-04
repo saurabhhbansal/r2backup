@@ -468,11 +468,19 @@ func printStatus(a *app, opts *Options) error {
 	return nil
 }
 
+// etaText is a live run's remaining time in words: "about 3 hours left".
+// ETASeconds is already the shown value (see runstate.Live), so this only
+// words it.
 func etaText(l *runstate.Live) string {
-	if !l.ETAKnown {
+	switch {
+	case l.Paused:
+		return "paused"
+	case l.Phase == runstate.PhaseFinding:
+		return "finding files..."
+	case !l.ETAKnown:
 		return "estimating..."
 	}
-	return progress.FormatDuration(time.Duration(l.ETASeconds*float64(time.Second))) + " remaining"
+	return progress.FormatETA(time.Duration(l.ETASeconds*float64(time.Second))) + " left"
 }
 
 func humanAgo(d time.Duration) string {

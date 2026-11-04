@@ -110,6 +110,8 @@ var tuiSurface = map[string]surface{
 	"r2b restore --deleted":   {Keys: []string{"enter"}, Where: "Trash: enter recovers the highlighted file"},
 	"r2b restore --machine":   {Keys: []string{"c"}, Where: "Folders: c lists every backup in the bucket; enter restores another computer's"},
 
+	"r2b pause":          {Keys: []string{"w", "p"}, Where: "the progress screen (w reopens it, for a scheduled run too): p pauses"},
+	"r2b resume":         {Keys: []string{"w", "p"}, Where: "the progress screen: p again carries on"},
 	"r2b status":         {Keys: []string{"1"}, Where: "Folders is the status screen, and the header and footer carry the rest"},
 	"r2b status --watch": {Keys: []string{"w"}, Where: "w reopens the progress screen, including for a run the scheduler started"},
 

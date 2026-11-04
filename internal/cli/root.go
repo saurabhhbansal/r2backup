@@ -116,6 +116,8 @@ func NewRoot(opts *Options) *cobra.Command {
 		newAddCmd(opts),
 		newEditCmd(opts),
 		newBackupCmd(opts),
+		newPauseCmd(opts),
+		newResumeCmd(opts),
 		newRestoreCmd(opts),
 		newStatusCmd(opts),
 		newActivityCmd(opts),

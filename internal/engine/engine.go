@@ -20,6 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/saurabhhbansal/r2backup/internal/pause"
 	"github.com/saurabhhbansal/r2backup/internal/plan"
 	"github.com/saurabhhbansal/r2backup/internal/scan"
 )
@@ -363,6 +364,13 @@ func (r *runner) execute(ctx context.Context, p *plan.Plan) (*Result, error) {
 
 func (r *runner) worker(ctx context.Context, jobs <-chan job, lim *limiter, results chan<- outcome) {
 	for j := range jobs {
+		// Paused: hold here, between files. Whatever this worker was
+		// sending has already finished; nothing new starts until the run is
+		// resumed or ended. A run ended while paused leaves the job
+		// unreported, exactly like one still queued below.
+		if pause.Wait(ctx) != nil {
+			continue
+		}
 		if !lim.acquire(ctx) {
 			// Run ended while this job was still queued. Leave it
 			// unreported rather than guessing at success or failure: the

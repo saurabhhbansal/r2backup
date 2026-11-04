@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/saurabhhbansal/r2backup/internal/pause"
 	"github.com/saurabhhbansal/r2backup/internal/remote"
 )
 
@@ -336,6 +337,13 @@ func (c *Client) sendParts(ctx context.Context, key, parentID, leaf, ctype strin
 		conc = 1
 	}
 	for len(todo) > 0 {
+		// Paused: the batch before this one has finished; the next is not
+		// signed or started until the run resumes. Signing after the wait
+		// matters too: a part address signed before a long pause may have
+		// expired by the end of it.
+		if err := pause.Wait(ctx); err != nil {
+			return item{}, err
+		}
 		batch := todo[:min(conc, len(todo))]
 		todo = todo[len(batch):]
 		urls, err := c.signParts(ctx, uploadID, s3key, batch)

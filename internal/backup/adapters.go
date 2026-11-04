@@ -212,3 +212,17 @@ func toIndexParts(in []remote.PartRecord) []index.PendingPart {
 // ResumeStoreFor is how a caller attaches the index to a client so large
 // uploads can be picked up where they stopped.
 func ResumeStoreFor(db *index.DB) remote.ResumeStore { return resumeStore{db: db} }
+
+// Finder is an Observer that also wants to hear, while the folder is still
+// being scanned, how much has been found so far -- the only progress there is
+// to show before the plan, and so the totals, exist.
+type Finder interface {
+	Found(files, bytes int64)
+}
+
+func foundFunc(obs Observer) func(files, bytes int64) {
+	if f, ok := obs.(Finder); ok {
+		return f.Found
+	}
+	return nil
+}

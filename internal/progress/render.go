@@ -45,7 +45,9 @@ func Render(s Snapshot, width int) string {
 	b.WriteString(" · ")
 	b.WriteString(FormatFileRate(s.FileRate))
 	b.WriteString(" · ")
-	if s.ETAKnown {
+	if s.Paused {
+		b.WriteString("paused")
+	} else if s.ETAKnown {
 		b.WriteString(FormatDuration(s.ETA))
 		b.WriteString(" remaining")
 	} else {

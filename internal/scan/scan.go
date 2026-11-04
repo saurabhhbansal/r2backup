@@ -87,6 +87,10 @@ type Options struct {
 	// Progress, if set, is called periodically with the number of entries
 	// found so far, so the caller can render "Scanning... 32,104 files".
 	Progress func(found int64)
+	// Found, if set, is called at the same moments with the regular files
+	// and bytes found so far, so a run can say "12,345 found · 1.4 GB"
+	// before it knows what it will upload.
+	Found func(files, bytes int64)
 }
 
 // ErrRootMissing means the folder we were asked to scan is not there.
@@ -119,6 +123,9 @@ func Walk(ctx context.Context, opts Options) (*Result, error) {
 	report := func() {
 		if opts.Progress != nil {
 			opts.Progress(found)
+		}
+		if opts.Found != nil {
+			opts.Found(res.Files, res.Bytes)
 		}
 	}
 

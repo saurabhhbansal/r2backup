@@ -44,6 +44,7 @@ type keyMap struct {
 	NoLimit  key.Binding
 	Update   key.Binding
 	Watch    key.Binding
+	Pause    key.Binding
 	Refresh  key.Binding
 	Help     key.Binding
 	Quit     key.Binding
@@ -86,7 +87,9 @@ var keys = keyMap{
 	Unlock:  key.NewBinding(key.WithKeys("d"), key.WithHelp("d", "download saved keys")),
 	Update:  key.NewBinding(key.WithKeys("u"), key.WithHelp("u", "update")),
 
-	Watch:   key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "watch the running job")),
+	Watch: key.NewBinding(key.WithKeys("w"), key.WithHelp("w", "watch the running job")),
+	// Bound on the progress screen only, where p has no other meaning.
+	Pause:   key.NewBinding(key.WithKeys("p"), key.WithHelp("p", "pause or resume the backup")),
 	Refresh: key.NewBinding(key.WithKeys("R"), key.WithHelp("R", "refresh")),
 	Help:    key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "keys")),
 	Quit:    key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
@@ -165,6 +168,7 @@ func BoundKeys() []string {
 		}
 	}
 	out = append(out, keys.Recover.Keys()...)
+	out = append(out, keys.Pause.Keys()...)
 	out = append(out, keys.Refresh.Keys()...)
 	// Bound in overlayBrowse and overlayPicker rather than in the keymap:
 	// they belong to a screen, not to the whole interface.
