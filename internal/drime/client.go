@@ -229,7 +229,7 @@ func (c *Client) Put(ctx context.Context, in remote.PutInput) error {
 		// A long run saves its dates every few minutes, so an interruption
 		// loses at most that much. A failure here is not the upload's
 		// failure; the final flush tries again.
-		_ = c.meta.flush(ctx, scope)
+		_ = c.meta.flushSoon(ctx, scope)
 	}
 	return nil
 }
@@ -413,7 +413,7 @@ func (c *Client) Copy(ctx context.Context, srcKey, dstKey string) error {
 	if scope, err := c.meta.set(ctx, dstKey, md); err != nil {
 		return err
 	} else if scope != "" {
-		_ = c.meta.flush(ctx, scope)
+		_ = c.meta.flushSoon(ctx, scope)
 	}
 	return nil
 }
@@ -477,7 +477,7 @@ func (c *Client) Move(ctx context.Context, srcKey, dstKey string) error {
 	if scope, err := c.meta.set(ctx, dstKey, md); err != nil {
 		return err
 	} else if scope != "" {
-		_ = c.meta.flush(ctx, scope)
+		_ = c.meta.flushSoon(ctx, scope)
 	}
 	return nil
 }

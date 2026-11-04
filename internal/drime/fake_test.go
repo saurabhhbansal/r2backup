@@ -43,6 +43,9 @@ type fakeDrime struct {
 	// null, as Drime leaves it), and firstName is /users/me's first_name.
 	personal  *string
 	firstName string
+	// folderGate, when set, holds every folder creation until it is closed,
+	// so a test can see what else goes on while one is under way.
+	folderGate chan struct{}
 }
 
 type fakeEntry struct {
@@ -158,6 +161,9 @@ func writeJSON(w http.ResponseWriter, v any) {
 }
 
 func (f *fakeDrime) serve(w http.ResponseWriter, r *http.Request) {
+	if g := f.folderGate; g != nil && r.Method == http.MethodPost && r.URL.Path == "/api/v1/folders" {
+		<-g
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	p := r.URL.Path
