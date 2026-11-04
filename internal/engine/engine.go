@@ -119,9 +119,10 @@ type Options struct {
 	// Now overrides the clock used for Result.Elapsed. Nil uses time.Now.
 	Now func() time.Time
 
-	// OnUploaded is called once for every object that genuinely landed, in
-	// the order results are drained (single-threaded, so it needs no locking
-	// of its own). This is how the caller records only what succeeded: a run
+	// OnUploaded is called once for every object that genuinely landed, as
+	// it lands, in the order results are drained (from one goroutine, so it
+	// needs no locking of its own against itself; it must be quick, since
+	// it runs while uploads continue). This is how the caller records only what succeeded: a run
 	// that fails halfway must not mark the failures done, and must not
 	// discard the successes either.
 	OnUploaded func(entry scan.Entry, etag string)
@@ -305,29 +306,39 @@ func (r *runner) execute(ctx context.Context, p *plan.Plan) (*Result, error) {
 			r.worker(runCtx, jobs, lim, results)
 		}()
 	}
+	// Results are drained as they arrive, not once the pool is done, so
+	// OnUploaded hears about each file as it lands and the caller can note it
+	// in the index straight away: a run cut off halfway keeps what it
+	// finished. One goroutine drains, so the callbacks stay single-threaded,
+	// and result is only touched by it until drained is closed.
+	drained := make(chan struct{})
+	go func() {
+		defer close(drained)
+		for out := range results {
+			switch {
+			case out.success && out.isMove:
+				result.Moved++
+				result.moveSources = append(result.moveSources, out.from)
+				if r.opts.OnMoved != nil {
+					r.opts.OnMoved(out.from, out.key, out.bytes)
+				}
+			case out.success:
+				result.Uploaded++
+				result.UploadedBytes += out.bytes
+				if r.opts.OnUploaded != nil {
+					r.opts.OnUploaded(out.entry, out.etag)
+				}
+			default:
+				result.Failed = append(result.Failed, Failure{Key: out.key, Err: out.err})
+			}
+		}
+	}()
+
 	uploadWG.Wait() // phase 1 (uploads + moves) fully drained, or abandoned by cancellation
 	govCancel()
 	wg.Wait() // governor joined before we touch its state again
 	close(results)
-
-	for out := range results {
-		switch {
-		case out.success && out.isMove:
-			result.Moved++
-			result.moveSources = append(result.moveSources, out.from)
-			if r.opts.OnMoved != nil {
-				r.opts.OnMoved(out.from, out.key, out.bytes)
-			}
-		case out.success:
-			result.Uploaded++
-			result.UploadedBytes += out.bytes
-			if r.opts.OnUploaded != nil {
-				r.opts.OnUploaded(out.entry, out.etag)
-			}
-		default:
-			result.Failed = append(result.Failed, Failure{Key: out.key, Err: out.err})
-		}
-	}
+	<-drained
 
 	// Deletes run last, and are skipped entirely on a cancelled run rather
 	// than issued against a possibly-incomplete set of replacement uploads.

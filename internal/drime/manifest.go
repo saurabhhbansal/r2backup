@@ -234,9 +234,27 @@ func (ms *manifests) forgetUnder(prefix string) {
 	}
 }
 
+// pending reports whether any manifest has unsaved changes.
+func (ms *manifests) pending() bool {
+	ms.mu.Lock()
+	defer ms.mu.Unlock()
+	for _, m := range ms.sets {
+		if m.dirty > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // flush writes every manifest with unsaved changes, or only scope's when
-// scope is set.
+// scope is set. Flushing every set also lets go of the clean ones.
 func (ms *manifests) flush(ctx context.Context, scope string) error {
+	return ms.write(ctx, scope, scope == "")
+}
+
+// write saves every manifest with unsaved changes (only scope's when scope is
+// set), and with forget lets go of the clean ones afterwards.
+func (ms *manifests) write(ctx context.Context, scope string, forget bool) error {
 	ms.flushing.Lock()
 	defer ms.flushing.Unlock()
 	ms.mu.Lock()
@@ -278,7 +296,7 @@ func (ms *manifests) flush(ctx context.Context, scope string) error {
 		j.m.since = time.Now()
 		ms.mu.Unlock()
 	}
-	if scope == "" && firstErr == nil {
+	if forget && firstErr == nil {
 		ms.forgetClean()
 	}
 	return firstErr

@@ -558,6 +558,16 @@ func (c *Client) Flush(ctx context.Context) error {
 	return c.meta.flush(ctx, "")
 }
 
+// Pending reports whether dates or permissions are waiting to be saved. The
+// files themselves are on Drime once Put returns.
+func (c *Client) Pending() bool { return c.meta.pending() }
+
+// Checkpoint saves the dates and permissions recorded so far, keeping what was
+// read so a run in progress carries on without reading them again.
+func (c *Client) Checkpoint(ctx context.Context) error {
+	return c.meta.write(ctx, "", false)
+}
+
 // AbandonStaleUploads gives up on unfinished uploads older than
 // remote.ResumeMaxAge. Drime cannot list open uploads, so only the ones this
 // machine wrote down are found.
