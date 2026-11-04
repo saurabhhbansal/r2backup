@@ -63,17 +63,34 @@ func Set(path string, pid int) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	return os.Rename(name, path)
+	return retry(func() error { return os.Rename(name, path) })
 }
 
 // Clear removes the marker, resuming whatever run it was holding. A marker
 // that is not there is not an error.
 func Clear(path string) error {
-	err := os.Remove(path)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
+	return retry(func() error {
+		err := os.Remove(path)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return nil
+	})
+}
+
+// retry runs f until it succeeds, for up to a second. On Windows a file that
+// another process is reading at that instant -- the run polling the marker
+// twice a second -- cannot be removed or replaced, and the attempt fails with
+// a sharing violation; a moment later it can. Resume must not fail on that.
+func retry(f func() error) error {
+	var err error
+	for i := 0; i < 20; i++ {
+		if err = f(); err == nil {
+			return nil
+		}
+		time.Sleep(50 * time.Millisecond)
 	}
-	return nil
+	return err
 }
 
 // started is when this process began. A marker written before it cannot have
