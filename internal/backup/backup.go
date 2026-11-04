@@ -301,7 +301,10 @@ func run(ctx context.Context, opts Options) (*Report, error) {
 
 	// Only what genuinely landed is recorded. Anything else is retried on the
 	// next run, which is the correct behaviour for a killed or partial run.
-	var recorded []index.Record
+	// What landed is noted in the index as the run goes (see checkpointer),
+	// once storage has it on record, so a run cut off by a crash or a
+	// shutdown keeps what it finished.
+	ckpt := newCheckpointer(opts.Index, set.Name, opts.Client)
 	// Same reasoning as OnUploaded, for the other kind of transfer: a move
 	// whose CopyObject failed must not be recorded as done, or the index
 	// ends up pointing at a new key nothing was ever written to while the
@@ -315,7 +318,7 @@ func run(ctx context.Context, opts Options) (*Report, error) {
 		Metadata:   metadataFor,
 		IsThrottle: isThrottle,
 		OnUploaded: func(e scan.Entry, etag string) {
-			recorded = append(recorded, index.Record{
+			ckpt.add(index.Record{
 				Key:        e.Key,
 				Size:       e.Size,
 				ModTime:    e.ModTime.UnixNano(),
@@ -330,10 +333,22 @@ func run(ctx context.Context, opts Options) (*Report, error) {
 		},
 	})
 
+	ckpt.start(ctx)
 	res, runErr := eng.Run(ctx, p)
 	close(stopTicker)
 	<-tickerDone
+	recorded := ckpt.halt()
 	if runErr != nil {
+		// What landed before the run stopped is still recorded, so the next
+		// run carries on from here instead of sending it all again. The
+		// store is flushed first on a context of its own (this run's may be
+		// the thing that was cancelled); if that fails, nothing more is
+		// recorded and those files go again next time.
+		fctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+		if len(recorded) > 0 && remote.FlushStore(fctx, opts.Client) == nil {
+			_ = opts.Index.PutMany(set.Name, recorded)
+		}
+		cancel()
 		// eng.Run returns ctx.Err() -- almost always context.Canceled -- when
 		// the caller stopped the run rather than something going wrong with
 		// it: someone pressed q in the interface, or the process is shutting
@@ -346,10 +361,9 @@ func run(ctx context.Context, opts Options) (*Report, error) {
 		// equivalent recordRun tell this apart from a run that failed for
 		// real, when they build that history entry. Either way this return
 		// is what keeps a cancelled run from being recorded as a clean one:
-		// nothing below this point -- the index writes that mark uploads and
-		// moves done, trash expiry, the operation count -- runs for a run
-		// that did not finish, exactly as it already didn't for the only
-		// other way this function used to return a non-nil error here.
+		// nothing below this point -- deletions and moves in the index, trash
+		// expiry, the operation count -- runs for a run that did not finish.
+		// Only the uploads that genuinely landed are recorded, just above.
 		if ctx.Err() != nil {
 			return nil, ErrCancelled
 		}

@@ -29,7 +29,8 @@ func TestLaunchdPlistContents(t *testing.T) {
 		{"<integer>1800</integer>", "30 minutes must render as 1800 seconds, the only unit StartInterval accepts"},
 		{"<key>RunAtLoad</key>\n\t<true/>", "RunAtLoad must be true: a StartInterval is counted from load, so without this " +
 			"a macOS machine forgets a run that fell due while it was off -- and an upload interrupted by a shutdown " +
-			"waits a whole interval before carrying on. Windows catches up with StartWhenAvailable, systemd with Persistent=true"},
+			"waits a whole interval before carrying on. Windows catches up with StartWhenAvailable and a sign-in trigger, systemd with OnActiveSec at each login " +
+			"(Persistent=true only applies to OnCalendar timers)"},
 		{"<key>StandardOutPath</key>", "without it a failing scheduled run leaves no trace anywhere -- launchd gives an agent no console"},
 		{"<key>StandardErrorPath</key>", "same as StandardOutPath, for stderr"},
 	}
