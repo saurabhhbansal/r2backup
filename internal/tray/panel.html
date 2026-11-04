@@ -62,12 +62,19 @@ header { display: flex; align-items: center; gap: 10px; padding: 14px var(--gut)
 .badge { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; }
 .badge svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 .k-ok .badge { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
-.k-running .badge, .k-interrupted .badge { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.k-running .badge, .k-interrupted .badge, .k-paused .badge { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .k-attention .badge { color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent); }
 .k-pending .badge, .k-setup .badge { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
 .status h1 { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .status p { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .s-acts { display: flex; gap: 6px; }
+/* A running backup's detail is two lines: how far, then how long. */
+.k-running p, .k-paused p { white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+/* Pause is there when you reach for the card -- hover or keyboard -- and
+   out of the way otherwise. Resume, once paused, is always shown. */
+.s-acts .peek { opacity: 0; transition: opacity .12s; }
+.dock:hover .s-acts .peek, .dock:focus-within .s-acts .peek, .s-acts .peek:focus-visible { opacity: 1; }
+@media (hover: none) { .s-acts .peek { opacity: 1; } }
 .bar { grid-column: 1 / -1; height: 4px; border-radius: 4px; background: var(--card-2); overflow: hidden; }
 .bar i { display: block; height: 100%; background: var(--accent); border-radius: 4px; transition: width .4s ease; }
 .bar.indet i { width: 35% !important; animation: slide 1.2s ease-in-out infinite; }
@@ -900,6 +907,7 @@ const ICON = {
   pending: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/></svg>',
   setup: '<svg viewBox="0 0 24 24"><path d="M12 7v6m0 4h.01"/></svg>',
   interrupted: '<svg viewBox="0 0 24 24"><path d="M9 7v10M15 7v10"/></svg>',
+  paused: '<svg viewBox="0 0 24 24"><path d="M9 7v10M15 7v10"/></svg>',
   running: '<svg class="spin" viewBox="0 0 24 24"><path d="M12 4a8 8 0 1 1-8 8"/></svg>',
   folder: { ok: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12.3 2.7 2.7L16 9.7"/></svg>',
             attention: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5m0 3.5h.01"/></svg>',
@@ -1005,7 +1013,7 @@ function render(state) {
   $("n-folders").textContent = state.folders && state.folders.length ? state.folders.length : "";
   const busy = !!state.running || !!state.busy;
   $("b-all").disabled = busy || !state.configured || !(state.folders && state.folders.length);
-  $("b-all-t").textContent = state.running ? "Backing up…" : (state.busy || "Back up now");
+  $("b-all-t").textContent = state.running ? (state.running.paused ? "Paused" : "Backing up…") : (state.busy || "Back up now");
 
   const sc = state.schedule;
   renderSchedule(sc, state.configured);
@@ -1028,7 +1036,15 @@ function renderStatusActions(state) {
   const box = $("s-acts");
   let html = "";
   const a = state.status.action || "";
-  if (state.canStop) html = '<button class="mini" data-sact="stop">Stop</button>';
+  const r = state.running;
+  // Pause and Resume reach any running backup, the schedule's included.
+  // Pause only once it is sending: while it is still finding files there
+  // is nothing yet to hold.
+  if (r && r.paused) html = '<button class="mini" data-sact="resume">Resume</button>';
+  else if (r && !r.finding && r.percent > 0) html = '<button class="mini peek" data-sact="pause">Pause</button>';
+  // Stop stays where it always worked: a backup this panel started.
+  if (state.canStop) html += '<button class="mini" data-sact="stop">Stop</button>';
+  else if (r) { /* nothing else applies while a backup runs */ }
   else if (a === "backup" && !state.busy) html = '<button class="mini" data-sact="backup">Carry on</button>';
   else if (a.startsWith("folder:")) html = '<button class="mini" data-sact="folder">Show me</button>';
   if (box.dataset.html !== html) { box.dataset.html = html; box.innerHTML = html; }
@@ -1039,6 +1055,14 @@ $("s-acts").addEventListener("click", (e) => {
   const a = S.status.action || "";
   switch (b.dataset.sact) {
     case "stop": b.disabled = true; call("backupStop").catch((err) => toast(err.message)); break;
+    case "pause": case "resume": {
+      const on = b.dataset.sact === "pause";
+      b.disabled = true;
+      call(on ? "backupPause" : "backupResume")
+        .then(() => { if (S && S.running) { S.running.paused = on; renderStatusActions(S); } })
+        .catch((err) => { b.disabled = false; toast(err.message); });
+      break;
+    }
     case "backup": send("backup", ""); break;
     case "folder": openFolder(a.slice(7)); break;
   }

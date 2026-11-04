@@ -124,7 +124,7 @@ func drawIcon(size int, kind string, fg color.NRGBA, tile *color.NRGBA) *image.N
 	mw := mh * float64(m.w) / float64(m.h)
 	mx, my := (s-mw)/2, (s-mh)/2
 	dot, hasDot := dotColours[kind]
-	if kind == KindRunning || kind == KindInterrupted {
+	if kind == KindRunning || kind == KindInterrupted || kind == KindPaused {
 		dot, hasDot = fg, true
 	}
 	dr := s * 0.2 // dot radius

@@ -280,6 +280,14 @@ func (t *trayBackend) addCall(ctx context.Context, method string, raw []byte) (o
 
 	case "backupStop":
 		return nil, true, t.stop()
+
+	// Pause and resume reach any running backup -- this panel's, the
+	// schedule's, a terminal's -- through the marker beside progress.json.
+	// The run holds between files and parts; nothing in flight is cut off.
+	case "backupPause", "backupResume":
+		_, err := setRunPaused(method == "backupPause")
+		t.invalidate()
+		return nil, true, err
 	}
 	return nil, false, nil
 }

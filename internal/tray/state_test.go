@@ -66,6 +66,26 @@ func TestSummarizeStatusPriorities(t *testing.T) {
 	if st.Running == nil || st.Running.Percent != 42 || !strings.Contains(st.Status.Detail, "42%") {
 		t.Fatalf("running = %+v, status %+v", st.Running, st.Status)
 	}
+
+	// Still scanning: how much has been found, no bar to speak of.
+	st = Summarize([]ui.SetView{ok}, ui.Overview{Configured: true, Running: "A", RunFinding: true,
+		RunFoundFiles: 12345, RunFoundBytes: 3 << 30}, nil, now)
+	if !strings.Contains(st.Status.Detail, "Finding files… 12,345 found · 3 GB") {
+		t.Errorf("finding detail = %q", st.Status.Detail)
+	}
+	// Uploading: files, bytes, then how long, on two lines.
+	st = Summarize([]ui.SetView{ok}, ui.Overview{Configured: true, Running: "A", RunPercent: 0.5,
+		RunFilesDone: 12400, RunFilesTotal: 48000, RunBytesDone: 1 << 30, RunBytesTotal: 2 << 30,
+		RunETA: "about 3 hours left"}, nil, now)
+	if want := "12,400 of 48,000 files · 1 of 2 GB\nabout 3 hours left"; st.Status.Detail != want {
+		t.Errorf("uploading detail = %q, want %q", st.Status.Detail, want)
+	}
+	// Paused: said as such, and the panel offers Resume.
+	st = Summarize([]ui.SetView{ok}, ui.Overview{Configured: true, Running: "A", RunPaused: true, RunPercent: 0.5,
+		RunFilesDone: 1, RunFilesTotal: 2}, nil, now)
+	if st.Status.Kind != KindPaused || !strings.HasPrefix(st.Status.Title, "Paused") || !st.Running.Paused {
+		t.Errorf("paused status = %+v", st.Status)
+	}
 }
 
 func TestRecentActivityNewestFirstAndDescribed(t *testing.T) {

@@ -146,6 +146,12 @@ func formatBytesPair(done, total int64) string {
 	return scaledIn(done, unit) + "/" + scaledIn(total, unit) + " " + unit
 }
 
+// FormatBytesOf renders "1.1 of 2 GB": done against total in the total's
+// unit, for a sentence rather than a bar.
+func FormatBytesOf(done, total int64) string {
+	return strings.Replace(formatBytesPair(done, total), "/", " of ", 1)
+}
+
 // scaledIn formats n in the given fixed unit (one of byteUnits).
 func scaledIn(n int64, unit string) string {
 	idx := 0
