@@ -257,6 +257,24 @@ func (ms *manifests) flush(ctx context.Context, scope string) error {
 func (ms *manifests) write(ctx context.Context, scope string, forget bool) error {
 	ms.flushing.Lock()
 	defer ms.flushing.Unlock()
+	return ms.writeLocked(ctx, scope, forget)
+}
+
+// flushSoon is the flush an upload asks for when its set has gathered
+// enough changes. If a save is already under way it does nothing: that
+// save, or the next checkpoint, takes these changes too. Waiting for it
+// instead would stall the upload, and every other upload crossing the
+// threshold meanwhile, only to write the same manifest again and again.
+func (ms *manifests) flushSoon(ctx context.Context, scope string) error {
+	if !ms.flushing.TryLock() {
+		return nil
+	}
+	defer ms.flushing.Unlock()
+	return ms.writeLocked(ctx, scope, false)
+}
+
+// writeLocked is write with ms.flushing held.
+func (ms *manifests) writeLocked(ctx context.Context, scope string, forget bool) error {
 	ms.mu.Lock()
 	type job struct {
 		scope string
