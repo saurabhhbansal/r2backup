@@ -14,6 +14,7 @@ package progress
 import (
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -89,6 +90,10 @@ type Snapshot struct {
 	// Paused is true while the run is being held (see FollowPause).
 	// Elapsed, the rates and the ETA stand still for as long as it is.
 	Paused bool
+
+	// InFlight is how many files are being sent right now. A pause takes
+	// hold when this reaches zero, not when it is asked for.
+	InFlight int
 }
 
 // Tracker accumulates completions for a plan of known total size and turns
@@ -154,7 +159,13 @@ type Tracker struct {
 	paused      bool
 	pausedAt    time.Time // real time the current pause began
 	pausedTotal time.Duration
+
+	inFlight atomic.Int64
 }
+
+// InFlight adds delta to the count of files being sent (+1 as one starts,
+// -1 as it ends).
+func (t *Tracker) InFlight(delta int) { t.inFlight.Add(int64(delta)) }
 
 // FollowPause makes the tracker consult paused on every update and snapshot,
 // and stop its clock for as long as it reports true.
@@ -435,5 +446,6 @@ func (t *Tracker) Snapshot() Snapshot {
 		ETA:        time.Duration(etaOut * float64(time.Second)),
 		ETAKnown:   known,
 		Paused:     t.paused,
+		InFlight:   int(max(t.inFlight.Load(), 0)),
 	}
 }

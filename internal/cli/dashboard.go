@@ -313,7 +313,7 @@ func (d *dashboard) Load(ctx context.Context) ([]ui.SetView, ui.Overview, error)
 // holds the index's lock. It reports whether a run is live.
 func applyLiveRun(ov *ui.Overview, now time.Time) bool {
 	ov.Running, ov.RunPercent, ov.RunETA = "", 0, ""
-	ov.RunPaused, ov.RunFinding, ov.RunFoundFiles, ov.RunFoundBytes = false, false, 0, 0
+	ov.RunPaused, ov.RunInFlight, ov.RunFinding, ov.RunFoundFiles, ov.RunFoundBytes = false, 0, false, 0, 0
 	ov.RunFilesDone, ov.RunFilesTotal, ov.RunBytesDone, ov.RunBytesTotal = 0, 0, 0, 0
 	ov.Interrupted, ov.InterruptedAt, ov.InterruptedDone, ov.InterruptedTotal = "", time.Time{}, 0, 0
 	p, err := config.ProgressPath()
@@ -322,7 +322,7 @@ func applyLiveRun(ov *ui.Overview, now time.Time) bool {
 	}
 	if live, err := runstate.ReadLive(p); err == nil && !live.Stale(now) {
 		ov.Running = live.Set
-		ov.RunPaused = live.Paused
+		ov.RunPaused, ov.RunInFlight = live.Paused, live.InFlight
 		ov.RunFinding = live.Phase == runstate.PhaseFinding
 		ov.RunFoundFiles, ov.RunFoundBytes = live.FoundFiles, live.FoundBytes
 		ov.RunFilesDone, ov.RunFilesTotal = live.FilesDone, live.FilesTotal

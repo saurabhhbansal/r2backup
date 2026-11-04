@@ -30,6 +30,16 @@ const (
 	// files, and an estimate from it says more about that than the run.
 	presentAfter   = 30 * time.Second
 	presentPercent = 2.0
+	// presentFiles is how many files must be done before the estimate is
+	// shown (or presentPercent of them, if that is more): by then the run
+	// has met small files as well as big ones. Bytes alone are not enough --
+	// a few large files going first can be nine tenths of the bytes while
+	// the forty thousand small ones, which take nearly all the time, have
+	// not started.
+	presentFiles = 50
+	// fewFiles is the size below which a plan is judged by bytes instead:
+	// a handful of big files has no small ones to wait for.
+	fewFiles = 20
 	// presentChange is how far the estimate must move, as a share of what
 	// is shown, before the display follows it; presentHold is how many
 	// snapshots in a row it must stay moved.
@@ -37,14 +47,20 @@ const (
 	presentHold   = 2
 )
 
+// seenEnough reports whether the run has done enough of its files to say
+// anything about how long the rest will take.
+func seenEnough(s Snapshot) bool {
+	if s.FilesTotal < fewFiles {
+		return s.Percent >= presentPercent
+	}
+	need := math.Max(math.Ceil(presentPercent/100*float64(s.FilesTotal)), math.Min(presentFiles, float64(s.FilesTotal)/4))
+	return float64(s.FilesDone) >= need
+}
+
 // Present returns the remaining time to show, and whether to show one.
 func (p *Presenter) Present(s Snapshot) (time.Duration, bool) {
 	if !p.shown {
-		filesPct := 0.0
-		if s.FilesTotal > 0 {
-			filesPct = 100 * float64(s.FilesDone) / float64(s.FilesTotal)
-		}
-		if !s.ETAKnown || s.Elapsed < presentAfter || (s.Percent < presentPercent && filesPct < presentPercent) {
+		if !s.ETAKnown || s.Elapsed < presentAfter || !seenEnough(s) {
 			return 0, false
 		}
 		p.shown, p.anchor, p.anchorAt = true, s.ETA, s.Elapsed

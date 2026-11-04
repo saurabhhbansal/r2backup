@@ -76,6 +76,9 @@ type Overview struct {
 	// RunPaused is true while that run has been paused (r2b pause, the
 	// panel, or p on the progress screen).
 	RunPaused bool
+	// RunInFlight is how many files that run is sending right now. A
+	// paused run with some is still pausing: they finish first.
+	RunInFlight int
 	// RunFinding is true while the run is still scanning: there is no total
 	// yet, only RunFoundFiles and RunFoundBytes found so far.
 	RunFinding                   bool

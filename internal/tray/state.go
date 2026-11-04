@@ -96,6 +96,11 @@ type Running struct {
 	// Paused is true while the run is held (backupPause, r2b pause). The
 	// panel then offers Resume instead of Pause.
 	Paused bool `json:"paused,omitempty"`
+	// Pausing is true from the moment the pause is asked for until the files
+	// already being sent have finished (InFlight of them): the pause has
+	// been asked for, but is not yet in effect.
+	Pausing  bool `json:"pausing,omitempty"`
+	InFlight int  `json:"inFlight,omitempty"`
 	// Finding is true while it is still scanning, with no total yet.
 	Finding bool `json:"finding,omitempty"`
 }
@@ -211,7 +216,8 @@ func Summarize(views []ui.SetView, ov ui.Overview, hist []runstate.Past, now tim
 	if ov.Running != "" {
 		// RunPercent is a fraction; the panel wants a percentage.
 		st.Running = &Running{Set: ov.Running, Percent: ov.RunPercent * 100, ETA: ov.RunETA,
-			Paused: ov.RunPaused, Finding: ov.RunFinding}
+			Paused: ov.RunPaused, Finding: ov.RunFinding,
+			Pausing: ov.RunPaused && ov.RunInFlight > 0, InFlight: ov.RunInFlight}
 	}
 
 	st.Status = status(st, ov, len(views), bad, never, last, now)
@@ -232,6 +238,11 @@ func status(st State, ov ui.Overview, n, bad, never int, last time.Time, now tim
 		if st.Running.Paused {
 			// Said plainly, with where it got to: a paused run is not a
 			// problem, and nothing about it should read like one.
+			if st.Running.Pausing {
+				n := st.Running.InFlight
+				d = fmt.Sprintf("%d %s finishing\n%s", n, map[bool]string{true: "file", false: "files"}[n == 1], d)
+				return Status{Kind: KindPaused, Title: "Pausing… · " + st.Running.Set, Detail: d}
+			}
 			return Status{Kind: KindPaused, Title: "Paused · " + st.Running.Set, Detail: d}
 		}
 		if !ov.RunFinding && ov.RunFilesTotal == 0 && ov.RunBytesTotal == 0 && st.Running.ETA != "" && st.Running.Percent > 0 {

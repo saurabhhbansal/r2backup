@@ -1013,7 +1013,7 @@ function render(state) {
   $("n-folders").textContent = state.folders && state.folders.length ? state.folders.length : "";
   const busy = !!state.running || !!state.busy;
   $("b-all").disabled = busy || !state.configured || !(state.folders && state.folders.length);
-  $("b-all-t").textContent = state.running ? (state.running.paused ? "Paused" : "Backing up…") : (state.busy || "Back up now");
+  $("b-all-t").textContent = state.running ? (state.running.pausing ? "Pausing…" : state.running.paused ? "Paused" : "Backing up…") : (state.busy || "Back up now");
 
   const sc = state.schedule;
   renderSchedule(sc, state.configured);

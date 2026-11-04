@@ -25,6 +25,15 @@ type livePublisher struct {
 	gate      pause.Gate
 	pres      progress.Presenter
 	lastFound time.Time
+	started   time.Time // when the run began, for progress.json's started_at
+}
+
+// startedAt is when this run began: the first time it published anything.
+func (l *livePublisher) startedAt() time.Time {
+	if l.started.IsZero() {
+		l.started = time.Now()
+	}
+	return l.started
 }
 
 func (l *livePublisher) paused() bool { return l.gate != nil && l.gate.Paused() }
@@ -38,7 +47,7 @@ func (l *livePublisher) found(files, bytes int64, force bool) {
 	if now := time.Now(); force || now.Sub(l.lastFound) >= 500*time.Millisecond {
 		l.lastFound = now
 		_ = runstate.WriteLive(l.path, runstate.Live{
-			Set: l.set, Phase: runstate.PhaseFinding,
+			Set: l.set, Phase: runstate.PhaseFinding, StartedAt: l.startedAt(),
 			FoundFiles: files, FoundBytes: bytes, Paused: l.paused(),
 		})
 	}
@@ -51,12 +60,12 @@ func (l *livePublisher) progress(phase string, s progress.Snapshot) {
 	}
 	eta, known := l.pres.Present(s)
 	_ = runstate.WriteLive(l.path, runstate.Live{
-		Set: l.set, Phase: phase,
+		Set: l.set, Phase: phase, StartedAt: l.startedAt(),
 		BytesDone: s.BytesDone, BytesTotal: s.BytesTotal,
 		FilesDone: s.FilesDone, FilesTotal: s.FilesTotal,
 		ByteRate: s.ByteRate, FileRate: s.FileRate,
 		ETASeconds: eta.Seconds(), ETAKnown: known,
-		Paused: s.Paused || l.paused(),
+		Paused: s.Paused || l.paused(), InFlight: s.InFlight,
 	})
 }
 
@@ -120,7 +129,12 @@ func newPauseCmd(opts *Options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprintf(opts.Out, "Paused backing up %s. Files already being sent will finish. r2b resume carries on.\n", live.Set)
+			if n := live.InFlight; n > 0 {
+				fmt.Fprintf(opts.Out, "Pausing backing up %s. The %d %s already being sent will finish first. r2b resume carries on.\n",
+					live.Set, n, map[bool]string{true: "file", false: "files"}[n == 1])
+				return nil
+			}
+			fmt.Fprintf(opts.Out, "Paused backing up %s. r2b resume carries on.\n", live.Set)
 			return nil
 		},
 	}

@@ -45,6 +45,14 @@ type Reporter interface {
 	CompleteFile(size int64)
 }
 
+// InFlightReporter is an optional extra a Reporter can have: it is told as
+// each file starts and stops being sent (+1, -1), so a run can say how many are
+// mid-transfer. That is what a pause is waiting on: files already being sent
+// finish, and the pause is complete when there are none.
+type InFlightReporter interface {
+	InFlight(delta int)
+}
+
 // nopReporter is used when Options.Reporter is nil, so call sites never have
 // to nil-check it.
 type nopReporter struct{}
@@ -390,11 +398,18 @@ func (r *runner) worker(ctx context.Context, jobs <-chan job, lim *limiter, resu
 			continue
 		}
 		var out outcome
+		flight, _ := r.opts.Reporter.(InFlightReporter)
+		if flight != nil {
+			flight.InFlight(1)
+		}
 		switch j.kind {
 		case jobUpload:
 			out = r.processUpload(ctx, j.entry)
 		case jobMove:
 			out = r.processMove(ctx, j.move)
+		}
+		if flight != nil {
+			flight.InFlight(-1)
 		}
 		lim.release()
 		results <- out

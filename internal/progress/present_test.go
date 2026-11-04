@@ -24,7 +24,7 @@ func TestFormatETAIsCoarse(t *testing.T) {
 }
 
 func snapAt(elapsed, eta time.Duration, pct float64) Snapshot {
-	return Snapshot{Elapsed: elapsed, ETA: eta, ETAKnown: true, Percent: pct, FilesTotal: 100, FilesDone: int64(pct)}
+	return Snapshot{Elapsed: elapsed, ETA: eta, ETAKnown: true, Percent: pct, FilesTotal: 10000, FilesDone: int64(pct * 100)}
 }
 
 func TestPresenterWaitsForTheWarmUp(t *testing.T) {
@@ -67,5 +67,33 @@ func TestPresenterFollowsARealChangeAfterTwoSnapshots(t *testing.T) {
 	}
 	if d, _ := p.Present(snapAt(62*time.Second, time.Hour, 6)); d != time.Hour {
 		t.Errorf("did not follow a change held for two snapshots: %v", d)
+	}
+}
+
+func TestPresenterWaitsForFilesNotOnlyBytes(t *testing.T) {
+	var p Presenter
+	// Nine tenths of the bytes, a handful of the files: the big ones went
+	// first and nothing yet says what the small ones cost.
+	s := Snapshot{Elapsed: 90 * time.Second, ETA: time.Hour, ETAKnown: true, Percent: 90, FilesTotal: 41368, FilesDone: 57}
+	if _, ok := p.Present(s); ok {
+		t.Error("shown with only bytes done")
+	}
+	s.FilesDone = 800 // under 2% of the files
+	if _, ok := p.Present(s); ok {
+		t.Error("shown before 2% of the files")
+	}
+	s.FilesDone = 830
+	if _, ok := p.Present(s); !ok {
+		t.Error("not shown at 2% of the files")
+	}
+	// A small plan does not wait for fifty files.
+	var q Presenter
+	if _, ok := q.Present(Snapshot{Elapsed: 40 * time.Second, ETA: time.Minute, ETAKnown: true, Percent: 30, FilesTotal: 100, FilesDone: 30}); !ok {
+		t.Error("a 100-file plan waited for fifty files")
+	}
+	// A few big files are judged by bytes: there are no small ones to wait for.
+	var r Presenter
+	if _, ok := r.Present(Snapshot{Elapsed: 40 * time.Second, ETA: time.Hour, ETAKnown: true, Percent: 10, FilesTotal: 3, FilesDone: 0}); !ok {
+		t.Error("three big files never showed an estimate")
 	}
 }

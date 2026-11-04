@@ -76,6 +76,7 @@ type reporter struct{ t *progress.Tracker }
 
 func (r reporter) AddBytes(n int64)        { r.t.AddBytes(n) }
 func (r reporter) CompleteFile(size int64) { r.t.Complete(0) }
+func (r reporter) InFlight(delta int)      { r.t.InFlight(delta) }
 
 // metadataFor builds the per-object metadata that makes the bucket
 // self-describing, so a restore needs no manifest.
@@ -113,6 +114,7 @@ func isThrottle(err error) bool {
 
 var _ engine.Uploader = uploader{}
 var _ engine.Reporter = reporter{}
+var _ engine.InFlightReporter = reporter{}
 
 // trashAdapter narrows the trash package to the single call a run makes, so
 // backup does not carry retention policy around with it.

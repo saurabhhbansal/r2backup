@@ -47,6 +47,11 @@ type Live struct {
 	// is still live, not stale.
 	Paused bool `json:"paused,omitempty"`
 
+	// InFlight is how many files are being sent right now. Paused with
+	// InFlight above zero is a pause that has been asked for but has not
+	// taken hold: those files finish first.
+	InFlight int `json:"in_flight"`
+
 	// FoundFiles and FoundBytes are how much the scan has found so far,
 	// published while Phase is PhaseFinding, before any total is known.
 	FoundFiles int64 `json:"found_files,omitempty"`

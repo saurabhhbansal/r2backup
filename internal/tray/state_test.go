@@ -171,3 +171,18 @@ func TestRecentRunsKeepTheirDetail(t *testing.T) {
 		t.Errorf("a failed run's words: %+v", b)
 	}
 }
+
+func TestPausingUntilTheFilesInFlightFinish(t *testing.T) {
+	ok := ui.SetView{Name: "A"}
+	st := Summarize([]ui.SetView{ok}, ui.Overview{Configured: true, Running: "A", RunPaused: true, RunInFlight: 37, RunPercent: 0.5,
+		RunFilesDone: 1, RunFilesTotal: 2}, nil, now)
+	if st.Status.Kind != KindPaused || !strings.HasPrefix(st.Status.Title, "Pausing") || !st.Running.Pausing ||
+		!strings.HasPrefix(st.Status.Detail, "37 files finishing") {
+		t.Errorf("pausing status = %+v", st.Status)
+	}
+	st = Summarize([]ui.SetView{ok}, ui.Overview{Configured: true, Running: "A", RunPaused: true, RunInFlight: 0, RunPercent: 0.5,
+		RunFilesDone: 1, RunFilesTotal: 2}, nil, now)
+	if st.Running.Pausing || !strings.HasPrefix(st.Status.Title, "Paused") {
+		t.Errorf("paused status = %+v", st.Status)
+	}
+}
