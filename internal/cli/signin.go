@@ -193,7 +193,7 @@ func localStoredKeys(a *app) account.StoredKeys {
 	}
 	k.Purpose = storedPurpose()
 	if k.Purpose == "" {
-		k.Purpose = inferPurpose(k.Primary, k.Second)
+		k.Purpose = inferLocalPurpose(k.Primary, k.Second)
 	}
 	return k
 }

@@ -139,7 +139,7 @@ func (t *trayBackend) mirrorInfo() (mirrorInfoOut, error) {
 		out.Set, out.Dest, out.Provider = true, destLabel(mc), mc.Kind()
 	}
 	if s, err := config.LoadSettings(); err == nil {
-		out.Auto = s.MirrorAuto && out.Set
+		out.Auto = out.Set // always copied after every backup
 		var last int64
 		for _, v := range s.MirrorLast {
 			if v > last {
@@ -172,6 +172,9 @@ func (t *trayBackend) mirrorSetup(ctx context.Context, c creds.Credentials, auto
 	if samePlace(main, c) {
 		return errors.New("that is where your backups already go. A second copy has to be somewhere else")
 	}
+	if c.IsDrime() {
+		return errors.New("a secondary backup goes to S3 storage, with a company other than Drime")
+	}
 	store, err := openStore(ctx, c, nil)
 	if err != nil {
 		return err
@@ -183,7 +186,9 @@ func (t *trayBackend) mirrorSetup(ctx context.Context, c creds.Credentials, auto
 	if err := a.mirror.Save(c); err != nil {
 		return err
 	}
-	return setMirrorAuto(auto)
+	// Always copied after every backup now; auto is kept for older callers.
+	_ = auto
+	return setMirrorAuto(true)
 }
 
 func (t *trayBackend) startMirror(everything, reverse bool) error {
@@ -274,6 +279,10 @@ func (t *trayBackend) startMirror(everything, reverse bool) error {
 
 // mirrorCall serves the panel's second-copy requests.
 func (t *trayBackend) mirrorCall(ctx context.Context, method string, raw []byte) (out any, ok bool, err error) {
+	// Browsing Drime for a folder. See drime_browse.go.
+	if out, ok, err := t.drimeCall(ctx, method, raw); ok {
+		return out, true, err
+	}
 	switch method {
 	case "mirrorInfo":
 		res, err := t.mirrorInfo()

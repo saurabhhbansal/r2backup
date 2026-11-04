@@ -126,6 +126,7 @@ func NewRoot(opts *Options) *cobra.Command {
 		newRemoveCmd(opts),
 		newTrashCmd(opts),
 		newMirrorCmd(opts),
+		newDrimeCmd(opts),
 		newTrayCmd(opts),
 		newUpdateCmd(opts),
 		newAccountCmd(opts),
