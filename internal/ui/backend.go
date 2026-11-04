@@ -56,7 +56,7 @@ type Overview struct {
 	// DailyAt is "HH:MM" when backups run once a day, and "" otherwise.
 	DailyAt string
 	NextRun time.Time
-	LastRun   time.Time
+	LastRun time.Time
 	// RunsWhenSignedOut is false both when the task genuinely only runs
 	// while signed in and when the platform cannot say, so the Schedule tab
 	// uses it to soften a claim rather than to make one.

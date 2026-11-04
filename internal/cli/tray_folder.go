@@ -215,7 +215,7 @@ func (t *trayBackend) folderCall(ctx context.Context, method string, raw []byte)
 		}
 		res := map[string]any{"name": s.Name, "root": s.Root, "rootExists": exists, "excluded": len(s.Excludes),
 			"trash": s.TrashEnabled(), "retention": s.RetentionDays,
-			"missing": s.Status == sets.StatusNeedsAttention && !exists,
+			"missing":   s.Status == sets.StatusNeedsAttention && !exists,
 			"secondary": !s.NoSecondary}
 		if s.StatusNote != "" {
 			res["note"] = tray.Plain(s.StatusNote)

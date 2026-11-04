@@ -239,8 +239,8 @@ type accountConfigOut struct {
 	// token they are read with, hidden, "" when there is none.
 	Drime      drimeSourcesOut `json:"drime"`
 	DrimeToken string          `json:"drimeToken,omitempty"`
-	Err     string       `json:"err,omitempty"`
-	Devices []deviceJSON `json:"devices"`
+	Err        string          `json:"err,omitempty"`
+	Devices    []deviceJSON    `json:"devices"`
 }
 
 // accountConfig is everything the account screen shows.

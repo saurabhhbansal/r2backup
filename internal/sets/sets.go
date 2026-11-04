@@ -92,7 +92,7 @@ type Set struct {
 	// recorded before this existed, and every new one -- is copied.
 	NoSecondary bool `json:"no_secondary,omitempty"`
 
-	Status    Status    `json:"status"`
+	Status     Status    `json:"status"`
 	StatusNote string    `json:"status_note,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
 

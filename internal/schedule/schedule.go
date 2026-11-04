@@ -129,7 +129,7 @@ type Status struct {
 	Registered bool
 	Interval   time.Duration
 	// DailyAt is "HH:MM" when the entry fires once a day, and "" otherwise.
-	DailyAt string
+	DailyAt    string
 	NextRun    time.Time
 	LastRun    time.Time
 	LastResult string
