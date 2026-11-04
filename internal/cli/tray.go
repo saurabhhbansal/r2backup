@@ -50,6 +50,9 @@ func runTray(ctx context.Context, opts *Options) error {
 	defer d.close()
 	t := &trayBackend{d: d, checkUpdates: true}
 	defer t.endCF()
+	cctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go t.carryOn(cctx, carryOnAfter)
 	return tray.Run(ctx, t)
 }
 
@@ -313,7 +316,11 @@ func (t *trayBackend) stop() error {
 		return errors.New("there is no backup from here to stop")
 	}
 	t.stopped = true
-	return t.child.Process.Kill()
+	err := t.child.Process.Kill()
+	// So the next start of the panel does not carry on what the person
+	// just stopped (see carryOn).
+	markStoppedByHand()
+	return err
 }
 
 func (t *trayBackend) BackUp(name string) error {
