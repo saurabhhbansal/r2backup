@@ -84,7 +84,7 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 	}
 	hc := cfg.HTTPClient
 	if hc == nil {
-		hc = &http.Client{Timeout: 0} // per-request deadlines come from ctx
+		hc = defaultHTTPClient()
 	}
 	attempts := cfg.MaxAttempts
 	if attempts <= 0 {
@@ -526,6 +526,51 @@ func (c *Client) DeleteBatch(ctx context.Context, keys []string) error {
 	return c.meta.remove(ctx, keys)
 }
 
+// responseWait is the longest a request waits for Drime to start answering
+// once it has been sent. Without it a connection that goes quiet holds a
+// backup or a delete forever: a purge once sat on one request for 50 minutes.
+// Generous, because Drime answers a large folder delete only once it is done.
+var responseWait = 5 * time.Minute
+
+// defaultHTTPClient has no overall timeout -- an upload of a large file takes
+// as long as it takes, and per-request deadlines come from ctx -- but it does
+// stop waiting for an answer that never starts.
+func defaultHTTPClient() *http.Client {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.ResponseHeaderTimeout = responseWait
+	return &http.Client{Transport: tr}
+}
+
+// folderDeleteWait is how long a folder delete waits for Drime's answer, and
+// folderGoneWait how long after that it keeps looking for the folder to
+// disappear. Variables so tests can shorten them.
+var (
+	folderDeleteWait = 3 * time.Minute
+	folderGoneWait   = 10 * time.Minute
+	folderGoneEvery  = 10 * time.Second
+)
+
+// waitFolderGone looks for p on Drime, afresh each time, until it is not
+// there or folderGoneWait has passed.
+func (c *Client) waitFolderGone(ctx context.Context, p string) (bool, error) {
+	deadline := time.Now().Add(folderGoneWait)
+	for {
+		c.tree.unknowDir(p)
+		d, err := c.tree.resolve(ctx, p, false)
+		if err == nil && d == nil {
+			return true, nil
+		}
+		if time.Now().After(deadline) {
+			return false, err
+		}
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-time.After(folderGoneEvery):
+		}
+	}
+}
+
 // DeletePrefix removes everything under prefix. A prefix ending in "/" that
 // names a folder is deleted as one folder, in one request.
 func (c *Client) DeletePrefix(ctx context.Context, prefix string) (remote.PrefixDeletion, error) {
@@ -542,8 +587,20 @@ func (c *Client) DeletePrefix(ctx context.Context, prefix string) (remote.Prefix
 		if d == nil {
 			return remote.PrefixDeletion{}, nil
 		}
-		if err := c.api.deleteEntries(ctx, []string{d.id}, true); err != nil && !isNotFound(err) {
-			return remote.PrefixDeletion{}, fmt.Errorf("drime: delete %q: %w", prefix, err)
+		// Drime answers a folder delete only once every file in it is gone:
+		// seconds for most, minutes for tens of thousands. Past folderDeleteWait
+		// the answer is not waited for any more; whether the folder is still
+		// there is.
+		dctx, cancel := context.WithTimeout(ctx, folderDeleteWait)
+		err = c.api.deleteEntries(dctx, []string{d.id}, true)
+		cancel()
+		if err != nil && !isNotFound(err) {
+			if ctx.Err() != nil {
+				return remote.PrefixDeletion{}, ctx.Err()
+			}
+			if gone, gerr := c.waitFolderGone(ctx, p); gerr != nil || !gone {
+				return remote.PrefixDeletion{}, fmt.Errorf("drime: delete %q: %w", prefix, err)
+			}
 		}
 		c.tree.forgetDir(p)
 		c.meta.forgetUnder(prefix)

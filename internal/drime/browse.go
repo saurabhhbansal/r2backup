@@ -35,7 +35,7 @@ func browser(cfg Config) (*api, error) {
 	}
 	hc := cfg.HTTPClient
 	if hc == nil {
-		hc = &http.Client{}
+		hc = defaultHTTPClient()
 	}
 	attempts := cfg.MaxAttempts
 	if attempts <= 0 {

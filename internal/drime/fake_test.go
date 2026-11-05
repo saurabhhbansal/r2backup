@@ -46,6 +46,11 @@ type fakeDrime struct {
 	// folderGate, when set, holds every folder creation until it is closed,
 	// so a test can see what else goes on while one is under way.
 	folderGate chan struct{}
+	// slowDelete holds a delete's answer this long, as Drime does for a
+	// folder of tens of thousands of files; stuckDelete also leaves the
+	// entries in place, as a delete that never happened.
+	slowDelete  time.Duration
+	stuckDelete bool
 }
 
 type fakeEntry struct {
@@ -161,6 +166,28 @@ func writeJSON(w http.ResponseWriter, v any) {
 }
 
 func (f *fakeDrime) serve(w http.ResponseWriter, r *http.Request) {
+	if f.slowDelete > 0 && r.Method == http.MethodPost && r.URL.Path == "/api/v1/file-entries/delete" {
+		var req struct {
+			EntryIDs []string `json:"entryIds"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		f.mu.Lock()
+		f.calls[r.Method+" "+r.URL.Path]++
+		if !f.stuckDelete {
+			for _, id := range req.EntryIDs {
+				if f.entries[id] != nil {
+					f.removeTree(id)
+				}
+			}
+		}
+		f.mu.Unlock()
+		select {
+		case <-time.After(f.slowDelete):
+			writeJSON(w, map[string]any{"status": "success"})
+		case <-r.Context().Done():
+		}
+		return
+	}
 	if g := f.folderGate; g != nil && r.Method == http.MethodPost && r.URL.Path == "/api/v1/folders" {
 		<-g
 	}

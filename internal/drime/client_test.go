@@ -288,6 +288,63 @@ func TestDeletePrefixRemovesFolder(t *testing.T) {
 	}
 }
 
+// Drime answers a big folder delete only once it is done, which can take
+// minutes. Past folderDeleteWait the client stops waiting for the answer and
+// looks for the folder instead: gone means deleted.
+func TestDeletePrefixDoesNotWaitForeverOnASlowAnswer(t *testing.T) {
+	slowDeleteWaits(t)
+	f := newFake(t)
+	c := newClient(t, f, nil)
+	put(t, c, set+"/current/a.txt", []byte("12345"), remote.Metadata{})
+	if err := c.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	f.slowDelete = time.Minute
+	start := time.Now()
+	res, err := c.DeletePrefix(context.Background(), set+"/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(start); d > 10*time.Second {
+		t.Fatalf("waited %v for an answer it no longer needed", d)
+	}
+	if res.Objects != -1 {
+		t.Fatalf("deletion = %+v", res)
+	}
+	for p := range f.files() {
+		if strings.Contains(p, "/Docs/") {
+			t.Fatalf("left behind: %s", p)
+		}
+	}
+}
+
+// A delete that never happens is an error, after a bounded wait, not a hang
+// and not a false success.
+func TestDeletePrefixReportsAFolderThatStays(t *testing.T) {
+	slowDeleteWaits(t)
+	f := newFake(t)
+	c := newClient(t, f, nil)
+	put(t, c, set+"/current/a.txt", []byte("12345"), remote.Metadata{})
+	if err := c.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	f.slowDelete, f.stuckDelete = time.Minute, true
+	start := time.Now()
+	if _, err := c.DeletePrefix(context.Background(), set+"/"); err == nil {
+		t.Fatal("reported a folder that is still there as deleted")
+	}
+	if d := time.Since(start); d > 10*time.Second {
+		t.Fatalf("took %v to give up", d)
+	}
+}
+
+func slowDeleteWaits(t *testing.T) {
+	t.Helper()
+	w, g, e := folderDeleteWait, folderGoneWait, folderGoneEvery
+	folderDeleteWait, folderGoneWait, folderGoneEvery = 200*time.Millisecond, 600*time.Millisecond, 50*time.Millisecond
+	t.Cleanup(func() { folderDeleteWait, folderGoneWait, folderGoneEvery = w, g, e })
+}
+
 func TestLargeUploadResumes(t *testing.T) {
 	f := newFake(t)
 	resume := &memResume{m: map[string]remote.Upload{}}

@@ -366,6 +366,24 @@ func (t *tree) forgetDir(p string) {
 	t.missing[p] = true
 }
 
+// unknowDir forgets everything cached about p and its parent's listing,
+// including that p was missing, so the next resolve asks Drime again.
+func (t *tree) unknowDir(p string) {
+	p = strings.Trim(p, "/")
+	parentPath := strings.Trim(path.Dir(p), "/.")
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for k := range t.dirs {
+		if k == p || strings.HasPrefix(k, p+"/") {
+			delete(t.dirs, k)
+		}
+	}
+	delete(t.missing, p)
+	// "" is the backup root: dropping it makes resolve list it afresh too.
+	delete(t.dirs, parentPath)
+	delete(t.missing, parentPath)
+}
+
 // fileEntry is one file found by walk.
 type fileEntry struct {
 	key string
