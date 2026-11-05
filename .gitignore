@@ -21,3 +21,7 @@ coverage.*
 .DS_Store
 .idea/
 .vscode/
+
+# Local agent and design-tool state
+.claude/
+.impeccable/

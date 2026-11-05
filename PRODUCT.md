@@ -2,7 +2,7 @@
 
 ## Users
 
-People who back up their own folders (code, documents, photos) to Cloudflare R2 or Drime with `r2b`, on Windows. They set it up once, then mostly forget it. The taskbar panel is how they check on it: a click on the tray icon, a two-second glance at "is everything backed up?", maybe one action (back up now, add a folder, open a folder, turn automatic backups on), then the panel closes. Occasionally something needs them: a folder that could not be read, a run that was interrupted, setup not finished.
+People who back up their own folders (code, documents, photos) with `r2b`. They back up to Drime as their Primary backup, and can add an S3 Secondary backup (Cloudflare R2, Backblaze B2 or other S3 storage). Some already use the Drime app and choose "Secondary backup only" to copy their Drime data to S3. Most are on Windows, where the taskbar panel is how they check on things; `r2b` also runs on macOS and Linux as a command line. They set it up once, then mostly forget it. The panel is a click on the tray icon, a two-second glance at "is everything backed up?", maybe one action (back up now, add a folder, open a folder, turn automatic backups on), then the panel closes. Occasionally something needs them: a folder that could not be read, a run that was interrupted, setup not finished.
 
 ## Product Purpose
 

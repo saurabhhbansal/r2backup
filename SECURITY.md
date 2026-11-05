@@ -19,10 +19,9 @@ updates** in the taskbar app) moves you to it.
 
 ## What is in scope
 
-- The `r2b` and `r2bw` programs in this repository.
-- The account service in [`worker/`](worker): sign-in codes, sessions, and
-  the storage keys it keeps for an account.
+- The `r2b` and `r2bw` programs in this repository, including how they keep and send storage keys and Drime tokens.
+- The account service in [`worker/`](worker): sign-in codes, sessions, and the storage keys it keeps for an account.
+- The Ultra fast mode relay in [`relay/`](relay): the Worker r2backup uploads to a person's own Cloudflare account, and how r2backup sets it up and protects it.
 - The install scripts in [`scripts/`](scripts).
 
-Cloudflare R2 and Drime themselves are out of scope; report problems with
-them to those companies.
+Drime, Cloudflare (including R2), Backblaze B2 and other S3 providers are out of scope; report problems with them to those companies. If r2backup uses one of them in a way that exposes keys or files, that is in scope.
