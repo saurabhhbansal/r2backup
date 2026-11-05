@@ -1177,6 +1177,9 @@ func newRemoveCmd(opts *Options) *cobra.Command {
 				// describing an event that did not happen.
 				fmt.Fprintf(opts.Out, "Removed %q. There was nothing in the bucket under %s to delete.\n",
 					s.Name, s.KeyScope())
+			case purge && deleted.Objects < 0:
+				// Drime deletes the set's folder whole, without counting it.
+				fmt.Fprintf(opts.Out, "Removed %q and deleted its backup from the bucket. This cannot be undone.\n", s.Name)
 			case purge:
 				fmt.Fprintf(opts.Out, "Removed %q and deleted %s (%s) from the bucket. This cannot be undone.\n",
 					s.Name, countOf(int64(deleted.Objects), "object", "objects"), progress.FormatBytes(deleted.Bytes))

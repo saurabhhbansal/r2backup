@@ -93,7 +93,10 @@ func (t *trayBackend) deleteStoredBackup(ctx context.Context, machine, name stri
 		if err := remote.FlushStore(ctx, a.client); err != nil {
 			return "", err
 		}
-		msg := fmt.Sprintf("Deleted %s (%s).", countOf(int64(gone.Objects), "file", "files"), progress.FormatBytes(gone.Bytes))
+		msg := "Deleted."
+		if gone.Objects >= 0 {
+			msg = fmt.Sprintf("Deleted %s (%s).", countOf(int64(gone.Objects), "file", "files"), progress.FormatBytes(gone.Bytes))
+		}
 		err = t.alsoFromSecond(ctx, where, func(s remote.Store) error {
 			_, err := s.DeletePrefix(ctx, scope)
 			return err

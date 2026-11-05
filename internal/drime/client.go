@@ -529,6 +529,26 @@ func (c *Client) DeleteBatch(ctx context.Context, keys []string) error {
 // DeletePrefix removes everything under prefix. A prefix ending in "/" that
 // names a folder is deleted as one folder, in one request.
 func (c *Client) DeletePrefix(ctx context.Context, prefix string) (remote.PrefixDeletion, error) {
+	// A whole folder goes in one request, without listing it first. Listing
+	// walks every subfolder one request at a time -- tens of minutes for a
+	// code project with thousands of folders -- only to count what is about
+	// to go, so the count is left unknown (Objects -1) instead.
+	if strings.HasSuffix(prefix, "/") && prefix != "/" {
+		p := strings.TrimSuffix(prefix, "/")
+		d, err := c.tree.resolve(ctx, p, false)
+		if err != nil {
+			return remote.PrefixDeletion{}, err
+		}
+		if d == nil {
+			return remote.PrefixDeletion{}, nil
+		}
+		if err := c.api.deleteEntries(ctx, []string{d.id}, true); err != nil && !isNotFound(err) {
+			return remote.PrefixDeletion{}, fmt.Errorf("drime: delete %q: %w", prefix, err)
+		}
+		c.tree.forgetDir(p)
+		c.meta.forgetUnder(prefix)
+		return remote.PrefixDeletion{Objects: -1}, nil
+	}
 	objects, err := c.List(ctx, prefix)
 	if err != nil {
 		return remote.PrefixDeletion{}, err
@@ -537,22 +557,6 @@ func (c *Client) DeletePrefix(ctx context.Context, prefix string) (remote.Prefix
 	for _, o := range objects {
 		out.Objects++
 		out.Bytes += o.Size
-	}
-	if strings.HasSuffix(prefix, "/") && prefix != "/" {
-		p := strings.TrimSuffix(prefix, "/")
-		d, err := c.tree.resolve(ctx, p, false)
-		if err != nil {
-			return remote.PrefixDeletion{}, err
-		}
-		if d == nil {
-			return out, nil
-		}
-		if err := c.api.deleteEntries(ctx, []string{d.id}, true); err != nil && !isNotFound(err) {
-			return remote.PrefixDeletion{}, fmt.Errorf("drime: delete %q: %w", prefix, err)
-		}
-		c.tree.forgetDir(p)
-		c.meta.forgetUnder(prefix)
-		return out, nil
 	}
 	keys := make([]string, len(objects))
 	for i, o := range objects {

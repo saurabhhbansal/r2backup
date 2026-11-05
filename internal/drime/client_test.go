@@ -259,12 +259,17 @@ func TestDeletePrefixRemovesFolder(t *testing.T) {
 	if err := c.Flush(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	before := f.calls["GET /api/v1/drive/file-entries"]
 	res, err := c.DeletePrefix(context.Background(), set+"/")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Objects != 2 || res.Bytes != 7 {
+	// A whole folder goes in one request, uncounted: no listing first.
+	if res.Objects != -1 {
 		t.Fatalf("deletion = %+v", res)
+	}
+	if n := f.calls["GET /api/v1/drive/file-entries"] - before; n > 1 {
+		t.Fatalf("deleting a folder listed %d times; it should only resolve the path", n)
 	}
 	for p := range f.files() {
 		if strings.Contains(p, "/Docs/") {
