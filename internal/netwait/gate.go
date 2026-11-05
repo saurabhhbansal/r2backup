@@ -16,7 +16,7 @@ const (
 	// waiting. Past it the run stops waiting and the files still to go fail
 	// with ErrNoNetwork, to be tried again next run. The prober keeps
 	// looking, and if the network does come back the run goes on normally.
-	MaxWait = 30 * time.Minute
+	MaxWait = 2 * time.Hour
 
 	// FirstProbe is the delay before the second look; each look after that
 	// waits twice as long, up to ProbeCap. The first look is immediate: an
