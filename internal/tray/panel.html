@@ -1013,7 +1013,7 @@ function render(state) {
   $("n-folders").textContent = state.folders && state.folders.length ? state.folders.length : "";
   const busy = !!state.running || !!state.busy;
   $("b-all").disabled = busy || !state.configured || !(state.folders && state.folders.length);
-  $("b-all-t").textContent = state.running ? (state.running.pausing ? "Pausing…" : state.running.paused ? "Paused" : "Backing up…") : (state.busy || "Back up now");
+  $("b-all-t").textContent = state.running ? (state.running.pausing ? "Pausing…" : state.running.paused ? "Paused" : state.running.offline ? "Waiting for the network…" : "Backing up…") : (state.busy || "Back up now");
 
   const sc = state.schedule;
   renderSchedule(sc, state.configured);
@@ -2847,7 +2847,7 @@ function jobDraw(box, st, done) {
     box.innerHTML = '<div class="bigicon bad"><svg viewBox="0 0 24 24"><path d="M12 7.5v5m0 3.5h.01"/></svg></div><h2>Could not finish</h2><p>' + esc(st.error) + '</p><div class="btns"><button class="mini" data-jdone>Close</button></div>';
   } else {
     box.innerHTML = "<h2>" + (st.reverse ? "Copying back from " : /→/.test(st.to || "") ? "Copying " : "Copying to ") + esc(st.to || "the secondary backup") + "</h2><p>" + (st.files ? esc(st.files) + " files" : "Comparing the two…") + '</p><div class="bar' + (st.percent > 0 ? "" : " indet") + '"><i style="width:' + Math.min(100, st.percent || 0) + '%"></i></div>' +
-      "<p>" + (st.bytesAll ? esc(st.bytesDone) + " of " + esc(st.bytesAll) : "&nbsp;") + '</p><div class="btns"><button class="mini" data-jstop>Stop</button></div>';
+      "<p>" + (st.bytesAll ? esc(st.bytesDone) + " of " + esc(st.bytesAll) : "&nbsp;") + (st.offline ? " · Waiting for the network…" : "") + '</p><div class="btns"><button class="mini" data-jstop>Stop</button></div>';
     box.querySelector("[data-jstop]").onclick = () => { call("mirrorCancel").catch(() => {}); };
     return;
   }

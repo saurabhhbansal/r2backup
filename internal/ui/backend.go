@@ -76,6 +76,9 @@ type Overview struct {
 	// RunPaused is true while that run has been paused (r2b pause, the
 	// panel, or p on the progress screen).
 	RunPaused bool
+	// RunOffline is true while that run is waiting for the network to come
+	// back.
+	RunOffline bool
 	// RunInFlight is how many files that run is sending right now. A
 	// paused run with some is still pausing: they finish first.
 	RunInFlight int

@@ -129,6 +129,23 @@ func CheckpointStore(ctx context.Context, s Store) (ok bool, err error) {
 	return true, nil
 }
 
+// EndpointOf is the URL s sends its requests to, or "" when it cannot say. A
+// store wrapping another (bundling) answers for the one underneath. It is
+// what a run checks to know whether the network has come back.
+func EndpointOf(s Store) string {
+	for i := 0; s != nil && i < 8; i++ {
+		if e, ok := s.(interface{ Endpoint() string }); ok {
+			return e.Endpoint()
+		}
+		b, ok := s.(interface{ Base() Store })
+		if !ok {
+			return ""
+		}
+		s = b.Base()
+	}
+	return ""
+}
+
 // CloseStore is for a Store that is done with: it saves anything held back,
 // then lets go of what the store keeps on disk (a bundling store's cached
 // packs are temporary files that otherwise stay behind). It is safe on any

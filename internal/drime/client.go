@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/saurabhhbansal/r2backup/internal/netwait"
 	"github.com/saurabhhbansal/r2backup/internal/remote"
 )
 
@@ -155,6 +156,9 @@ func (c *Client) findRoot(ctx context.Context) (string, error) {
 // Bucket names the place backups go, for showing to a person.
 func (c *Client) Bucket() string { return "Drime: " + c.root }
 
+// Endpoint is the address requests go to, for checking the network is there.
+func (c *Client) Endpoint() string { return c.api.base }
+
 // SpaceUsage reports how full the account is.
 func (c *Client) SpaceUsage(ctx context.Context) (SpaceUsage, error) {
 	return c.api.spaceUsage(ctx)
@@ -214,6 +218,13 @@ func (c *Client) Put(ctx context.Context, in remote.PutInput) error {
 		it, err = c.uploadSmall(ctx, d.id, leaf, in.Body, in.Size, in.ContentType, in.Progress)
 	}
 	if err != nil {
+		// A connection cut after the file was sent may have left it in
+		// Drime without our hearing so. The folder is listed afresh next
+		// time, so a second try finds that copy and replaces it instead of
+		// leaving it beside the new one.
+		if netwait.IsNetworkError(err) {
+			c.tree.refresh(dp)
+		}
 		return err
 	}
 

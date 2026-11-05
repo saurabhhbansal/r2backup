@@ -65,7 +65,7 @@ func (l *livePublisher) progress(phase string, s progress.Snapshot) {
 		FilesDone: s.FilesDone, FilesTotal: s.FilesTotal,
 		ByteRate: s.ByteRate, FileRate: s.FileRate,
 		ETASeconds: eta.Seconds(), ETAKnown: known,
-		Paused: s.Paused || l.paused(), InFlight: s.InFlight,
+		Paused: s.Paused || l.paused(), Offline: s.Offline, InFlight: s.InFlight,
 	})
 }
 

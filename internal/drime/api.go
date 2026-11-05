@@ -38,6 +38,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/saurabhhbansal/r2backup/internal/netwait"
 )
 
 // traceOn logs every request to stderr when R2BACKUP_DRIME_DEBUG is set: the
@@ -165,13 +167,18 @@ type request struct {
 	rewind func() error
 }
 
+// maxHeld is how many times one request may wait for the network to come
+// back without that attempt counting against maxAttempts.
+const maxHeld = 8
+
 // send performs r with retries and returns the response of the first attempt
 // that is not worth retrying. A non-2xx response is turned into *apiError and
 // its body closed; a 2xx response is the caller's to close.
 func (a *api) send(ctx context.Context, r request) (*http.Response, error) {
 	var lastErr error
+	held, tried := 0, false
 	for attempt := 1; attempt <= a.maxAttempts; attempt++ {
-		if attempt > 1 && r.rewind != nil {
+		if tried && r.rewind != nil {
 			if err := r.rewind(); err != nil {
 				return nil, err
 			}
@@ -204,12 +211,30 @@ func (a *api) send(ctx context.Context, r request) (*http.Response, error) {
 
 		began := time.Now()
 		resp, err := a.hc.Do(req)
+		tried = true
 		if traceOn {
 			trace(req, resp, err, attempt, time.Since(began))
 		}
 		if err != nil {
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
+			}
+			// The network is gone (a lookup failed, a connection was cut):
+			// wait for it to come back, with the rest of the run, rather
+			// than spending the attempts on it -- then try again as if this
+			// one had not happened. maxHeld bounds a request that keeps
+			// failing while the network looks fine.
+			if held < maxHeld {
+				switch herr := netwait.Hold(ctx, err); {
+				case herr == nil:
+					held++
+					attempt--
+					continue
+				case errors.Is(herr, netwait.ErrNoNetwork):
+					return nil, fmt.Errorf("%w (%v)", netwait.ErrNoNetwork, err)
+				case ctx.Err() != nil:
+					return nil, ctx.Err()
+				}
 			}
 			lastErr = err
 			if attempt < a.maxAttempts {

@@ -208,6 +208,8 @@ func (m *Model) statusLine() string {
 			line += dimStyle.Render(fmt.Sprintf(" · %.0f%%", m.ov.RunPercent*100))
 		}
 		return line + dimStyle.Render(" · w then p to carry on")
+	case m.ov.Running != "" && m.ov.RunOffline:
+		return warnStyle.Render("… Waiting for the network · " + m.ov.Running)
 	case m.ov.Running != "":
 		line := m.spin.View() + " " + titleStyle.Render("Backing up "+m.ov.Running)
 		if m.ov.RunFinding {
@@ -834,6 +836,9 @@ func (m *Model) runningView() string {
 func etaText(s progress.Snapshot) string {
 	if s.Paused {
 		return "paused"
+	}
+	if s.Offline {
+		return "waiting for the network…"
 	}
 	if !s.ETAKnown {
 		return "estimating..."

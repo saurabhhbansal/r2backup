@@ -96,6 +96,8 @@ type Running struct {
 	// Paused is true while the run is held (backupPause, r2b pause). The
 	// panel then offers Resume instead of Pause.
 	Paused bool `json:"paused,omitempty"`
+	// Offline is true while the run is waiting for the network to come back.
+	Offline bool `json:"offline,omitempty"`
 	// Pausing is true from the moment the pause is asked for until the files
 	// already being sent have finished (InFlight of them): the pause has
 	// been asked for, but is not yet in effect.
@@ -216,7 +218,7 @@ func Summarize(views []ui.SetView, ov ui.Overview, hist []runstate.Past, now tim
 	if ov.Running != "" {
 		// RunPercent is a fraction; the panel wants a percentage.
 		st.Running = &Running{Set: ov.Running, Percent: ov.RunPercent * 100, ETA: ov.RunETA,
-			Paused: ov.RunPaused, Finding: ov.RunFinding,
+			Paused: ov.RunPaused, Offline: ov.RunOffline, Finding: ov.RunFinding,
 			Pausing: ov.RunPaused && ov.RunInFlight > 0, InFlight: ov.RunInFlight}
 	}
 
@@ -244,6 +246,11 @@ func status(st State, ov ui.Overview, n, bad, never int, last time.Time, now tim
 				return Status{Kind: KindPaused, Title: "Pausing… · " + st.Running.Set, Detail: d}
 			}
 			return Status{Kind: KindPaused, Title: "Paused · " + st.Running.Set, Detail: d}
+		}
+		if st.Running.Offline {
+			// Not a failure either: it carries on by itself when the
+			// network is back.
+			return Status{Kind: KindRunning, Title: "Waiting for the network… · " + st.Running.Set, Detail: d}
 		}
 		if !ov.RunFinding && ov.RunFilesTotal == 0 && ov.RunBytesTotal == 0 && st.Running.ETA != "" && st.Running.Percent > 0 {
 			d += " · " + st.Running.ETA

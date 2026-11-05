@@ -23,6 +23,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/saurabhhbansal/r2backup/internal/netwait"
 	"github.com/saurabhhbansal/r2backup/internal/remote"
 )
 
@@ -75,7 +76,14 @@ const relayGiveUp = 5
 type Progress struct {
 	FilesDone, FilesTotal int
 	BytesDone, BytesTotal int64
+	// Offline is true while the run is waiting for the network to come back.
+	Offline bool
 }
+
+// maxNetRetries is how many times one file is copied again after failing for
+// want of a network. Each retry waits until the network has been seen to be
+// back, so only a file that keeps failing on a working network reaches it.
+const maxNetRetries = 8
 
 // Failure is one file that could not be copied or removed. A failure does
 // not stop the run; the next run tries it again.
@@ -221,6 +229,12 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 	started := time.Now()
 	rep := &Report{}
 
+	// The network going away holds the copy until it is back, rather than
+	// failing every file in flight. Both ends must be reachable.
+	ctx, closeGate := netwait.Ensure(ctx, remote.EndpointOf(opts.Src), remote.EndpointOf(opts.Dst))
+	defer closeGate()
+	gate := netwait.FromContext(ctx)
+
 	var all Plan
 	for _, prefix := range opts.Prefixes {
 		if prefix != "" && !strings.HasSuffix(prefix, "/") {
@@ -274,8 +288,34 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 	nFiles := len(all.Copies)
 	report := func() {
 		if opts.Progress != nil {
-			opts.Progress(Progress{FilesDone: int(done.Load()), FilesTotal: nFiles, BytesDone: bytesDone.Load(), BytesTotal: total})
+			opts.Progress(Progress{FilesDone: int(done.Load()), FilesTotal: nFiles, BytesDone: bytesDone.Load(),
+				BytesTotal: total, Offline: gate.Offline()})
 		}
+	}
+	if gate != nil && opts.Progress != nil {
+		// Progress is otherwise said only as files finish, and while the
+		// network is gone none do: say when the run starts and stops
+		// waiting for it.
+		watchDone := make(chan struct{})
+		defer close(watchDone)
+		go func() {
+			t := time.NewTicker(time.Second)
+			defer t.Stop()
+			was := false
+			for {
+				select {
+				case <-watchDone:
+					return
+				case <-ctx.Done():
+					return
+				case <-t.C:
+					if now := gate.Offline(); now != was {
+						was = now
+						report()
+					}
+				}
+			}
+		}()
 	}
 	jobs := make(chan copyJob)
 	for i := 0; i < conc; i++ {
@@ -283,10 +323,41 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 		go func() {
 			defer wg.Done()
 			for j := range jobs {
-				relayed, fellBack := rl.try(ctx, opts.Src, opts.Dst, j, func(n int64) { bytesDone.Add(n) })
+				var relayed, fellBack bool
 				var err error
-				if !relayed {
-					err = copyOne(ctx, opts.Src, opts.Dst, j, func(n int64) { bytesDone.Add(n) })
+				for tries := 0; ; tries++ {
+					if gate != nil {
+						if err = gate.Wait(ctx); err != nil {
+							break
+						}
+					}
+					var fb bool
+					relayed, fb = rl.try(ctx, opts.Src, opts.Dst, j, func(n int64) { bytesDone.Add(n) })
+					fellBack = fellBack || fb
+					var sent atomic.Int64 // parts may report from several goroutines
+					if !relayed {
+						err = copyOne(ctx, opts.Src, opts.Dst, j, func(n int64) {
+							sent.Add(n)
+							bytesDone.Add(n)
+						})
+					}
+					if err == nil || tries >= maxNetRetries {
+						break
+					}
+					// The network went: wait for it with the rest of the
+					// run, then copy this file again. What the failed copy
+					// counted is counted again by the next, so it comes off.
+					herr := netwait.Hold(ctx, err)
+					if herr == nil {
+						bytesDone.Add(-sent.Load())
+						err = nil
+						report()
+						continue
+					}
+					if errors.Is(herr, netwait.ErrNoNetwork) && !errors.Is(err, netwait.ErrNoNetwork) {
+						err = fmt.Errorf("%w (%v)", netwait.ErrNoNetwork, err)
+					}
+					break
 				}
 				mu.Lock()
 				if err != nil {
@@ -397,6 +468,9 @@ func (r *relayState) try(ctx context.Context, src, dst remote.Store, j copyJob, 
 	}
 	if errors.Is(err, ErrRelayStopped) {
 		r.stop(err)
+	} else if netwait.IsConnectionError(err) {
+		// This computer's network, not the relay: it says nothing about
+		// whether the relay works.
 	} else if r.inARow.Add(1) >= relayGiveUp {
 		r.stop(fmt.Errorf("%w: it failed on %d files in a row, the last with: %v", ErrRelayStopped, relayGiveUp, err))
 	}

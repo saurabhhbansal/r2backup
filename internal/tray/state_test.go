@@ -172,6 +172,21 @@ func TestRecentRunsKeepTheirDetail(t *testing.T) {
 	}
 }
 
+func TestWaitingForTheNetwork(t *testing.T) {
+	ok := ui.SetView{Name: "A"}
+	st := Summarize([]ui.SetView{ok}, ui.Overview{Configured: true, Running: "A", RunOffline: true, RunPercent: 0.5,
+		RunFilesDone: 1, RunFilesTotal: 2}, nil, now)
+	if st.Status.Kind != KindRunning || st.Status.Title != "Waiting for the network… · A" || !st.Running.Offline {
+		t.Errorf("offline status = %+v", st.Status)
+	}
+	// A pause says paused, whatever the network is doing.
+	st = Summarize([]ui.SetView{ok}, ui.Overview{Configured: true, Running: "A", RunOffline: true, RunPaused: true,
+		RunPercent: 0.5, RunFilesDone: 1, RunFilesTotal: 2}, nil, now)
+	if st.Status.Kind != KindPaused {
+		t.Errorf("paused and offline = %+v", st.Status)
+	}
+}
+
 func TestPausingUntilTheFilesInFlightFinish(t *testing.T) {
 	ok := ui.SetView{Name: "A"}
 	st := Summarize([]ui.SetView{ok}, ui.Overview{Configured: true, Running: "A", RunPaused: true, RunInFlight: 37, RunPercent: 0.5,

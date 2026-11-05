@@ -155,6 +155,7 @@ type Client struct {
 	s3       *s3.Client
 	uploader *manager.Uploader
 	bucket   string
+	endpoint string
 
 	// resume, when set, is where in-progress multipart uploads are written
 	// down so a later run can carry one on instead of starting it again.
@@ -278,8 +279,11 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 		u.LeavePartsOnError = false
 	})
 
+	if endpoint == "" {
+		endpoint = "https://s3." + signRegion + ".amazonaws.com"
+	}
 	return &Client{
-		s3: s3Client, uploader: uploader, bucket: cfg.Bucket, resume: cfg.Resume,
+		s3: s3Client, uploader: uploader, bucket: cfg.Bucket, resume: cfg.Resume, endpoint: endpoint,
 		multipartThresholdOverride: cfg.MultipartThreshold,
 		partSizeOverride:           cfg.PartSize,
 	}, nil
@@ -289,3 +293,6 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 func (c *Client) Bucket() string {
 	return c.bucket
 }
+
+// Endpoint is the address requests go to, for checking the network is there.
+func (c *Client) Endpoint() string { return c.endpoint }

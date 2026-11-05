@@ -91,6 +91,11 @@ type Snapshot struct {
 	// Elapsed, the rates and the ETA stand still for as long as it is.
 	Paused bool
 
+	// Offline is true while the run is waiting for the network to come
+	// back (see FollowOffline). The clock stands still for it as for a
+	// pause.
+	Offline bool
+
 	// InFlight is how many files are being sent right now. A pause takes
 	// hold when this reaches zero, not when it is asked for.
 	InFlight int
@@ -155,10 +160,24 @@ type Tracker struct {
 	// moment the run was paused -- the alternative, a rate decaying toward
 	// zero, would show the ETA climbing for as long as the person who paused
 	// it is away.
+	//
+	// Waiting for the network (FollowOffline) stops the clock the same way,
+	// for the same reason, and so does the computer sleeping (WatchForSleep).
 	pausedFn    func() bool
-	paused      bool
-	pausedAt    time.Time // real time the current pause began
+	offlineFn   func() bool
+	paused      bool      // held, for either reason
+	pausedNow   bool      // held because someone paused the run
+	offlineNow  bool      // held because the network is gone
+	pausedAt    time.Time // real time the current hold began
 	pausedTotal time.Duration
+
+	// Sleep. sleepGap is how long the clock may jump between two looks
+	// before the jump is taken to be the computer asleep rather than the
+	// run working; zero leaves the clock alone. lastReal is the real time
+	// of the last look.
+	sleepGap time.Duration
+	tickGap  time.Duration
+	lastReal time.Time
 
 	inFlight atomic.Int64
 }
@@ -175,17 +194,61 @@ func (t *Tracker) FollowPause(paused func() bool) {
 	t.pausedFn = paused
 }
 
+// FollowOffline is FollowPause for a run waiting on the network: the clock
+// stops while offline reports true, and Snapshot.Offline says so.
+func (t *Tracker) FollowOffline(offline func() bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.offlineFn = offline
+}
+
+// minSleepGap is the least jump in the clock taken to be the computer
+// asleep, however often the tracker is looked at.
+const minSleepGap = 30 * time.Second
+
+// WatchForSleep tells the tracker it is looked at about every tick (a
+// Snapshot a second, typically), so a much longer silence means the process
+// was not running: the computer slept, with the lid closed or on a timer. That
+// time is taken out of the run's clock as if the run had been paused, so it
+// neither counts as elapsed nor decays the rates, and the estimate after
+// waking is the one from before.
+//
+// Whether Go's monotonic clock goes on counting while the computer sleeps
+// differs between systems. Where it does not, there is no jump to see and
+// nothing to correct; where it does, this takes it out.
+func (t *Tracker) WatchForSleep(tick time.Duration) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if tick <= 0 {
+		tick = time.Second
+	}
+	t.tickGap = tick
+	t.sleepGap = max(minSleepGap, 30*tick)
+}
+
 // clockLocked returns the current active time. mu must be held.
 func (t *Tracker) clockLocked() time.Time {
 	real := t.now()
-	if t.pausedFn != nil {
-		switch p := t.pausedFn(); {
-		case p && !t.paused:
-			t.paused, t.pausedAt = true, real
-		case !p && t.paused:
-			t.paused = false
-			t.pausedTotal += real.Sub(t.pausedAt)
+	if t.sleepGap > 0 {
+		if !t.lastReal.IsZero() && !t.paused {
+			if gap := real.Sub(t.lastReal); gap > t.sleepGap {
+				// Asleep, as far as the run is concerned: the time
+				// between the last look and this one, less the tick
+				// that was due anyway, did not happen.
+				t.pausedTotal += gap - t.tickGap
+			}
 		}
+		t.lastReal = real
+	}
+	p := t.pausedFn != nil && t.pausedFn()
+	o := t.offlineFn != nil && t.offlineFn()
+	t.pausedNow, t.offlineNow = p, o
+	switch held := p || o; {
+	case held && !t.paused:
+		t.paused, t.pausedAt = true, real
+	case !held && t.paused:
+		t.paused = false
+		t.pausedTotal += real.Sub(t.pausedAt)
 	}
 	if t.paused {
 		return t.pausedAt.Add(-t.pausedTotal)
@@ -445,7 +508,8 @@ func (t *Tracker) Snapshot() Snapshot {
 		Elapsed:    elapsed,
 		ETA:        time.Duration(etaOut * float64(time.Second)),
 		ETAKnown:   known,
-		Paused:     t.paused,
+		Paused:     t.pausedNow,
+		Offline:    t.offlineNow,
 		InFlight:   int(max(t.inFlight.Load(), 0)),
 	}
 }

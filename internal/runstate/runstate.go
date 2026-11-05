@@ -47,6 +47,11 @@ type Live struct {
 	// is still live, not stale.
 	Paused bool `json:"paused,omitempty"`
 
+	// Offline is true while the run is holding for the network to come back
+	// (see package netwait): nothing is being sent, and the estimate stands
+	// still, as for a pause.
+	Offline bool `json:"offline,omitempty"`
+
 	// InFlight is how many files are being sent right now. Paused with
 	// InFlight above zero is a pause that has been asked for but has not
 	// taken hold: those files finish first.

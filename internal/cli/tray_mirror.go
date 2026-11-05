@@ -77,6 +77,8 @@ type mirrorStatusOut struct {
 	Failed    int     `json:"failed"`
 	Bytes     string  `json:"bytes,omitempty"`
 	Held      int     `json:"held"`
+	// Offline is true while the copy is waiting for the network to come back.
+	Offline bool `json:"offline,omitempty"`
 	// Relayed counts files Ultra fast mode copied cloud to cloud, and
 	// RelayNote says what to know about it: that it stopped, and why.
 	Relayed   int    `json:"relayed"`
@@ -86,7 +88,7 @@ type mirrorStatusOut struct {
 func (j *mirrorJob) status() mirrorStatusOut {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	st := mirrorStatusOut{Reverse: j.reverse, To: j.to, Done: j.done, Error: j.err}
+	st := mirrorStatusOut{Reverse: j.reverse, To: j.to, Done: j.done, Error: j.err, Offline: !j.done && j.p.Offline}
 	if j.p.FilesTotal > 0 {
 		st.Files = progress.FormatCount(int64(j.p.FilesDone)) + " of " + progress.FormatCount(int64(j.p.FilesTotal))
 	}

@@ -114,6 +114,7 @@ var overviewZeroOnAFreshlyConfiguredMachine = map[string]string{
 	"RunPercent":    "meaningless without Running",
 	"RunETA":        "meaningless without Running",
 	"RunPaused":     "meaningless without Running",
+	"RunOffline":    "meaningless without Running",
 	"RunInFlight":   "meaningless without Running",
 	"RunFinding":    "meaningless without Running",
 	"RunFoundFiles": "meaningless without Running",

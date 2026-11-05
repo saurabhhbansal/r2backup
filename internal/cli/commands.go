@@ -475,6 +475,8 @@ func etaText(l *runstate.Live) string {
 	switch {
 	case l.Paused:
 		return "paused"
+	case l.Offline:
+		return "waiting for the network..."
 	case l.Phase == runstate.PhaseFinding:
 		return "finding files..."
 	case !l.ETAKnown:

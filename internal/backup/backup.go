@@ -14,6 +14,7 @@ import (
 
 	"github.com/saurabhhbansal/r2backup/internal/engine"
 	"github.com/saurabhhbansal/r2backup/internal/index"
+	"github.com/saurabhhbansal/r2backup/internal/netwait"
 	"github.com/saurabhhbansal/r2backup/internal/pause"
 	"github.com/saurabhhbansal/r2backup/internal/plan"
 	"github.com/saurabhhbansal/r2backup/internal/progress"
@@ -176,6 +177,10 @@ func Run(ctx context.Context, opts Options) (*Report, error) {
 	if opts.Index == nil || opts.Client == nil {
 		return nil, errors.New("backup: index and client are required")
 	}
+	// The network going away -- the lid closed, the Wi-Fi dropped -- holds
+	// the run until it is back, instead of failing every file being sent.
+	ctx, closeGate := netwait.Ensure(ctx, remote.EndpointOf(opts.Client))
+	defer closeGate()
 	rep, err := run(ctx, opts)
 	// A store that holds writes back (Drime's per-set manifest of dates and
 	// permissions) is flushed however the run ended: a run cancelled halfway
@@ -281,11 +286,15 @@ func run(ctx context.Context, opts Options) (*Report, error) {
 	if g := pause.FromContext(ctx); g != nil {
 		tracker.FollowPause(g.Paused)
 	}
+	if g := netwait.FromContext(ctx); g != nil {
+		tracker.FollowOffline(g.Offline)
+	}
 
 	tickEvery := opts.ProgressEvery
 	if tickEvery == 0 {
 		tickEvery = time.Second
 	}
+	tracker.WatchForSleep(tickEvery)
 	stopTicker := make(chan struct{})
 	tickerDone := make(chan struct{})
 	go func() {

@@ -377,13 +377,17 @@ func mirrorProgressPrinter(out io.Writer, tty bool) func(mirror.Progress) {
 		return nil
 	}
 	var last time.Time
+	var wasOffline bool
 	return func(p mirror.Progress) {
-		if time.Since(last) < 250*time.Millisecond && p.FilesDone != p.FilesTotal {
+		if time.Since(last) < 250*time.Millisecond && p.FilesDone != p.FilesTotal && p.Offline == wasOffline {
 			return
 		}
-		last = time.Now()
+		last, wasOffline = time.Now(), p.Offline
 		fmt.Fprintf(out, "\r\033[2K  %d of %d files, %s of %s",
 			p.FilesDone, p.FilesTotal, progress.FormatBytes(p.BytesDone), progress.FormatBytes(p.BytesTotal))
+		if p.Offline {
+			fmt.Fprint(out, " · waiting for the network…")
+		}
 	}
 }
 

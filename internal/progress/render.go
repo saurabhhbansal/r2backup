@@ -47,6 +47,8 @@ func Render(s Snapshot, width int) string {
 	b.WriteString(" · ")
 	if s.Paused {
 		b.WriteString("paused")
+	} else if s.Offline {
+		b.WriteString("waiting for the network…")
 	} else if s.ETAKnown {
 		b.WriteString(FormatDuration(s.ETA))
 		b.WriteString(" remaining")
