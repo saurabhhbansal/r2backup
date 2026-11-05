@@ -931,6 +931,83 @@ func (s *Store) flushSpace(ctx context.Context, sp *space) error {
 	return nil
 }
 
+// Pending reports whether anything a write returned for is not on record yet:
+// a pack being filled, index edits not yet saved, a pack that failed to send,
+// or something the store underneath holds back.
+func (s *Store) Pending() bool {
+	for _, sp := range s.allSpaces() {
+		sp.mu.Lock()
+		held := sp.loaded && !sp.passthrough &&
+			((sp.open != nil && len(sp.open.entries) > 0) || sp.dirty || len(sp.staleDirect) > 0 || sp.failed != nil)
+		sp.mu.Unlock()
+		if held {
+			return true
+		}
+	}
+	return remote.PendingStore(s.base)
+}
+
+// Checkpoint puts everything written so far on record in the middle of a
+// run: the pack being filled is sent and each changed index saved. Unlike
+// Flush it keeps what it read, since writers are still at work, and it leaves
+// the tidying (compaction, the daily sweep) to the run's final Flush so a
+// checkpoint costs no more than the pack and the index.
+func (s *Store) Checkpoint(ctx context.Context) error {
+	for _, sp := range s.allSpaces() {
+		if err := s.checkpointSpace(ctx, sp); err != nil {
+			return err
+		}
+	}
+	ok, err := remote.CheckpointStore(ctx, s.base)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return remote.ErrNoCheckpoint
+	}
+	return nil
+}
+
+func (s *Store) checkpointSpace(ctx context.Context, sp *space) error {
+	sp.mu.Lock()
+	defer sp.mu.Unlock()
+	if !sp.loaded || sp.passthrough {
+		return nil
+	}
+	if err := s.seal(ctx, sp); err != nil {
+		// Left in sp.failed, so the run's final Flush reports it too.
+		return err
+	}
+	if sp.failed != nil {
+		return sp.failed
+	}
+	if !sp.dirty && len(sp.staleDirect) == 0 {
+		return nil
+	}
+	if err := s.writeIndex(ctx, sp); err != nil {
+		return err
+	}
+	if len(sp.staleDirect) > 0 {
+		gone := sp.staleDirect
+		sp.staleDirect = nil
+		if err := s.base.DeleteBatch(ctx, gone); err != nil {
+			return fmt.Errorf("bundle: delete replaced files: %w", err)
+		}
+	}
+	return nil
+}
+
+// allSpaces is every backup this Store has touched.
+func (s *Store) allSpaces() []*space {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]*space, 0, len(s.spaces))
+	for _, sp := range s.spaces {
+		out = append(out, sp)
+	}
+	return out
+}
+
 // unload drops what was read of sp's index, so it is read again when next
 // needed. Called with sp.mu held, with nothing waiting to be written.
 func (sp *space) unload() {

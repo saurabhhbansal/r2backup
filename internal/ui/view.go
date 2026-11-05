@@ -202,8 +202,20 @@ func (m *Model) statusLine() string {
 		return warnStyle.Render("○ Not set up") + dimStyle.Render(" · 4 Account to connect Drime or R2")
 	case m.running:
 		return m.spin.View() + " " + titleStyle.Render("Backing up "+m.runWhat) + dimStyle.Render(" · w to watch")
+	case m.ov.Running != "" && m.ov.RunPaused:
+		line := warnStyle.Render("⏸ Paused " + m.ov.Running)
+		if m.ov.RunPercent > 0 {
+			line += dimStyle.Render(fmt.Sprintf(" · %.0f%%", m.ov.RunPercent*100))
+		}
+		return line + dimStyle.Render(" · w then p to carry on")
+	case m.ov.Running != "" && m.ov.RunOffline:
+		return warnStyle.Render("… Waiting for the network · " + m.ov.Running)
 	case m.ov.Running != "":
 		line := m.spin.View() + " " + titleStyle.Render("Backing up "+m.ov.Running)
+		if m.ov.RunFinding {
+			return line + dimStyle.Render(fmt.Sprintf(" · finding files… %s found · %s",
+				progress.FormatCount(m.ov.RunFoundFiles), progress.FormatBytes(m.ov.RunFoundBytes)))
+		}
 		if m.ov.RunPercent > 0 {
 			line += dimStyle.Render(fmt.Sprintf(" · %.0f%%", m.ov.RunPercent*100))
 		}
@@ -813,11 +825,21 @@ func (m *Model) runningView() string {
 	// runCancel and then quits the whole program in the same motion. Saying
 	// only "stops it" would leave someone thinking q is a safe way to
 	// silence this screen and keep r2backup running in the background.
-	b.WriteString("\n" + dimStyle.Render("esc goes back and leaves this running · q stops the run and quits"))
+	pauseHint := "p pauses"
+	if s.Paused || m.ov.RunPaused {
+		pauseHint = "p carries on"
+	}
+	b.WriteString("\n" + dimStyle.Render("esc goes back and leaves this running · "+pauseHint+" · q stops the run and quits"))
 	return b.String()
 }
 
 func etaText(s progress.Snapshot) string {
+	if s.Paused {
+		return "paused"
+	}
+	if s.Offline {
+		return "waiting for the network…"
+	}
 	if !s.ETAKnown {
 		return "estimating..."
 	}

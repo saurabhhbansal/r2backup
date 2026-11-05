@@ -282,6 +282,7 @@ func (d *dashboard) Load(ctx context.Context) ([]ui.SetView, ui.Overview, error)
 		ov.SchedulerAvailable = true
 		if st.Registered {
 			ov.Scheduled, ov.Interval, ov.RunsWhenSignedOut = true, st.Interval, st.RunsWhenSignedOut
+			ov.DailyAt = st.DailyAt
 			// NextRun and LastRun are best-effort -- some platforms can't say
 			// and leave them zero on Status itself -- but when the OS does
 			// report them, the Schedule tab should show them rather than the
@@ -312,6 +313,9 @@ func (d *dashboard) Load(ctx context.Context) ([]ui.SetView, ui.Overview, error)
 // holds the index's lock. It reports whether a run is live.
 func applyLiveRun(ov *ui.Overview, now time.Time) bool {
 	ov.Running, ov.RunPercent, ov.RunETA = "", 0, ""
+	ov.RunPaused, ov.RunInFlight, ov.RunFinding, ov.RunFoundFiles, ov.RunFoundBytes = false, 0, false, 0, 0
+	ov.RunOffline = false
+	ov.RunFilesDone, ov.RunFilesTotal, ov.RunBytesDone, ov.RunBytesTotal = 0, 0, 0, 0
 	ov.Interrupted, ov.InterruptedAt, ov.InterruptedDone, ov.InterruptedTotal = "", time.Time{}, 0, 0
 	p, err := config.ProgressPath()
 	if err != nil {
@@ -319,14 +323,15 @@ func applyLiveRun(ov *ui.Overview, now time.Time) bool {
 	}
 	if live, err := runstate.ReadLive(p); err == nil && !live.Stale(now) {
 		ov.Running = live.Set
+		ov.RunPaused, ov.RunInFlight, ov.RunOffline = live.Paused, live.InFlight, live.Offline
+		ov.RunFinding = live.Phase == runstate.PhaseFinding
+		ov.RunFoundFiles, ov.RunFoundBytes = live.FoundFiles, live.FoundBytes
+		ov.RunFilesDone, ov.RunFilesTotal = live.FilesDone, live.FilesTotal
+		ov.RunBytesDone, ov.RunBytesTotal = live.BytesDone, live.BytesTotal
 		if live.BytesTotal > 0 {
 			ov.RunPercent = float64(live.BytesDone) / float64(live.BytesTotal)
 		}
-		if live.ETAKnown {
-			ov.RunETA = progress.FormatDuration(time.Duration(live.ETASeconds*float64(time.Second))) + " remaining"
-		} else {
-			ov.RunETA = "estimating..."
-		}
+		ov.RunETA = etaText(live)
 		return true
 	}
 	if stopped, ok := runstate.ReadInterrupted(p, now); ok {
@@ -345,19 +350,24 @@ func applyLiveRun(ov *ui.Overview, now time.Time) bool {
 // and keeps writing progress.json so a run started here is still visible to
 // `r2b status --watch` in another terminal.
 type uiObserver struct {
-	phase        func(string)
-	snap         func(progress.Snapshot)
-	set          string
-	progressPath string
-	current      backup.Phase
+	phase   func(string)
+	snap    func(progress.Snapshot)
+	set     string
+	live    livePublisher
+	current backup.Phase
 }
+
+// Found publishes how much the scan has found so far.
+func (o *uiObserver) Found(files, bytes int64) { o.live.found(files, bytes, false) }
 
 func (o *uiObserver) Phase(p backup.Phase, r *backup.Report) {
 	o.current = p
 	switch p {
 	case backup.PhaseScanning:
+		o.live.found(0, 0, true)
 		o.phase("scanning " + o.set)
 	case backup.PhasePlanning:
+		o.live.found(r.ScannedFiles, r.ScannedBytes, true)
 		o.phase(fmt.Sprintf("planning · %s files · %s",
 			progress.FormatCount(r.ScannedFiles), progress.FormatBytes(r.ScannedBytes)))
 	case backup.PhaseUploading:
@@ -367,15 +377,7 @@ func (o *uiObserver) Phase(p backup.Phase, r *backup.Report) {
 }
 
 func (o *uiObserver) Progress(s progress.Snapshot) {
-	if o.progressPath != "" {
-		_ = runstate.WriteLive(o.progressPath, runstate.Live{
-			Set: o.set, Phase: string(o.current),
-			BytesDone: s.BytesDone, BytesTotal: s.BytesTotal,
-			FilesDone: s.FilesDone, FilesTotal: s.FilesTotal,
-			ByteRate: s.ByteRate, FileRate: s.FileRate,
-			ETASeconds: s.ETA.Seconds(), ETAKnown: s.ETAKnown,
-		})
-	}
+	o.live.progress(string(o.current), s)
 	o.snap(s)
 }
 
@@ -401,7 +403,10 @@ func (d *dashboard) Backup(ctx context.Context, name string, phase func(string),
 	defer release()
 
 	progressPath, _ := config.ProgressPath()
-	obs := &uiObserver{phase: phase, snap: snap, set: s.Name, progressPath: progressPath}
+	ctx, gate, stopPause := watchPause(ctx, progressPath)
+	defer stopPause()
+	obs := &uiObserver{phase: phase, snap: snap, set: s.Name,
+		live: livePublisher{path: progressPath, set: s.Name, gate: gate}}
 	defer runstate.ClearLive(progressPath)
 
 	rep, runErr := backup.Run(ctx, backup.Options{
@@ -566,6 +571,32 @@ func (d *dashboard) Schedule(ctx context.Context, every int, off bool) error {
 	return nil
 }
 
+// ScheduleDaily is Schedule for once a day at a time ("HH:MM").
+func (d *dashboard) ScheduleDaily(ctx context.Context, at string) error {
+	if !schedule.Supported() {
+		return errors.New("no scheduler is available on this platform")
+	}
+	h, m, err := schedule.ParseDailyAt(at)
+	if err != nil {
+		return err
+	}
+	self, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	binary, _ := scheduledBinary(runtime.GOOS, self, fileExists)
+	if err := scheduleInstall(schedule.Entry{
+		Name:       scheduleName(),
+		DailyAt:    schedule.FormatDailyAt(h, m),
+		BinaryPath: binary,
+		Args:       scheduledRunArgs(runtime.GOOS, config.DataDirArgs()),
+	}); err != nil {
+		return err
+	}
+	d.invalidateScheduleCache()
+	return nil
+}
+
 // RepairSchedule is `r2b schedule --repair`.
 //
 // The OS scheduler stores an absolute path, so moving or renaming the binary
@@ -590,5 +621,8 @@ func (d *dashboard) RepairSchedule(ctx context.Context) (bool, error) {
 	// back -- possibly stale by up to scheduleCacheTTL, which is harmless
 	// here since the interval it's keying off doesn't change on its own --
 	// doesn't linger once the repair itself has run.
+	if st.DailyAt != "" {
+		return true, d.ScheduleDaily(ctx, st.DailyAt)
+	}
 	return true, d.Schedule(ctx, repairMinutes(st), false)
 }

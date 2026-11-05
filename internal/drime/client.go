@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/saurabhhbansal/r2backup/internal/netwait"
 	"github.com/saurabhhbansal/r2backup/internal/remote"
 )
 
@@ -83,7 +84,7 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 	}
 	hc := cfg.HTTPClient
 	if hc == nil {
-		hc = &http.Client{Timeout: 0} // per-request deadlines come from ctx
+		hc = defaultHTTPClient()
 	}
 	attempts := cfg.MaxAttempts
 	if attempts <= 0 {
@@ -155,6 +156,9 @@ func (c *Client) findRoot(ctx context.Context) (string, error) {
 // Bucket names the place backups go, for showing to a person.
 func (c *Client) Bucket() string { return "Drime: " + c.root }
 
+// Endpoint is the address requests go to, for checking the network is there.
+func (c *Client) Endpoint() string { return c.api.base }
+
 // SpaceUsage reports how full the account is.
 func (c *Client) SpaceUsage(ctx context.Context) (SpaceUsage, error) {
 	return c.api.spaceUsage(ctx)
@@ -214,6 +218,13 @@ func (c *Client) Put(ctx context.Context, in remote.PutInput) error {
 		it, err = c.uploadSmall(ctx, d.id, leaf, in.Body, in.Size, in.ContentType, in.Progress)
 	}
 	if err != nil {
+		// A connection cut after the file was sent may have left it in
+		// Drime without our hearing so. The folder is listed afresh next
+		// time, so a second try finds that copy and replaces it instead of
+		// leaving it beside the new one.
+		if netwait.IsNetworkError(err) {
+			c.tree.refresh(dp)
+		}
 		return err
 	}
 
@@ -229,7 +240,7 @@ func (c *Client) Put(ctx context.Context, in remote.PutInput) error {
 		// A long run saves its dates every few minutes, so an interruption
 		// loses at most that much. A failure here is not the upload's
 		// failure; the final flush tries again.
-		_ = c.meta.flush(ctx, scope)
+		_ = c.meta.flushSoon(ctx, scope)
 	}
 	return nil
 }
@@ -413,7 +424,7 @@ func (c *Client) Copy(ctx context.Context, srcKey, dstKey string) error {
 	if scope, err := c.meta.set(ctx, dstKey, md); err != nil {
 		return err
 	} else if scope != "" {
-		_ = c.meta.flush(ctx, scope)
+		_ = c.meta.flushSoon(ctx, scope)
 	}
 	return nil
 }
@@ -477,7 +488,7 @@ func (c *Client) Move(ctx context.Context, srcKey, dstKey string) error {
 	if scope, err := c.meta.set(ctx, dstKey, md); err != nil {
 		return err
 	} else if scope != "" {
-		_ = c.meta.flush(ctx, scope)
+		_ = c.meta.flushSoon(ctx, scope)
 	}
 	return nil
 }
@@ -515,9 +526,86 @@ func (c *Client) DeleteBatch(ctx context.Context, keys []string) error {
 	return c.meta.remove(ctx, keys)
 }
 
+// responseWait is the longest a request waits for Drime to start answering
+// once it has been sent. Without it a connection that goes quiet holds a
+// backup or a delete forever: a purge once sat on one request for 50 minutes.
+// Generous, because Drime answers a large folder delete only once it is done.
+var responseWait = 5 * time.Minute
+
+// defaultHTTPClient has no overall timeout -- an upload of a large file takes
+// as long as it takes, and per-request deadlines come from ctx -- but it does
+// stop waiting for an answer that never starts.
+func defaultHTTPClient() *http.Client {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.ResponseHeaderTimeout = responseWait
+	return &http.Client{Transport: tr}
+}
+
+// folderDeleteWait is how long a folder delete waits for Drime's answer, and
+// folderGoneWait how long after that it keeps looking for the folder to
+// disappear. Variables so tests can shorten them.
+var (
+	folderDeleteWait = 3 * time.Minute
+	folderGoneWait   = 10 * time.Minute
+	folderGoneEvery  = 10 * time.Second
+)
+
+// waitFolderGone looks for p on Drime, afresh each time, until it is not
+// there or folderGoneWait has passed.
+func (c *Client) waitFolderGone(ctx context.Context, p string) (bool, error) {
+	deadline := time.Now().Add(folderGoneWait)
+	for {
+		c.tree.unknowDir(p)
+		d, err := c.tree.resolve(ctx, p, false)
+		if err == nil && d == nil {
+			return true, nil
+		}
+		if time.Now().After(deadline) {
+			return false, err
+		}
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-time.After(folderGoneEvery):
+		}
+	}
+}
+
 // DeletePrefix removes everything under prefix. A prefix ending in "/" that
 // names a folder is deleted as one folder, in one request.
 func (c *Client) DeletePrefix(ctx context.Context, prefix string) (remote.PrefixDeletion, error) {
+	// A whole folder goes in one request, without listing it first. Listing
+	// walks every subfolder one request at a time -- tens of minutes for a
+	// code project with thousands of folders -- only to count what is about
+	// to go, so the count is left unknown (Objects -1) instead.
+	if strings.HasSuffix(prefix, "/") && prefix != "/" {
+		p := strings.TrimSuffix(prefix, "/")
+		d, err := c.tree.resolve(ctx, p, false)
+		if err != nil {
+			return remote.PrefixDeletion{}, err
+		}
+		if d == nil {
+			return remote.PrefixDeletion{}, nil
+		}
+		// Drime answers a folder delete only once every file in it is gone:
+		// seconds for most, minutes for tens of thousands. Past folderDeleteWait
+		// the answer is not waited for any more; whether the folder is still
+		// there is.
+		dctx, cancel := context.WithTimeout(ctx, folderDeleteWait)
+		err = c.api.deleteEntries(dctx, []string{d.id}, true)
+		cancel()
+		if err != nil && !isNotFound(err) {
+			if ctx.Err() != nil {
+				return remote.PrefixDeletion{}, ctx.Err()
+			}
+			if gone, gerr := c.waitFolderGone(ctx, p); gerr != nil || !gone {
+				return remote.PrefixDeletion{}, fmt.Errorf("drime: delete %q: %w", prefix, err)
+			}
+		}
+		c.tree.forgetDir(p)
+		c.meta.forgetUnder(prefix)
+		return remote.PrefixDeletion{Objects: -1}, nil
+	}
 	objects, err := c.List(ctx, prefix)
 	if err != nil {
 		return remote.PrefixDeletion{}, err
@@ -526,22 +614,6 @@ func (c *Client) DeletePrefix(ctx context.Context, prefix string) (remote.Prefix
 	for _, o := range objects {
 		out.Objects++
 		out.Bytes += o.Size
-	}
-	if strings.HasSuffix(prefix, "/") && prefix != "/" {
-		p := strings.TrimSuffix(prefix, "/")
-		d, err := c.tree.resolve(ctx, p, false)
-		if err != nil {
-			return remote.PrefixDeletion{}, err
-		}
-		if d == nil {
-			return out, nil
-		}
-		if err := c.api.deleteEntries(ctx, []string{d.id}, true); err != nil && !isNotFound(err) {
-			return remote.PrefixDeletion{}, fmt.Errorf("drime: delete %q: %w", prefix, err)
-		}
-		c.tree.forgetDir(p)
-		c.meta.forgetUnder(prefix)
-		return out, nil
 	}
 	keys := make([]string, len(objects))
 	for i, o := range objects {
@@ -556,6 +628,16 @@ func (c *Client) DeletePrefix(ctx context.Context, prefix string) (remote.Prefix
 // Flush writes the dates and permissions recorded since the last flush.
 func (c *Client) Flush(ctx context.Context) error {
 	return c.meta.flush(ctx, "")
+}
+
+// Pending reports whether dates or permissions are waiting to be saved. The
+// files themselves are on Drime once Put returns.
+func (c *Client) Pending() bool { return c.meta.pending() }
+
+// Checkpoint saves the dates and permissions recorded so far, keeping what was
+// read so a run in progress carries on without reading them again.
+func (c *Client) Checkpoint(ctx context.Context) error {
+	return c.meta.write(ctx, "", false)
 }
 
 // AbandonStaleUploads gives up on unfinished uploads older than

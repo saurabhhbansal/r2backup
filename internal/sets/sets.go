@@ -87,6 +87,11 @@ type Set struct {
 	// the life of the project. Scheduling lives in `r2backup schedule`.
 	RetentionDays int `json:"retention_days"`
 
+	// NoSecondary leaves this folder out of the secondary backup (the
+	// mirror). It is the negative so that the zero value -- every folder
+	// recorded before this existed, and every new one -- is copied.
+	NoSecondary bool `json:"no_secondary,omitempty"`
+
 	Status     Status    `json:"status"`
 	StatusNote string    `json:"status_note,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`

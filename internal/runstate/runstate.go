@@ -36,9 +36,37 @@ type Live struct {
 	ByteRate float64 `json:"byte_rate"`
 	FileRate float64 `json:"file_rate"`
 
+	// ETASeconds is the remaining time as it should be shown -- already
+	// past the warm-up, coarsened and held steady by progress.Presenter --
+	// not the estimator's every-second answer.
 	ETASeconds float64 `json:"eta_seconds"`
 	ETAKnown   bool    `json:"eta_known"`
+
+	// Paused is true while someone has asked the run to hold (see package
+	// pause). The file keeps being rewritten while paused, so a paused run
+	// is still live, not stale.
+	Paused bool `json:"paused,omitempty"`
+
+	// Offline is true while the run is holding for the network to come back
+	// (see package netwait): nothing is being sent, and the estimate stands
+	// still, as for a pause.
+	Offline bool `json:"offline,omitempty"`
+
+	// InFlight is how many files are being sent right now. Paused with
+	// InFlight above zero is a pause that has been asked for but has not
+	// taken hold: those files finish first.
+	InFlight int `json:"in_flight"`
+
+	// FoundFiles and FoundBytes are how much the scan has found so far,
+	// published while Phase is PhaseFinding, before any total is known.
+	FoundFiles int64 `json:"found_files,omitempty"`
+	FoundBytes int64 `json:"found_bytes,omitempty"`
 }
+
+// PhaseFinding is the Phase a run publishes while it is still walking the
+// folder and working out what changed: nothing to put a bar against yet,
+// only how much it has found.
+const PhaseFinding = "finding"
 
 // Stale reports whether this file is describing a run that is no longer
 // happening. A killed process leaves its last update behind forever, and
@@ -198,6 +226,13 @@ func ReadHistory(path string) (*History, error) {
 		return nil, err
 	}
 	return &h, nil
+}
+
+// ClearHistory forgets every finished run. It writes an empty history rather
+// than removing the file, by the same atomic rename as Record, so a reader
+// sees either the old list or the empty one.
+func ClearHistory(path string) error {
+	return writeJSON(path, History{Runs: []Past{}})
 }
 
 // Last returns the most recent run for a set.

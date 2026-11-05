@@ -14,6 +14,7 @@ package progress
 import (
 	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -85,6 +86,19 @@ type Snapshot struct {
 	// ETAKnown is true.
 	ETA      time.Duration
 	ETAKnown bool
+
+	// Paused is true while the run is being held (see FollowPause).
+	// Elapsed, the rates and the ETA stand still for as long as it is.
+	Paused bool
+
+	// Offline is true while the run is waiting for the network to come
+	// back (see FollowOffline). The clock stands still for it as for a
+	// pause.
+	Offline bool
+
+	// InFlight is how many files are being sent right now. A pause takes
+	// hold when this reaches zero, not when it is asked for.
+	InFlight int
 }
 
 // Tracker accumulates completions for a plan of known total size and turns
@@ -136,7 +150,113 @@ type Tracker struct {
 	// been seeded (i.e. before ETAKnown has ever been true).
 	etaSmoothed float64
 	lastETA     time.Time
+
+	// est is the remaining-time model; see estimate.go.
+	est *estimator
+
+	// Pausing. Every time the tracker uses is "active" time: the real clock
+	// minus the time spent paused. While paused it stands still, so nothing
+	// decays, elapsed does not grow, and the estimate is the one from the
+	// moment the run was paused -- the alternative, a rate decaying toward
+	// zero, would show the ETA climbing for as long as the person who paused
+	// it is away.
+	//
+	// Waiting for the network (FollowOffline) stops the clock the same way,
+	// for the same reason, and so does the computer sleeping (WatchForSleep).
+	pausedFn    func() bool
+	offlineFn   func() bool
+	paused      bool      // held, for either reason
+	pausedNow   bool      // held because someone paused the run
+	offlineNow  bool      // held because the network is gone
+	pausedAt    time.Time // real time the current hold began
+	pausedTotal time.Duration
+
+	// Sleep. sleepGap is how long the clock may jump between two looks
+	// before the jump is taken to be the computer asleep rather than the
+	// run working; zero leaves the clock alone. lastReal is the real time
+	// of the last look.
+	sleepGap time.Duration
+	tickGap  time.Duration
+	lastReal time.Time
+
+	inFlight atomic.Int64
 }
+
+// InFlight adds delta to the count of files being sent (+1 as one starts,
+// -1 as it ends).
+func (t *Tracker) InFlight(delta int) { t.inFlight.Add(int64(delta)) }
+
+// FollowPause makes the tracker consult paused on every update and snapshot,
+// and stop its clock for as long as it reports true.
+func (t *Tracker) FollowPause(paused func() bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.pausedFn = paused
+}
+
+// FollowOffline is FollowPause for a run waiting on the network: the clock
+// stops while offline reports true, and Snapshot.Offline says so.
+func (t *Tracker) FollowOffline(offline func() bool) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.offlineFn = offline
+}
+
+// minSleepGap is the least jump in the clock taken to be the computer
+// asleep, however often the tracker is looked at.
+const minSleepGap = 30 * time.Second
+
+// WatchForSleep tells the tracker it is looked at about every tick (a
+// Snapshot a second, typically), so a much longer silence means the process
+// was not running: the computer slept, with the lid closed or on a timer. That
+// time is taken out of the run's clock as if the run had been paused, so it
+// neither counts as elapsed nor decays the rates, and the estimate after
+// waking is the one from before.
+//
+// Whether Go's monotonic clock goes on counting while the computer sleeps
+// differs between systems. Where it does not, there is no jump to see and
+// nothing to correct; where it does, this takes it out.
+func (t *Tracker) WatchForSleep(tick time.Duration) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if tick <= 0 {
+		tick = time.Second
+	}
+	t.tickGap = tick
+	t.sleepGap = max(minSleepGap, 30*tick)
+}
+
+// clockLocked returns the current active time. mu must be held.
+func (t *Tracker) clockLocked() time.Time {
+	real := t.now()
+	if t.sleepGap > 0 {
+		if !t.lastReal.IsZero() && !t.paused {
+			if gap := real.Sub(t.lastReal); gap > t.sleepGap {
+				// Asleep, as far as the run is concerned: the time
+				// between the last look and this one, less the tick
+				// that was due anyway, did not happen.
+				t.pausedTotal += gap - t.tickGap
+			}
+		}
+		t.lastReal = real
+	}
+	p := t.pausedFn != nil && t.pausedFn()
+	o := t.offlineFn != nil && t.offlineFn()
+	t.pausedNow, t.offlineNow = p, o
+	switch held := p || o; {
+	case held && !t.paused:
+		t.paused, t.pausedAt = true, real
+	case !held && t.paused:
+		t.paused = false
+		t.pausedTotal += real.Sub(t.pausedAt)
+	}
+	if t.paused {
+		return t.pausedAt.Add(-t.pausedTotal)
+	}
+	return real.Add(-t.pausedTotal)
+}
+
+func (t *Tracker) secondsLocked(at time.Time) float64 { return at.Sub(t.start).Seconds() }
 
 // New creates a Tracker for a plan with the given total bytes and total
 // file count. now supplies the current time on every call; pass nil to use
@@ -162,6 +282,7 @@ func New(totalBytes, totalFiles int64, now func() time.Time) *Tracker {
 		lastRate:    start,
 		etaSmoothed: -1,
 		lastETA:     start,
+		est:         newEstimator(totalFiles, totalBytes),
 	}
 }
 
@@ -197,8 +318,9 @@ func (t *Tracker) decayLocked(now time.Time) {
 func (t *Tracker) Complete(bytes int64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	now := t.now()
+	now := t.clockLocked()
 	t.decayLocked(now)
+	t.est.add(t.secondsLocked(now), 1, bytes)
 
 	if bytes > 0 {
 		// The impulse added per event is amount/rateWindow, not amount/dt.
@@ -239,8 +361,9 @@ func (t *Tracker) AddBytes(delta int64) {
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	now := t.now()
+	now := t.clockLocked()
 	t.decayLocked(now)
+	t.est.add(t.secondsLocked(now), 0, delta)
 	if t.byteRateStart.IsZero() {
 		t.byteRateStart = now
 	}
@@ -325,7 +448,7 @@ func correctedRate(raw float64, startedAt, now time.Time, window time.Duration) 
 func (t *Tracker) Snapshot() Snapshot {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	now := t.now()
+	now := t.clockLocked()
 	t.decayLocked(now)
 
 	bytesDone := t.doneBytes
@@ -336,8 +459,6 @@ func (t *Tracker) Snapshot() Snapshot {
 	if filesDone > t.totalFiles {
 		filesDone = t.totalFiles
 	}
-	bytesRemaining := t.totalBytes - bytesDone
-	filesRemaining := t.totalFiles - filesDone
 
 	// The lower of the two windows wins. See fastRateWindow: a slowdown must
 	// reach the estimate immediately, a speed-up only once it has held.
@@ -350,25 +471,10 @@ func (t *Tracker) Snapshot() Snapshot {
 		correctedRate(t.fileRateFast, t.fileRateStart, now, fastRateWindow),
 	))
 
-	// Each dimension only contributes an ETA when it has both a positive
-	// rate and remaining work; a rate of exactly zero must NOT turn into
-	// an infinite ETA (dividing by it), it must simply not participate.
-	// This matters for e.g. a single large file, where the file rate is
-	// structurally zero until the very last instant -- if a zero file rate
-	// forced its ETA contribution to infinity, max() would report an
-	// infinite ETA for the entire transfer of a single file, which is
-	// exactly backwards.
-	var byteETA, fileETA float64
-	if byteRate > 0 && bytesRemaining > 0 {
-		byteETA = float64(bytesRemaining) / byteRate
-	}
-	if fileRate > 0 && filesRemaining > 0 {
-		fileETA = float64(filesRemaining) / fileRate
-	}
-	// The max is the point: request-bound and bandwidth-bound workloads
-	// are different physics, and whichever constraint actually binds is
-	// whichever dimension predicts the longer remaining time.
-	rawETA := math.Max(byteETA, fileETA)
+	// The rates above are what the screen shows as speed. The estimate
+	// comes from the model in estimate.go, which separates the per-file
+	// cost from the per-byte cost instead of choosing between two rates.
+	rawETA, _ := t.est.remaining(t.secondsLocked(now))
 
 	elapsed := now.Sub(t.start)
 	percent := computePercent(bytesDone, t.totalBytes, filesDone, t.totalFiles)
@@ -402,5 +508,8 @@ func (t *Tracker) Snapshot() Snapshot {
 		Elapsed:    elapsed,
 		ETA:        time.Duration(etaOut * float64(time.Second)),
 		ETAKnown:   known,
+		Paused:     t.pausedNow,
+		Offline:    t.offlineNow,
+		InFlight:   int(max(t.inFlight.Load(), 0)),
 	}
 }

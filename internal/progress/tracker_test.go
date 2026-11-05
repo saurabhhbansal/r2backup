@@ -237,3 +237,19 @@ func TestConcurrentUseIsRace_Free(t *testing.T) {
 		t.Fatalf("FilesDone = %d, want 800", snap.FilesDone)
 	}
 }
+
+func TestSnapshotCountsFilesInFlight(t *testing.T) {
+	clock := newFakeClock(time.Unix(0, 0))
+	tr := New(100, 10, clock.now)
+	tr.InFlight(1)
+	tr.InFlight(1)
+	tr.InFlight(-1)
+	if got := tr.Snapshot().InFlight; got != 1 {
+		t.Errorf("InFlight = %d, want 1", got)
+	}
+	tr.InFlight(-1)
+	tr.InFlight(-1) // never shown below zero
+	if got := tr.Snapshot().InFlight; got != 0 {
+		t.Errorf("InFlight = %d, want 0", got)
+	}
+}

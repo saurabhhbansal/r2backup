@@ -32,6 +32,7 @@ const (
 	KindAttention   = "attention"
 	KindPending     = "pending"
 	KindInterrupted = "interrupted"
+	KindPaused      = "paused"
 	KindSetup       = "setup"
 )
 
@@ -92,6 +93,18 @@ type Running struct {
 	Set     string  `json:"set"`
 	Percent float64 `json:"percent"` // 0-100; 0 while it is still working out how much
 	ETA     string  `json:"eta"`
+	// Paused is true while the run is held (backupPause, r2b pause). The
+	// panel then offers Resume instead of Pause.
+	Paused bool `json:"paused,omitempty"`
+	// Offline is true while the run is waiting for the network to come back.
+	Offline bool `json:"offline,omitempty"`
+	// Pausing is true from the moment the pause is asked for until the files
+	// already being sent have finished (InFlight of them): the pause has
+	// been asked for, but is not yet in effect.
+	Pausing  bool `json:"pausing,omitempty"`
+	InFlight int  `json:"inFlight,omitempty"`
+	// Finding is true while it is still scanning, with no total yet.
+	Finding bool `json:"finding,omitempty"`
 }
 
 // Folder is one backed-up folder.
@@ -137,6 +150,7 @@ type Schedule struct {
 	On        bool   `json:"on"`
 	Every     int    `json:"every"` // minutes
 	EveryText string `json:"everyText"`
+	DailyAt   string `json:"dailyAt,omitempty"` // "HH:MM" when it runs once a day
 	Next      string `json:"next,omitempty"`
 }
 
@@ -164,7 +178,12 @@ func Summarize(views []ui.SetView, ov ui.Overview, hist []runstate.Past, now tim
 		st.Provider = "r2"
 	}
 	if ov.Scheduled {
-		st.Sched.EveryText = progress.FormatInterval(ov.Interval)
+		if ov.DailyAt != "" {
+			st.Sched.DailyAt = ov.DailyAt
+			st.Sched.EveryText = "day"
+		} else {
+			st.Sched.EveryText = progress.FormatInterval(ov.Interval)
+		}
 		if !ov.NextRun.IsZero() {
 			st.Sched.Next = clock(ov.NextRun, now)
 		}
@@ -198,7 +217,9 @@ func Summarize(views []ui.SetView, ov ui.Overview, hist []runstate.Past, now tim
 
 	if ov.Running != "" {
 		// RunPercent is a fraction; the panel wants a percentage.
-		st.Running = &Running{Set: ov.Running, Percent: ov.RunPercent * 100, ETA: ov.RunETA}
+		st.Running = &Running{Set: ov.Running, Percent: ov.RunPercent * 100, ETA: ov.RunETA,
+			Paused: ov.RunPaused, Offline: ov.RunOffline, Finding: ov.RunFinding,
+			Pausing: ov.RunPaused && ov.RunInFlight > 0, InFlight: ov.RunInFlight}
 	}
 
 	st.Status = status(st, ov, len(views), bad, never, last, now)
@@ -215,12 +236,27 @@ func status(st State, ov ui.Overview, n, bad, never int, last time.Time, now tim
 		return Status{Kind: KindSetup, Title: "Not set up yet",
 			Detail: "Connect Drime or S3 storage to start backing up."}
 	case st.Running != nil:
-		d := "Working out what changed"
-		if st.Running.Percent > 0 {
-			d = fmt.Sprintf("%.0f%% done", st.Running.Percent)
-			if st.Running.ETA != "" {
-				d += " · " + st.Running.ETA
+		d := runDetail(ov)
+		if st.Running.Paused {
+			// Said plainly, with where it got to: a paused run is not a
+			// problem, and nothing about it should read like one.
+			if st.Running.Pausing {
+				n := st.Running.InFlight
+				d = fmt.Sprintf("%d %s finishing\n%s", n, map[bool]string{true: "file", false: "files"}[n == 1], d)
+				return Status{Kind: KindPaused, Title: "Pausing… · " + st.Running.Set, Detail: d}
 			}
+			return Status{Kind: KindPaused, Title: "Paused · " + st.Running.Set, Detail: d}
+		}
+		if st.Running.Offline {
+			// Not a failure either: it carries on by itself when the
+			// network is back.
+			return Status{Kind: KindRunning, Title: "Waiting for the network… · " + st.Running.Set, Detail: d}
+		}
+		if !ov.RunFinding && ov.RunFilesTotal == 0 && ov.RunBytesTotal == 0 && st.Running.ETA != "" && st.Running.Percent > 0 {
+			d += " · " + st.Running.ETA
+		} else if !ov.RunFinding && (ov.RunFilesTotal > 0 || ov.RunBytesTotal > 0) {
+			// Two lines in the panel: what is done, then how long is left.
+			d += "\n" + st.Running.ETA
 		}
 		return Status{Kind: KindRunning, Title: "Backing up " + st.Running.Set, Detail: d}
 	case ov.Interrupted != "":
@@ -384,4 +420,22 @@ func RunTitle(r Recent) string {
 	}
 	return map[string]string{"ok": "Backed up", "nochange": "Nothing had changed",
 		"failed": "Did not finish", "cancelled": "Stopped before it finished"}[r.Kind]
+}
+
+// runDetail is how far a live run has got, short enough for the panel:
+// "Finding files… 12,345 found · 1.4 GB" while it scans, then
+// "12,400 of 48,000 files · 1.1 of 2 GB".
+func runDetail(ov ui.Overview) string {
+	switch {
+	case ov.RunFinding:
+		return fmt.Sprintf("Finding files… %s found · %s",
+			progress.FormatCount(ov.RunFoundFiles), progress.FormatBytes(ov.RunFoundBytes))
+	case ov.RunFilesTotal > 0 || ov.RunBytesTotal > 0:
+		return fmt.Sprintf("%s of %s files · %s",
+			progress.FormatCount(ov.RunFilesDone), progress.FormatCount(ov.RunFilesTotal),
+			progress.FormatBytesOf(ov.RunBytesDone, ov.RunBytesTotal))
+	case ov.RunPercent > 0:
+		return fmt.Sprintf("%.0f%% done", ov.RunPercent*100)
+	}
+	return "Working out what changed"
 }

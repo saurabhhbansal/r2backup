@@ -17,3 +17,7 @@ func Run(ctx context.Context, be Backend) error {
 // Fail does nothing here: the command prints Run's error, and there is no
 // taskbar app to have failed.
 func Fail(error) {}
+
+// SetStartAtLogin does nothing here: starting with the computer is a
+// Windows taskbar app thing.
+func SetStartAtLogin(bool) error { return nil }

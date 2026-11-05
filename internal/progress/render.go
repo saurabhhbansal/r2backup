@@ -45,7 +45,11 @@ func Render(s Snapshot, width int) string {
 	b.WriteString(" · ")
 	b.WriteString(FormatFileRate(s.FileRate))
 	b.WriteString(" · ")
-	if s.ETAKnown {
+	if s.Paused {
+		b.WriteString("paused")
+	} else if s.Offline {
+		b.WriteString("waiting for the network…")
+	} else if s.ETAKnown {
 		b.WriteString(FormatDuration(s.ETA))
 		b.WriteString(" remaining")
 	} else {
@@ -142,6 +146,12 @@ func formatBytesPair(done, total int64) string {
 		_, unit = splitUnit(done)
 	}
 	return scaledIn(done, unit) + "/" + scaledIn(total, unit) + " " + unit
+}
+
+// FormatBytesOf renders "1.1 of 2 GB": done against total in the total's
+// unit, for a sentence rather than a bar.
+func FormatBytesOf(done, total int64) string {
+	return strings.Replace(formatBytesPair(done, total), "/", " of ", 1)
 }
 
 // scaledIn formats n in the given fixed unit (one of byteUnits).

@@ -42,8 +42,8 @@ func newMirrorCmd(opts *Options) *cobra.Command {
 			"  r2b mirror Documents      mirror one set\n" +
 			"  r2b mirror --everything   mirror every computer's backups\n" +
 			"  r2b mirror --reverse      copy back from the mirror instead\n" +
-			"  r2b mirror auto on        mirror after every backup, scheduled ones too\n" +
-			"  r2b mirror off            stop keeping a second copy\n" +
+			"  r2b mirror off            stop keeping a secondary backup\n" +
+			"  r2b mirror folder X off   leave one folder out of the secondary backup\n" +
 			"  r2b mirror drime ...      copy Drime folders another app backs up to\n" +
 			"  r2b mirror ultra on       Ultra fast mode (experimental): Drime to S3 cloud to cloud",
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -61,7 +61,69 @@ func newMirrorCmd(opts *Options) *cobra.Command {
 	cmd.Flags().BoolVar(&everything, "everything", false, "mirror every computer's backups, not only this one's sets")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "say what would be copied and removed, and change nothing")
 	cmd.Flags().BoolVar(&keep, "keep", false, "never remove anything from the destination")
-	cmd.AddCommand(newMirrorSetupCmd(opts), newMirrorAutoCmd(opts), newMirrorOffCmd(opts), newMirrorDrimeCmd(opts), newMirrorUltraCmd(opts))
+	cmd.AddCommand(newMirrorSetupCmd(opts), newMirrorAutoCmd(opts), newMirrorOffCmd(opts), newMirrorFolderCmd(opts),
+		newMirrorDrimeCmd(opts), newMirrorUltraCmd(opts))
+	return cmd
+}
+
+// newMirrorFolderCmd is the Secondary backup switch in the panel's folder
+// settings: one folder in or out of the second copy.
+func newMirrorFolderCmd(opts *Options) *cobra.Command {
+	var del bool
+	cmd := &cobra.Command{
+		Use:   "folder <set> on|off",
+		Short: "Keep one folder in the second copy, or leave it out",
+		Long: "Every folder goes to the second copy unless it is turned off here.\n" +
+			"Off stops copying it; what the second copy already has of it stays,\n" +
+			"unless you add --delete.\n\n" +
+			"  r2b mirror folder Photos off            stop copying Photos\n" +
+			"  r2b mirror folder Photos off --delete   and delete it from the second copy\n" +
+			"  r2b mirror folder Photos on             copy it again",
+		Args:      cobra.ExactArgs(2),
+		ValidArgs: []string{"on", "off"},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := args[0]
+			on := strings.EqualFold(args[1], "on")
+			if !on && !strings.EqualFold(args[1], "off") {
+				return fmt.Errorf("say on or off, not %q", args[1])
+			}
+			if on && del {
+				return errors.New("--delete goes with off")
+			}
+			return withBackend(opts, func(t *trayBackend) error {
+				if del {
+					second, err := t.d.app.mirror.Load()
+					if err != nil {
+						return errors.New("there is no second copy")
+					}
+					p := newPrompter(opts)
+					fmt.Fprintf(p.out, "Delete %s from %s? Your backup of it stays.\n", name, destLabel(second))
+					ok, err := decide(opts, p, "Delete? [y/N]", false)
+					if err != nil {
+						return err
+					}
+					if !ok {
+						fmt.Fprintln(opts.Out, "Nothing changed.")
+						return nil
+					}
+				}
+				if _, err := t.Call(cmd.Context(), "folderSecondary",
+					mustJSON(map[string]any{"name": name, "on": on, "drop": del})); err != nil {
+					return err
+				}
+				switch {
+				case on:
+					fmt.Fprintf(opts.Out, "%s goes to the second copy again, from the next copy.\n", name)
+				case del:
+					fmt.Fprintf(opts.Out, "%s is no longer copied, and is deleted from the second copy.\n", name)
+				default:
+					fmt.Fprintf(opts.Out, "%s is no longer copied. What’s there stays.\n", name)
+				}
+				return nil
+			})
+		},
+	}
+	cmd.Flags().BoolVar(&del, "delete", false, "with off: also delete the folder from the second copy")
 	return cmd
 }
 
@@ -97,7 +159,7 @@ func newMirrorSetupCmd(opts *Options) *cobra.Command {
 			return runMirrorSetup(cmd.Context(), a, opts, provider)
 		},
 	}
-	cmd.Flags().StringVar(&provider, "provider", "", "drime, r2, b2, s3 or s3-custom (asked if not given)")
+	cmd.Flags().StringVar(&provider, "provider", "", "r2, b2, s3 or s3-custom (asked if not given)")
 	return cmd
 }
 
@@ -106,17 +168,16 @@ func runMirrorSetup(ctx context.Context, a *app, opts *Options, provider string)
 	if main, err := a.creds.Load(); err == nil {
 		fmt.Fprintf(p.out, "This computer backs up to %s.\n", providerLabel(main))
 		if provider == "" {
-			if main.IsDrime() {
-				fmt.Fprintln(p.out, "A mirror on Cloudflare R2 would put a second copy with a second company.")
-			} else {
-				fmt.Fprintln(p.out, "A mirror on Drime would put a second copy with a second company.")
-			}
+			fmt.Fprintln(p.out, "A secondary backup on S3 storage puts a copy with a second company.")
 		}
 	} else {
 		fmt.Fprintln(p.out, "This computer has no main destination yet. Run r2b setup first.")
 		return err
 	}
-	c, err := askForDestination(ctx, p, provider)
+	if provider == creds.ProviderDrime {
+		return errors.New("a secondary backup goes to S3 storage, with a company other than Drime: use r2, b2, s3 or s3-custom")
+	}
+	c, err := askForS3Destination(ctx, p, provider, "Where should the secondary backup go?")
 	if err != nil {
 		return err
 	}
@@ -132,14 +193,14 @@ func runMirrorSetup(ctx context.Context, a *app, opts *Options, provider string)
 	_ = t.pushKeys(ctx) // as after the panel's mirrorSetup (keysChange)
 	fmt.Fprintf(p.out, "Second copy: %s. Each backup is copied there once it finishes.\n", destLabel(c))
 	fmt.Fprintln(p.out, "To copy everything now: r2b mirror")
-	fmt.Fprintln(p.out, "To stop copying after every backup: r2b mirror auto off")
+	fmt.Fprintln(p.out, "To stop keeping a secondary backup: r2b mirror off")
 	return nil
 }
 
 func newMirrorAutoCmd(opts *Options) *cobra.Command {
 	return &cobra.Command{
 		Use:       "auto on|off",
-		Short:     "Mirror after every backup, or stop",
+		Short:     "Kept for older scripts: the secondary backup is copied after every backup",
 		Args:      cobra.ExactArgs(1),
 		ValidArgs: []string{"on", "off"},
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -164,7 +225,8 @@ func newMirrorAutoCmd(opts *Options) *cobra.Command {
 			if on {
 				fmt.Fprintln(opts.Out, "Copying after every backup.")
 			} else {
-				fmt.Fprintln(opts.Out, "Automatic mirroring is off. r2b mirror still works by hand.")
+				fmt.Fprintln(opts.Out, "The secondary backup is still copied after every backup: that is always on now. "+
+					"To stop keeping it: r2b mirror off")
 			}
 			return nil
 		},
@@ -255,6 +317,24 @@ func runMirror(ctx context.Context, a *app, opts *Options, names []string, f mir
 			list = append(list, s)
 		}
 	}
+	// A folder turned off for the secondary backup is left alone there,
+	// unless this is a copy back, which is for getting files back.
+	var skip []string
+	if !f.reverse {
+		if f.everything {
+			skip = secondarySkips(a.sets.List())
+		}
+		for _, s := range list {
+			if s.NoSecondary {
+				fmt.Fprintf(opts.Out, "%s is kept out of the secondary backup; skipped. Turn it back on: r2b mirror folder %q on\n", s.Name, s.Name)
+			}
+		}
+		list = forSecondary(list)
+		if !f.everything && len(list) == 0 {
+			fmt.Fprintln(opts.Out, "Nothing to copy.")
+			return nil
+		}
+	}
 	for _, s := range list {
 		prefixes = append(prefixes, s.KeyScope())
 	}
@@ -265,7 +345,7 @@ func runMirror(ctx context.Context, a *app, opts *Options, names []string, f mir
 	}
 	fmt.Fprintf(opts.Out, "%s %s -> %s (%s)\n", verb, srcName, dstName, dst.Bucket())
 	rep, runErr := mirror.Run(ctx, mirror.Options{
-		Src: src, Dst: dst, Prefixes: prefixes,
+		Src: src, Dst: dst, Prefixes: prefixes, Skip: skip,
 		// Copying back never removes anything from where backups go, as in
 		// the panel: it is for getting files back, and a second copy that is
 		// behind must not be able to take them away.
@@ -297,13 +377,17 @@ func mirrorProgressPrinter(out io.Writer, tty bool) func(mirror.Progress) {
 		return nil
 	}
 	var last time.Time
+	var wasOffline bool
 	return func(p mirror.Progress) {
-		if time.Since(last) < 250*time.Millisecond && p.FilesDone != p.FilesTotal {
+		if time.Since(last) < 250*time.Millisecond && p.FilesDone != p.FilesTotal && p.Offline == wasOffline {
 			return
 		}
-		last = time.Now()
+		last, wasOffline = time.Now(), p.Offline
 		fmt.Fprintf(out, "\r\033[2K  %d of %d files, %s of %s",
 			p.FilesDone, p.FilesTotal, progress.FormatBytes(p.BytesDone), progress.FormatBytes(p.BytesTotal))
+		if p.Offline {
+			fmt.Fprint(out, " · waiting for the network…")
+		}
 	}
 }
 
@@ -333,6 +417,30 @@ func printMirrorReport(out io.Writer, r *mirror.Report, dry bool) {
 	}
 }
 
+// forSecondary is the folders in list that go to the secondary backup: all
+// of them but those turned off with `r2b mirror folder <name> off`.
+func forSecondary(list []sets.Set) []sets.Set {
+	var out []sets.Set
+	for _, s := range list {
+		if !s.NoSecondary {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// secondarySkips is the key scope of every folder kept out of the secondary
+// backup, for a copy of a wider prefix that would otherwise take them in.
+func secondarySkips(list []sets.Set) []string {
+	var out []string
+	for _, s := range list {
+		if s.NoSecondary {
+			out = append(out, s.KeyScope())
+		}
+	}
+	return out
+}
+
 func recordMirrored(list []sets.Set, everything bool) {
 	s, err := config.LoadSettings()
 	if err != nil {
@@ -358,7 +466,9 @@ func recordMirrored(list []sets.Set, everything bool) {
 // so and tried again next time.
 func autoMirror(ctx context.Context, a *app, out io.Writer, done map[string]*backup.Report) {
 	st, err := config.LoadSettings()
-	if err != nil || !st.MirrorAuto || !a.mirror.Exists() || len(done) == 0 {
+	// The secondary backup is always copied after a backup. MirrorAuto is
+	// still written, for older copies of r2backup, and no longer read here.
+	if err != nil || !a.mirror.Exists() || len(done) == 0 {
 		return
 	}
 	var due []sets.Set
@@ -366,7 +476,7 @@ func autoMirror(ctx context.Context, a *app, out io.Writer, done map[string]*bac
 		changed := rep != nil && rep.Uploaded+rep.Moved+rep.Deleted > 0
 		last := time.Unix(st.MirrorLast[name], 0)
 		if changed || time.Since(last) > mirrorRecheck {
-			if s, err := a.sets.Get(name); err == nil {
+			if s, err := a.sets.Get(name); err == nil && !s.NoSecondary {
 				due = append(due, s)
 			}
 		}

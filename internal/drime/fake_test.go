@@ -36,6 +36,21 @@ type fakeDrime struct {
 	// redirect makes downloads answer as the real Drime does: a redirect to
 	// a presigned link under /blob/ that needs no token and takes Range.
 	redirect bool
+	// workspaces is what /me/workspaces answers; nil answers 404, as an
+	// API without workspaces would.
+	workspaces []map[string]any
+	// personal is the own workspace's name in /me/workspaces (nil is JSON
+	// null, as Drime leaves it), and firstName is /users/me's first_name.
+	personal  *string
+	firstName string
+	// folderGate, when set, holds every folder creation until it is closed,
+	// so a test can see what else goes on while one is under way.
+	folderGate chan struct{}
+	// slowDelete holds a delete's answer this long, as Drime does for a
+	// folder of tens of thousands of files; stuckDelete also leaves the
+	// entries in place, as a delete that never happened.
+	slowDelete  time.Duration
+	stuckDelete bool
 }
 
 type fakeEntry struct {
@@ -151,6 +166,31 @@ func writeJSON(w http.ResponseWriter, v any) {
 }
 
 func (f *fakeDrime) serve(w http.ResponseWriter, r *http.Request) {
+	if f.slowDelete > 0 && r.Method == http.MethodPost && r.URL.Path == "/api/v1/file-entries/delete" {
+		var req struct {
+			EntryIDs []string `json:"entryIds"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		f.mu.Lock()
+		f.calls[r.Method+" "+r.URL.Path]++
+		if !f.stuckDelete {
+			for _, id := range req.EntryIDs {
+				if f.entries[id] != nil {
+					f.removeTree(id)
+				}
+			}
+		}
+		f.mu.Unlock()
+		select {
+		case <-time.After(f.slowDelete):
+			writeJSON(w, map[string]any{"status": "success"})
+		case <-r.Context().Done():
+		}
+		return
+	}
+	if g := f.folderGate; g != nil && r.Method == http.MethodPost && r.URL.Path == "/api/v1/folders" {
+		<-g
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	p := r.URL.Path
@@ -392,6 +432,17 @@ func (f *fakeDrime) serve(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&req)
 		delete(f.uploads, req.UploadID)
 		w.WriteHeader(204)
+
+	case r.Method == http.MethodGet && p == "/api/v1/me/workspaces":
+		if f.workspaces == nil {
+			w.WriteHeader(404)
+			writeJSON(w, map[string]string{"message": "Not found."})
+			return
+		}
+		writeJSON(w, map[string]any{"workspaces": f.workspaces, "personal": map[string]any{"name": f.personal}})
+
+	case r.Method == http.MethodGet && p == "/api/v1/users/me":
+		writeJSON(w, map[string]any{"user": map[string]any{"first_name": f.firstName, "display_name": f.firstName}})
 
 	case r.Method == http.MethodGet && p == "/api/v1/user/space-usage":
 		writeJSON(w, SpaceUsage{Used: 10, Available: 100})

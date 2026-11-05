@@ -1,6 +1,9 @@
 package remote
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 // Store is everything r2backup asks of the place backups are kept.
 //
@@ -74,6 +77,73 @@ func FlushStore(ctx context.Context, s Store) error {
 		return f.Flush(ctx)
 	}
 	return nil
+}
+
+// Checkpointer is a Flusher that can put what it holds back on record in the
+// middle of a run, without letting go of what it has read the way Flush does.
+//
+// A run uses it to note finished files in the local index as it goes, so a
+// backup cut off by a crash, a kill or a shutdown keeps what it finished. A
+// file is only noted once the store has it on record, and for a store that
+// holds writes back (bundling's packs and index, Drime's manifest of dates)
+// that is after a checkpoint.
+type Checkpointer interface {
+	// Pending reports whether anything a write has returned for is not on
+	// record yet.
+	Pending() bool
+	// Checkpoint puts everything written so far on record.
+	Checkpoint(ctx context.Context) error
+}
+
+// ErrNoCheckpoint is what a Checkpointer wrapping another store returns when
+// the store underneath cannot save mid-run. Nothing went wrong: what was
+// written is on record once the run's final flush is done.
+var ErrNoCheckpoint = errors.New("remote: this storage saves only at the end of a run")
+
+// PendingStore reports whether s holds back anything already written. A
+// Flusher that cannot say is assumed to.
+func PendingStore(s Store) bool {
+	if c, ok := s.(Checkpointer); ok {
+		return c.Pending()
+	}
+	_, holds := s.(Flusher)
+	return holds
+}
+
+// CheckpointStore puts what s holds back on record mid-run. ok is false for
+// a store that holds writes back but cannot do that safely mid-run: its
+// writes are on record only once the run's final flush is done.
+func CheckpointStore(ctx context.Context, s Store) (ok bool, err error) {
+	if c, is := s.(Checkpointer); is {
+		if err := c.Checkpoint(ctx); err != nil {
+			if errors.Is(err, ErrNoCheckpoint) {
+				return false, nil
+			}
+			return true, err
+		}
+		return true, nil
+	}
+	if _, holds := s.(Flusher); holds {
+		return false, nil
+	}
+	return true, nil
+}
+
+// EndpointOf is the URL s sends its requests to, or "" when it cannot say. A
+// store wrapping another (bundling) answers for the one underneath. It is
+// what a run checks to know whether the network has come back.
+func EndpointOf(s Store) string {
+	for i := 0; s != nil && i < 8; i++ {
+		if e, ok := s.(interface{ Endpoint() string }); ok {
+			return e.Endpoint()
+		}
+		b, ok := s.(interface{ Base() Store })
+		if !ok {
+			return ""
+		}
+		s = b.Base()
+	}
+	return ""
 }
 
 // CloseStore is for a Store that is done with: it saves anything held back,

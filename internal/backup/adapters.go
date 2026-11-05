@@ -76,6 +76,7 @@ type reporter struct{ t *progress.Tracker }
 
 func (r reporter) AddBytes(n int64)        { r.t.AddBytes(n) }
 func (r reporter) CompleteFile(size int64) { r.t.Complete(0) }
+func (r reporter) InFlight(delta int)      { r.t.InFlight(delta) }
 
 // metadataFor builds the per-object metadata that makes the bucket
 // self-describing, so a restore needs no manifest.
@@ -113,6 +114,7 @@ func isThrottle(err error) bool {
 
 var _ engine.Uploader = uploader{}
 var _ engine.Reporter = reporter{}
+var _ engine.InFlightReporter = reporter{}
 
 // trashAdapter narrows the trash package to the single call a run makes, so
 // backup does not carry retention policy around with it.
@@ -212,3 +214,17 @@ func toIndexParts(in []remote.PartRecord) []index.PendingPart {
 // ResumeStoreFor is how a caller attaches the index to a client so large
 // uploads can be picked up where they stopped.
 func ResumeStoreFor(db *index.DB) remote.ResumeStore { return resumeStore{db: db} }
+
+// Finder is an Observer that also wants to hear, while the folder is still
+// being scanned, how much has been found so far -- the only progress there is
+// to show before the plan, and so the totals, exist.
+type Finder interface {
+	Found(files, bytes int64)
+}
+
+func foundFunc(obs Observer) func(files, bytes int64) {
+	if f, ok := obs.(Finder); ok {
+		return f.Found
+	}
+	return nil
+}

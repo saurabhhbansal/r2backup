@@ -17,6 +17,7 @@ import (
 	"github.com/saurabhhbansal/r2backup/internal/creds"
 	"github.com/saurabhhbansal/r2backup/internal/index"
 	"github.com/saurabhhbansal/r2backup/internal/runstate"
+	"github.com/saurabhhbansal/r2backup/internal/schedule"
 	"github.com/saurabhhbansal/r2backup/internal/sets"
 	"github.com/saurabhhbansal/r2backup/internal/tray"
 	"github.com/saurabhhbansal/r2backup/internal/ui"
@@ -50,6 +51,9 @@ func runTray(ctx context.Context, opts *Options) error {
 	defer d.close()
 	t := &trayBackend{d: d, checkUpdates: true}
 	defer t.endCF()
+	cctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go t.carryOn(cctx, carryOnAfter)
 	return tray.Run(ctx, t)
 }
 
@@ -313,7 +317,11 @@ func (t *trayBackend) stop() error {
 		return errors.New("there is no backup from here to stop")
 	}
 	t.stopped = true
-	return t.child.Process.Kill()
+	err := t.child.Process.Kill()
+	// So the next start of the panel does not carry on what the person
+	// just stopped (see carryOn).
+	markStoppedByHand()
+	return err
 }
 
 func (t *trayBackend) BackUp(name string) error {
@@ -329,7 +337,16 @@ func (t *trayBackend) AddFolder(path string) error {
 }
 
 func (t *trayBackend) SetSchedule(ctx context.Context, on bool, every int) error {
+	if on {
+		if err := schedule.ValidateIntervalMinutes(every); err != nil {
+			return err
+		}
+	}
 	return t.d.Schedule(ctx, every, !on)
+}
+
+func (t *trayBackend) SetScheduleDaily(ctx context.Context, at string) error {
+	return t.d.ScheduleDaily(ctx, at)
 }
 
 func (t *trayBackend) StorageURL() string {

@@ -62,12 +62,19 @@ header { display: flex; align-items: center; gap: 10px; padding: 14px var(--gut)
 .badge { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; }
 .badge svg { width: 18px; height: 18px; stroke: currentColor; fill: none; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 .k-ok .badge { color: var(--ok); background: color-mix(in srgb, var(--ok) 14%, transparent); }
-.k-running .badge, .k-interrupted .badge { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.k-running .badge, .k-interrupted .badge, .k-paused .badge { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 .k-attention .badge { color: var(--bad); background: color-mix(in srgb, var(--bad) 14%, transparent); }
 .k-pending .badge, .k-setup .badge { color: var(--warn); background: color-mix(in srgb, var(--warn) 14%, transparent); }
 .status h1 { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .status p { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .s-acts { display: flex; gap: 6px; }
+/* A running backup's detail is two lines: how far, then how long. */
+.k-running p, .k-paused p { white-space: pre-line; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+/* Pause is there when you reach for the card -- hover or keyboard -- and
+   out of the way otherwise. Resume, once paused, is always shown. */
+.s-acts .peek { opacity: 0; transition: opacity .12s; }
+.dock:hover .s-acts .peek, .dock:focus-within .s-acts .peek, .s-acts .peek:focus-visible { opacity: 1; }
+@media (hover: none) { .s-acts .peek { opacity: 1; } }
 .bar { grid-column: 1 / -1; height: 4px; border-radius: 4px; background: var(--card-2); overflow: hidden; }
 .bar i { display: block; height: 100%; background: var(--accent); border-radius: 4px; transition: width .4s ease; }
 .bar.indet i { width: 35% !important; animation: slide 1.2s ease-in-out infinite; }
@@ -132,6 +139,17 @@ main::-webkit-scrollbar-thumb:hover { background: var(--faint); }
 /* footer */
 footer { display: flex; align-items: center; gap: 10px; padding: 10px var(--gut) 12px; border-top: 1px solid var(--line); }
 
+/* The dock: status and Back up now, one card floating over the bottom of
+   the list. The list ends --dock-h (measured) above the panel's foot, so
+   its last row can always be scrolled clear of the card. */
+.dock { position: absolute; left: var(--gut); right: var(--gut); bottom: 12px; background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: var(--lift); }
+.dock .status { margin: 0; border: 0; border-radius: var(--radius) var(--radius) 0 0; background: none; }
+.dock-go { display: flex; padding: 10px 12px 12px; border-top: 1px solid var(--line); }
+#list { padding-bottom: calc(var(--dock-h, 124px) + 20px); }
+body:not(:has(.sheet.open)) .toast { bottom: calc(var(--dock-h, 124px) + 20px); }
+.day.has-clear { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 8px; padding-bottom: 0; }
+.day .textbtn { padding: 4px 0; }
+
 /* sheets */
 .sheet { position: absolute; inset: 0; background: var(--bg); display: flex; flex-direction: column; transform: translateX(100%); border-radius: 10px; }
 .sheet.open { transform: none; }
@@ -162,6 +180,18 @@ footer { display: flex; align-items: center; gap: 10px; padding: 10px var(--gut)
 .group .link:only-child { border-radius: var(--radius); }
 .danger b { color: var(--bad); }
 .foot { color: var(--faint); font-size: 11px; text-align: center; padding: 6px 0 4px; }
+.foot.upd { padding-top: 0; }
+.foot .textbtn { font-size: 11px; color: var(--faint); }
+.foot .textbtn.ready { color: var(--accent); font-weight: 500; }
+#b-quit .t { text-align: center; }
+.sched-custom { flex-wrap: wrap; }
+.sched-custom input { width: 84px; }
+.sched-custom input[type="time"] { width: 110px; }
+.sched-custom .sc-f { display: flex; align-items: center; gap: 6px; }
+.sched-custom .mini { margin-left: auto; }
+.keybtns { display: flex; gap: 8px; margin-bottom: 12px; }
+.keybtns .wide { flex: 1; }
+.keybtns .wide svg { width: 15px; height: 15px; stroke: currentColor; fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .sect { color: var(--muted); font-size: 12px; font-weight: 500; padding: 4px 2px 6px; }
 
 /* switches */
@@ -401,17 +431,11 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
 <body>
 <header>
   <div class="logo top" role="img" aria-label="r2backup"></div>
+  <button class="icon-btn" id="b-add" title="Add a folder" aria-label="Add a folder"><svg viewBox="0 0 24 24"><path d="M3.5 7.5a2 2 0 0 1 2-2h4l2 2.2h7a2 2 0 0 1 2 2v7.8a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/><path d="M12 11v5.5M9.25 13.75h5.5"/></svg></button>
   <button class="icon-btn" id="b-restore" title="Backups" aria-label="Backups"><svg viewBox="0 0 24 24"><path d="M3.5 12a8.5 8.5 0 1 0 2.6-6.1M3.5 4.5v4h4"/><path d="M12 7.5V12l3 2"/></svg></button>
   <button class="icon-btn" id="b-trash" title="Deleted files" aria-label="Deleted files"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M5.5 7l1 12a1.5 1.5 0 0 0 1.5 1.4h8a1.5 1.5 0 0 0 1.5-1.4l1-12M9 7V4.5h6V7"/></svg></button>
   <button class="icon-btn" id="b-set" title="Settings" aria-label="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
 </header>
-
-<section class="status" id="status" aria-live="polite">
-  <div class="badge" id="badge"></div>
-  <div style="min-width:0"><h1 id="s-title">Loading…</h1><p id="s-detail">&nbsp;</p></div>
-  <div class="s-acts" id="s-acts"></div>
-  <div class="bar" id="bar" hidden><i id="bar-fill" style="width:0"></i></div>
-</section>
 
 <nav role="tablist">
   <button role="tab" id="t-folders" aria-selected="true">Folders<span class="n" id="n-folders"></span></button>
@@ -420,9 +444,19 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
 
 <main id="list"></main>
 
-<footer>
-  <button class="primary" id="b-all"><svg viewBox="0 0 24 24"><path d="M12 16V4m0 0-4.5 4.5M12 4l4.5 4.5M5 20h14"/></svg><span id="b-all-t">Back up now</span></button>
-</footer>
+<!-- How things stand, and backing up now: one card that floats over the
+     bottom of the list. The list scrolls behind it and is padded to end above it. -->
+<div class="dock" id="dock">
+  <section class="status" id="status" aria-live="polite">
+    <div class="badge" id="badge"></div>
+    <div style="min-width:0"><h1 id="s-title">Loading…</h1><p id="s-detail">&nbsp;</p></div>
+    <div class="s-acts" id="s-acts"></div>
+    <div class="bar" id="bar" hidden><i id="bar-fill" style="width:0"></i></div>
+  </section>
+  <div class="dock-go">
+    <button class="primary" id="b-all"><svg viewBox="0 0 24 24"><path d="M12 16V4m0 0-4.5 4.5M12 4l4.5 4.5M5 20h14"/></svg><span id="b-all-t">Back up now</span></button>
+  </div>
+</div>
 
 <div class="toast" id="toast" role="status"></div>
 
@@ -435,20 +469,32 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
     <div class="group">
       <button class="item link" id="b-account"><span class="avatar" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.6"/><path d="M5 19.5c1.2-3.3 3.9-5 7-5s5.8 1.7 7 5"/></svg></span><div class="t"><b id="acct-row-t">Account</b><span id="acct-row-sub"></span></div></button>
     </div>
+    <div class="sect" id="pur-t">Using r2backup for</div>
+    <div class="group" id="pur-opts" role="radiogroup" aria-labelledby="pur-t"></div>
     <div class="group">
       <div class="item">
-        <div class="t"><b>Back up automatically</b><span id="sched-help"></span></div>
-        <button class="toggle" id="sw-sched" role="switch" aria-checked="false" aria-label="Back up automatically"></button>
-      </div>
-      <div class="item">
-        <div class="t"><b>How often</b></div>
-        <select id="sel-every" aria-label="How often">
+        <div class="t"><b>Back up automatically</b></div>
+        <select id="sel-every" aria-label="Back up automatically">
+          <option value="off">Off</option>
           <option value="15">Every 15 minutes</option>
-          <option value="30" selected>Every 30 minutes</option>
+          <option value="30">Every 30 minutes</option>
           <option value="60">Every hour</option>
           <option value="240">Every 4 hours</option>
           <option value="1440">Once a day</option>
+          <option value="custom">Custom…</option>
         </select>
+      </div>
+      <div class="item sched-custom" id="sched-custom" hidden>
+        <select id="sel-ckind" aria-label="How to repeat">
+          <option value="every">Every</option>
+          <option value="daily">Every day at</option>
+        </select>
+        <span class="sc-f" id="sc-every">
+          <input id="in-cnum" type="number" min="1" max="1440" step="1" inputmode="numeric" aria-label="How many">
+          <select id="sel-cunit" aria-label="Minutes or hours"><option value="m">minutes</option><option value="h">hours</option></select>
+        </span>
+        <input id="in-ctime" type="time" aria-label="Time of day" hidden>
+        <button class="mini" id="b-csave">Set</button>
       </div>
     </div>
     <div class="group">
@@ -457,23 +503,15 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
         <button class="toggle" id="sw-login" role="switch" aria-checked="false" aria-label="Start with Windows"></button>
       </div>
     </div>
-    <div class="group">
-      <button class="item link" id="b-add"><div class="t"><b>Add a folder…</b></div></button>
-    </div>
-    <div class="group">
-      <button class="item link" id="b-dfold"><div class="t"><b>Drime folders</b><span>Copy another app’s Drime backups to S3 storage</span></div></button>
-    </div>
-    <div class="group">
-      <button class="item link" id="b-export"><div class="t"><b>Export keys…</b><span id="b-export-sub">An encrypted file to set up another computer</span></div></button>
-      <button class="item link" id="b-import"><div class="t"><b>Import keys…</b><span>From a key file made on another computer</span></div></button>
-    </div>
-    <div class="group">
-      <button class="item link" id="b-update"><div class="t"><b id="update-t">Check for updates</b><span id="update-sub"></span></div></button>
+    <div class="keybtns">
+      <button class="wide" id="b-import"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5v10M8 9.5l4 4 4-4M4.5 14.5v3a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-3"/></svg>Import keys</button>
+      <button class="wide" id="b-export"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 13.5v-10M8 7.5l4-4 4 4M4.5 14.5v3a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-3"/></svg>Export keys</button>
     </div>
     <div class="group">
       <button class="item link danger" id="b-quit"><div class="t"><b>Quit r2backup</b></div></button>
     </div>
     <p class="foot" id="ver"></p>
+    <p class="foot upd"><button class="textbtn" id="b-update"><span id="update-t">Check for updates</span></button></p>
   </main>
 </section>
 
@@ -499,7 +537,6 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
       </div>
       <label class="field" data-k="drime"><span>API token</span><input id="c-token" type="password" autocomplete="off" spellcheck="false"></label>
       <button class="textbtn getlink" id="c-drime-open" data-k="drime">Get a token from Drime</button>
-      <label class="field" data-k="drime"><span>Folder in Drime</span><input id="c-folder" autocomplete="off" spellcheck="false" placeholder="r2backup"></label>
       <label class="field" data-k="s3-custom"><span>Endpoint URL</span><input id="c-endpoint" autocomplete="off" spellcheck="false" placeholder="https://s3.example.com"></label>
       <label class="field" data-k="r2"><span>Account ID</span><input id="c-acct" autocomplete="off" spellcheck="false"></label>
       <label class="field" data-k="r2 b2 s3 s3-custom"><span>Bucket</span><input id="c-bucket" autocomplete="off" spellcheck="false"></label>
@@ -512,7 +549,7 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
           <div class="t"><b>Bucket in the hostname</b><span>For addresses like bucket.s3.example.com</span></div>
           <button class="toggle" id="c-vhost" role="switch" aria-checked="false" aria-label="Bucket in the hostname"></button>
         </div>
-        <div class="item">
+        <div class="item" data-k="r2 b2 s3 s3-custom">
           <div class="t"><b>Pack small files</b><span>Fewer, larger uploads. Costs less where storage charges per upload.</span></div>
           <button class="toggle" id="c-pack" role="switch" aria-checked="false" aria-label="Pack small files"></button>
         </div>
@@ -598,6 +635,12 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
         <button class="item link" id="f-excl"><div class="t"><b>What is backed up</b></div><span class="v" id="f-excl-sub"></span></button>
         <button class="item link" id="f-open"><div class="t"><b>Open folder</b></div></button>
         <button class="item link" id="f-restore"><div class="t"><b>Restore files…</b></div></button>
+      </div>
+      <div class="group" id="f-sec-g" hidden>
+        <div class="item">
+          <div class="t"><b>Secondary backup</b><span id="f-sec-sub"></span></div>
+          <button class="toggle" id="f-sec" role="switch" aria-checked="true" aria-label="Secondary backup"></button>
+        </div>
       </div>
       <div class="group">
         <button class="item link" id="f-rename"><div class="t"><b>Rename…</b><span id="f-rename-sub"></span></div></button>
@@ -685,10 +728,10 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
   </main>
 </section>
 
-<section class="sheet" id="sheet-mirror" aria-label="Second copy">
+<section class="sheet" id="sheet-mirror" aria-label="Secondary backup">
   <header>
     <button class="icon-btn" id="m-back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button>
-    <b id="m-title">Second copy</b>
+    <b id="m-title">Secondary backup</b>
   </header>
   <main id="m-main">
     <div class="pane" data-mpane="home"></div>
@@ -736,6 +779,30 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
       <button class="primary" id="df-go"><span>Add</span></button>
     </div>
     <div class="pane" data-dfpane="run" hidden><div class="runbox" id="df-run" aria-live="polite"></div></div>
+  </main>
+</section>
+
+<section class="sheet" id="sheet-dpick" aria-label="Choose a folder in Drime">
+  <header>
+    <button class="icon-btn" id="dp-back" aria-label="Back"><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button>
+    <b id="dp-title">Choose a folder in Drime</b>
+  </header>
+  <main id="dp-main">
+    <div class="pane" data-dppane="token" hidden>
+      <p class="lead">Your Drime API token lets r2backup read your Drime.</p>
+      <label class="field"><span>Drime API token</span><input id="dp-token" type="password" autocomplete="off" spellcheck="false"></label>
+      <button class="textbtn getlink" id="dp-token-l">Get a token from Drime</button>
+      <div class="err-line" id="dp-token-err" hidden></div>
+      <button class="primary" id="dp-token-go"><span>Continue</span></button>
+    </div>
+    <div class="pane" data-dppane="browse" hidden>
+      <p class="lead" id="dp-lead" hidden></p>
+      <label class="field" id="dp-ws-f" hidden><span>Workspace</span><select id="dp-ws"></select></label>
+      <p class="hint" id="dp-path"></p>
+      <div class="group" id="dp-list"></div>
+      <div class="err-line" id="dp-err" hidden></div>
+      <button class="primary" id="dp-use"><span>Use this folder</span></button>
+    </div>
   </main>
 </section>
 
@@ -807,12 +874,12 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
     <div class="pane" data-gpane="purpose" hidden>
       <h2 id="g-purpose-t">What are you using r2backup for?</h2>
       <div class="group" id="g-purpose" role="radiogroup" aria-labelledby="g-purpose-t">
-        <button class="opt" data-purpose="both" role="radio" aria-checked="false"><div class="dot-r"></div><div><b>Drime, with a second copy</b><span>Back up to Drime, and keep a second copy on S3-compatible storage: Cloudflare R2, Backblaze B2, Amazon S3 or another.</span></div></button>
-        <button class="opt" data-purpose="s3" role="radio" aria-checked="false"><div class="dot-r"></div><div><b>S3 storage only</b><span>Back up straight to S3-compatible storage, without Drime.</span></div></button>
+        <button class="opt" data-purpose="both" role="radio" aria-checked="false"><div class="dot-r"></div><div><b>Primary and secondary backup</b><span>Back up to Drime, with a secondary backup on S3 storage.</span></div></button>
+        <button class="opt" data-purpose="copy" role="radio" aria-checked="false"><div class="dot-r"></div><div><b>Secondary backup only</b><span>You back up to Drime with Drime’s app. r2backup copies those backups to S3 storage.</span></div></button>
       </div>
       <div class="err-line" id="g-purpose-err" hidden></div>
       <button class="primary" id="g-purpose-go" disabled><span>Continue</span></button>
-      <p class="hint center">You can change this later in Settings › Account.</p>
+      <p class="hint center">You can change this later in Settings.</p>
     </div>
   </main>
   <div class="gate-foot"><button class="textbtn" id="g-quit">Quit</button></div>
@@ -840,6 +907,7 @@ const ICON = {
   pending: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="7"/></svg>',
   setup: '<svg viewBox="0 0 24 24"><path d="M12 7v6m0 4h.01"/></svg>',
   interrupted: '<svg viewBox="0 0 24 24"><path d="M9 7v10M15 7v10"/></svg>',
+  paused: '<svg viewBox="0 0 24 24"><path d="M9 7v10M15 7v10"/></svg>',
   running: '<svg class="spin" viewBox="0 0 24 24"><path d="M12 4a8 8 0 1 1-8 8"/></svg>',
   folder: { ok: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m8 12.3 2.7 2.7L16 9.7"/></svg>',
             attention: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5m0 3.5h.01"/></svg>',
@@ -878,6 +946,7 @@ const openSheet = (id) => {
     void s.offsetWidth; // let it start from the side, so it still slides in
   }
   s.classList.add("open");
+  if (id === "sheet") purDraw();
   const back = s.querySelector("header .icon-btn");
   if (back) setTimeout(() => back.focus({ preventScroll: true }), 0);
 };
@@ -925,7 +994,7 @@ function render(state) {
   $("b-restore").disabled = $("b-trash").disabled = !state.configured;
   // Signed in, another computer gets the keys by signing in. A file is for
   // computers that will not.
-  $("b-export-sub").textContent = onAccount()
+  $("b-export").title = onAccount()
     ? "Not needed with your account: signing in brings your keys"
     : "An encrypted file to set up another computer";
 
@@ -944,13 +1013,10 @@ function render(state) {
   $("n-folders").textContent = state.folders && state.folders.length ? state.folders.length : "";
   const busy = !!state.running || !!state.busy;
   $("b-all").disabled = busy || !state.configured || !(state.folders && state.folders.length);
-  $("b-all-t").textContent = state.running ? "Backing up…" : (state.busy || "Back up now");
+  $("b-all-t").textContent = state.running ? (state.running.pausing ? "Pausing…" : state.running.paused ? "Paused" : state.running.offline ? "Waiting for the network…" : "Backing up…") : (state.busy || "Back up now");
 
   const sc = state.schedule;
-  $("sw-sched").setAttribute("aria-checked", sc.on);
-  $("sw-sched").disabled = !sc.available || !state.configured;
-  if (sc.on && sc.every) $("sel-every").value = String(sc.every);
-  $("sel-every").disabled = !sc.available || !state.configured;
+  renderSchedule(sc, state.configured);
   $("sw-login").setAttribute("aria-checked", state.startAtLogin);
   $("b-add").disabled = !state.configured;
   $("ver").textContent = "r2backup " + (state.version ? "v" + state.version : "");
@@ -958,8 +1024,8 @@ function render(state) {
   if (state.notice && state.noticeAt !== lastNotice) { lastNotice = state.noticeAt; toast(state.notice); }
   $("upd-dot").hidden = !state.update;
   $("b-set").setAttribute("aria-label", state.update ? "Settings, an update is ready" : "Settings");
-  if (state.update) { $("update-t").textContent = "Update to " + state.update; $("update-sub").textContent = "Restarts by itself"; }
-  else if (!updChecked) { $("update-t").textContent = "Check for updates"; $("update-sub").textContent = ""; }
+  if (state.update) { $("update-t").textContent = "Update to " + state.update; $("b-update").classList.add("ready"); }
+  else if (!updChecked) { $("update-t").textContent = "Check for updates"; $("b-update").classList.remove("ready"); }
   renderStatusActions(state);
   renderList();
 }
@@ -970,7 +1036,15 @@ function renderStatusActions(state) {
   const box = $("s-acts");
   let html = "";
   const a = state.status.action || "";
-  if (state.canStop) html = '<button class="mini" data-sact="stop">Stop</button>';
+  const r = state.running;
+  // Pause and Resume reach any running backup, the schedule's included.
+  // Pause only once it is sending: while it is still finding files there
+  // is nothing yet to hold.
+  if (r && r.paused) html = '<button class="mini" data-sact="resume">Resume</button>';
+  else if (r && !r.finding && r.percent > 0) html = '<button class="mini peek" data-sact="pause">Pause</button>';
+  // Stop stays where it always worked: a backup this panel started.
+  if (state.canStop) html += '<button class="mini" data-sact="stop">Stop</button>';
+  else if (r) { /* nothing else applies while a backup runs */ }
   else if (a === "backup" && !state.busy) html = '<button class="mini" data-sact="backup">Carry on</button>';
   else if (a.startsWith("folder:")) html = '<button class="mini" data-sact="folder">Show me</button>';
   if (box.dataset.html !== html) { box.dataset.html = html; box.innerHTML = html; }
@@ -981,6 +1055,14 @@ $("s-acts").addEventListener("click", (e) => {
   const a = S.status.action || "";
   switch (b.dataset.sact) {
     case "stop": b.disabled = true; call("backupStop").catch((err) => toast(err.message)); break;
+    case "pause": case "resume": {
+      const on = b.dataset.sact === "pause";
+      b.disabled = true;
+      call(on ? "backupPause" : "backupResume")
+        .then(() => { if (S && S.running) { S.running.paused = on; renderStatusActions(S); } })
+        .catch((err) => { b.disabled = false; toast(err.message); });
+      break;
+    }
     case "backup": send("backup", ""); break;
     case "folder": openFolder(a.slice(7)); break;
   }
@@ -1016,7 +1098,11 @@ function renderList() {
     } else {
       let day = "";
       S.recent.forEach((r, i) => {
-        if (r.day !== day) { day = r.day; html += '<div class="day">' + esc(day) + "</div>"; }
+        if (r.day !== day) {
+          day = r.day;
+          html += i === 0 ? '<div class="day has-clear"><span>' + esc(day) + '</span><button class="textbtn" data-act="clear-activity">Clear</button></div>'
+            : '<div class="day">' + esc(day) + "</div>";
+        }
         html += '<div class="row" data-run="' + i + '" tabindex="0" role="button" aria-label="' + esc(r.set + ", " + r.time + ", " + r.text) + '"><div class="ic i-' + r.kind + '">' + (ICON.run[r.kind] || ICON.run.nochange) + "</div>" +
           '<div class="t"><b>' + esc(r.set) + "</b><span" + (r.kind === "failed" ? ' class="err"' : "") + ' title="' + esc(r.text) + '">' + esc(r.text) + "</span></div>" +
           '<span class="r">' + esc(r.time) + "</span></div>";
@@ -1034,6 +1120,23 @@ function setTab(t) {
   renderList();
 }
 
+// The list ends above the dock, however tall a running backup makes it.
+new ResizeObserver(() => document.body.style.setProperty("--dock-h", $("dock").offsetHeight + "px")).observe($("dock"));
+
+// Clear: forgets the list of recent backups. The backups themselves stay.
+function clearActivity() {
+  ask({
+    title: "Clear activity?", go: "Clear",
+    text: "The list of recent backups is emptied. Your backups and files are not touched.",
+    run: async () => {
+      await call("clearActivity");
+      if (S) S.recent = [];
+      renderList();
+      return "Activity cleared.";
+    },
+  });
+}
+
 $("t-folders").onclick = () => setTab("folders");
 $("t-recent").onclick = () => setTab("recent");
 $("b-set").onclick = () => openSheet("sheet");
@@ -1041,8 +1144,65 @@ $("b-back").onclick = () => $("sheet").classList.remove("open");
 $("b-all").onclick = () => send("backup", "");
 $("b-add").onclick = () => openAdd();
 $("b-quit").onclick = () => send("quit");
-$("sw-sched").onclick = () => { const on = $("sw-sched").getAttribute("aria-checked") !== "true"; send("schedule", (on ? "on:" : "off:") + $("sel-every").value); };
-$("sel-every").onchange = () => send("schedule", "on:" + $("sel-every").value);
+// Back up automatically: one dropdown. Custom opens a row for a number of
+// minutes or hours, or a time of day. schedEditing keeps a refresh from
+// putting the dropdown back while that row is being filled in.
+const SCHED_PRESETS = ["15", "30", "60", "240", "1440"];
+let schedEditing = false;
+function schedKind() {
+  const daily = $("sel-ckind").value === "daily";
+  $("sc-every").hidden = daily;
+  $("in-ctime").hidden = !daily;
+}
+function fillCustom(sc) {
+  if (sc && sc.on && sc.dailyAt) {
+    $("sel-ckind").value = "daily"; $("in-ctime").value = sc.dailyAt;
+  } else {
+    const n = (sc && sc.on && sc.every) || 45;
+    $("sel-ckind").value = "every";
+    if (n >= 60 && n % 60 === 0) { $("in-cnum").value = n / 60; $("sel-cunit").value = "h"; }
+    else { $("in-cnum").value = n; $("sel-cunit").value = "m"; }
+    if (!$("in-ctime").value) $("in-ctime").value = "21:00";
+  }
+  schedKind();
+}
+function renderSchedule(sc, configured) {
+  $("sel-every").disabled = !sc.available || !configured;
+  if (schedEditing) return;
+  let v = "off";
+  if (sc.on) v = sc.dailyAt ? "custom" : (SCHED_PRESETS.includes(String(sc.every)) ? String(sc.every) : "custom");
+  $("sel-every").value = v;
+  $("sched-custom").hidden = v !== "custom";
+  if (v === "custom") fillCustom(sc);
+}
+$("sel-every").onchange = () => {
+  const v = $("sel-every").value;
+  if (v === "custom") {
+    schedEditing = true;
+    fillCustom(S && S.schedule);
+    $("sched-custom").hidden = false;
+    $("in-cnum").focus();
+    return;
+  }
+  schedEditing = false;
+  $("sched-custom").hidden = true;
+  send("schedule", v === "off" ? "off:" : "on:" + v);
+};
+$("sched-custom").addEventListener("input", () => { schedEditing = true; });
+$("sel-ckind").addEventListener("change", schedKind);
+$("b-csave").onclick = () => {
+  if ($("sel-ckind").value === "daily") {
+    const t = $("in-ctime").value;
+    if (!/^\d{1,2}:\d{2}$/.test(t)) { toast("Pick a time of day."); return; }
+    schedEditing = false;
+    send("schedule", "daily:" + t);
+    return;
+  }
+  const n = Number($("in-cnum").value) * ($("sel-cunit").value === "h" ? 60 : 1);
+  if (!Number.isInteger(n) || n < 5 || n > 1440) { toast("Pick a time between 5 minutes and 24 hours."); return; }
+  schedEditing = false;
+  send("schedule", "on:" + n);
+};
 $("sw-login").onclick = () => send("login", $("sw-login").getAttribute("aria-checked") !== "true");
 $("list").addEventListener("keydown", (e) => {
   const r = e.target.closest(".row[data-folder], .row[data-run]");
@@ -1071,16 +1231,17 @@ document.addEventListener("keydown", (e) => {
   else if (t && t.id !== "sheet-signin") closeSheet(t.id); else send("hide");
 });
 document.addEventListener("contextmenu", (e) => e.preventDefault());
-// --- choosing storage: where backups go, or the second copy ------------------------------
-// One picker for both. Drime first; any S3-compatible storage second, with
-// presets that each ask only for their own fields.
+// --- choosing storage: the primary backup, or the secondary ------------------------------
+// One picker for both. Drime is offered for the primary backup only: the
+// secondary backup is with another company, on S3 storage, with presets that
+// each ask only for their own fields.
 
 const KINDS = {
-  drime: { name: "Drime", sub: "Cloud storage with a free plan. Files stay as they are." },
-  r2: { name: "Cloudflare R2", sub: "No fees to download your files." },
-  b2: { name: "Backblaze B2", sub: "Low-cost storage." },
-  s3: { name: "Amazon S3", sub: "Storage from Amazon Web Services." },
-  "s3-custom": { name: "Other S3 storage", sub: "MinIO, Wasabi, a NAS: anything with an S3 endpoint." },
+  drime: { name: "Drime" },
+  r2: { name: "Cloudflare R2" },
+  b2: { name: "Backblaze B2" },
+  s3: { name: "Amazon S3" },
+  "s3-custom": { name: "Other S3 storage" },
 };
 const kindName = (k) => (KINDS[k] ? KINDS[k].name : "your storage");
 // Where each kind's keys are made.
@@ -1089,13 +1250,14 @@ const KEYLINK = {
   b2: { t: "Create an application key", url: "https://secure.backblaze.com/app_keys.htm" },
   s3: { t: "Create an access key", url: "https://console.aws.amazon.com/iam/home#/security_credentials" },
 };
-const DC = { which: "primary", kind: "", then: null, direct: false, pane: "choose", skip: null };
+const DC = { which: "primary", kind: "", then: null, direct: false, pane: "choose", skip: null, title: "", keep: false };
 
-// The kinds as a list to choose from, one marked with a chip.
+// The kinds as a list to choose from, one marked with a chip. s3only leaves
+// Drime out.
 function kindList(suggest, mark, s3only) {
   const item = (k) => '<button class="item link" data-kind="' + k + '"><div class="t"><b>' + esc(KINDS[k].name) +
-    (k === suggest ? '<span class="chip">' + esc(mark) + "</span>" : "") + "</b><span>" + esc(KINDS[k].sub) + "</span></div></button>";
-  return (s3only ? "" : '<div class="group">' + item("drime") + "</div>") + '<div class="sect">S3-compatible storage</div><div class="group">' +
+    (k === suggest ? '<span class="chip">' + esc(mark) + "</span>" : "") + "</b></div></button>";
+  return (s3only ? "" : '<div class="group">' + item("drime") + "</div>") + '<div class="group">' +
     ["r2", "b2", "s3", "s3-custom"].map(item).join("") + "</div>";
 }
 function bindKinds(box, f) { box.querySelectorAll("[data-kind]").forEach((b) => { b.onclick = () => f(b.dataset.kind); }); }
@@ -1103,7 +1265,7 @@ function bindKinds(box, f) { box.querySelectorAll("[data-kind]").forEach((b) => 
 function showPane(name) {
   DC.pane = name;
   document.querySelectorAll("#sheet-connect .pane").forEach((p) => { p.hidden = p.dataset.pane !== name; });
-  $("c-title").textContent = name === "form" ? kindName(DC.kind) : DC.which === "second" ? "Second copy" : "Where backups go";
+  $("c-title").textContent = name === "form" ? kindName(DC.kind) : DC.title || (DC.which === "second" ? "Secondary backup" : "Primary backup");
   $("sheet-connect").querySelector("main").scrollTop = 0;
   setTimeout(() => {
     const pane = document.querySelector('#sheet-connect .pane[data-pane="' + name + '"]');
@@ -1129,23 +1291,26 @@ function chooseKind(k) {
   cfShow("start");
   showPane("form");
 }
-// openConnect opens the picker for where backups go (which "primary") or the
-// second copy ("second"). A kind skips the list; then runs once it is saved.
-// o.s3only lists S3-compatible storage alone; o.lead is a line above the
-// list; o.skip offers "Not now", which runs it instead.
+// openConnect opens the picker for the primary backup (which "primary") or
+// the secondary ("second", S3 storage only). A kind skips the list; then runs
+// once it is saved. o.s3only lists S3 storage alone; o.lead is a line above
+// the list; o.title names the sheet; o.skip offers "Not now", which runs it
+// instead; o.keepAsSecond (Drime) makes the S3 storage backups went to the
+// secondary backup.
 function openConnect(kind, then, which, o) {
   o = o || {};
   DC.which = which || "primary"; DC.then = then || null; DC.direct = !!kind; DC.skip = o.skip || null;
+  DC.title = o.title || ""; DC.keep = !!o.keepAsSecond;
   document.querySelectorAll("#sheet-connect input").forEach((i) => { i.value = ""; });
-  const suggest = o.s3only ? "" : DC.which === "second" ? (S && S.provider === "drime" ? "r2" : "drime") : "drime";
-  $("c-kinds").innerHTML = kindList(suggest, DC.which === "second" ? "Suggested" : "Recommended", !!o.s3only);
+  const s3only = !!o.s3only || DC.which === "second";
+  $("c-kinds").innerHTML = kindList(s3only ? "" : "drime", "Recommended", s3only);
   $("c-lead").textContent = o.lead || ""; $("c-lead").hidden = !o.lead;
   $("c-skip").hidden = !o.skip;
   bindKinds($("c-kinds"), chooseKind);
   openSheet("sheet-connect");
   if (kind) chooseKind(kind); else showPane("choose");
 }
-const openSecond = (kind, then) => openConnect(kind, then, "second");
+const openSecond = (kind, then) => openConnect(kind, then, "second", { s3only: true });
 // Connecting starts from what the computer is for: asked first if nobody has
 // said yet.
 async function startConnect() {
@@ -1153,7 +1318,7 @@ async function startConnect() {
   try { p = (await call("purposeGet")).purpose; } catch (e) { /* asked below */ }
   if (p) purposeSetup(p); else showGate("purpose", true);
 }
-const actions = { connect: () => startConnect(),"restore-set": (name) => openRestore(name), add: () => openAdd(), "restore-other": () => openRestore() };
+const actions = { connect: () => startConnect(),"restore-set": (name) => openRestore(name), add: () => openAdd(), "restore-other": () => openRestore(), "clear-activity": () => clearActivity() };
 
 // Done: the folders list takes over, which is where a new person goes next.
 function connected(msg) {
@@ -1199,7 +1364,7 @@ $("c-pack").onclick = () => flip($("c-pack"));
 function destArgs() {
   const v = (id) => $(id).value.trim();
   return {
-    provider: DC.kind, token: v("c-token"), drimeFolder: v("c-folder"), accountId: v("c-acct"), bucket: v("c-bucket"),
+    provider: DC.kind, token: v("c-token"), accountId: v("c-acct"), bucket: v("c-bucket"),
     region: v("c-region"), endpoint: v("c-endpoint"), accessKeyId: v("c-key"), secret: v("c-secret"),
     virtualHost: $("c-vhost").getAttribute("aria-checked") === "true", bundle: $("c-pack").getAttribute("aria-checked") === "true",
   };
@@ -1210,11 +1375,11 @@ $("c-go").onclick = () => working($("c-go"), "Checking…", async () => {
     if (DC.which === "second") {
       await call("mirrorSetup", Object.assign({ auto: true }, destArgs()));
       closeSheet("sheet-connect");
-      toast("Second copy: " + kindName(DC.kind) + ".");
+      toast("Secondary backup: " + kindName(DC.kind) + ".");
       if (DC.then) { const f = DC.then; DC.then = null; f(); }
       return;
     }
-    await call("connect", destArgs());
+    await call("connect", Object.assign(destArgs(), DC.keep ? { keepAsSecond: true } : {}));
     connected("Connected to " + kindName(DC.kind) + ".");
   } catch (e) { showErr("c-err", e.message); }
 });
@@ -1560,6 +1725,7 @@ async function openFolder(name) {
   openSheet("sheet-folder");
   $("f-facts").textContent = "";
   $("f-missing").hidden = true;
+  $("f-sec-g").hidden = true;
   showErr("f-err", "");
   fShow("home");
   try {
@@ -1574,8 +1740,40 @@ async function openFolder(name) {
     $("f-backup").disabled = !F.info.rootExists || !!(S && (S.running || S.busy));
     $("f-rename-sub").textContent = F.info.storedAs ? "Stored as " + F.info.storedAs : "";
     fillKeep($("f-keep"), F.info.retention, false);
+    drawSecondary(F.info.secondary !== false);
   } catch (e) { $("f-facts").textContent = e.message; }
 }
+
+// Secondary backup: whether this folder is copied on to the second copy.
+// Only there to switch when a second copy is set up.
+function drawSecondary(on) {
+  const has = !!(S && S.second);
+  $("f-sec-g").hidden = !has;
+  $("f-sec").setAttribute("aria-checked", on);
+  $("f-sec-sub").textContent = has ? (on ? "Copied to " : "Not copied to ") + S.second : "";
+}
+$("f-sec").onclick = () => {
+  const name = F.name, sw = $("f-sec");
+  const set = async (on, drop) => {
+    await call("folderSecondary", { name, on, drop });
+    if (F.name === name) { F.info.secondary = on; drawSecondary(on); }
+  };
+  if (sw.getAttribute("aria-checked") !== "true") {
+    sw.disabled = true;
+    set(true, false).then(() => toast(name + " is copied to " + S.second + " again.")).catch((e) => toast(e.message)).finally(() => { sw.disabled = false; });
+    return;
+  }
+  ask({
+    title: "Stop copying " + name + " to " + S.second + "?", go: "Turn off",
+    text: "Your backup of " + name + " is not touched.",
+    opts: [["keep", "Keep what’s there", "Files already in " + S.second + " stay. New changes are not copied.", false],
+      ["drop", "Delete from secondary backup", "Removes " + name + " from " + S.second + ". Permanent.", true]],
+    run: async (w) => {
+      await set(false, w === "drop");
+      return w === "drop" ? name + " is deleted from " + S.second + "." : "";
+    },
+  });
+};
 
 // Keep deleted files for: the lengths offered, plus whatever a folder
 // already has if that is something else.
@@ -1867,8 +2065,9 @@ function openRun(r) {
 $("u-back").onclick = () => closeSheet("sheet-run");
 
 // --- account ----------------------------------------------------------------------------------
-// How keys are kept (an account, or this computer alone), where backups go
-// and the second copy, with packing for each, and the computers.
+// How keys are kept (an account, or this computer alone), the primary backup
+// and the secondary, with packing for S3 storage, and the computers. For a
+// secondary backup only, the Drime folders copied are listed here too.
 
 const ICON_USER = '<svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.6"/><path d="M5 19.5c1.2-3.3 3.9-5 7-5s5.8 1.7 7 5"/></svg>';
 const ICON_PC = '<svg viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="11.5" rx="1.5"/><path d="M8.5 19.5h7M12 16v3.5"/></svg>';
@@ -1886,13 +2085,65 @@ async function openAccount() {
   acDraw();
 }
 
-// A destination, its packing switch, and Change.
+// A destination, its packing switch, and Change. Drime packs nothing: it has
+// no per-request costs. Where backups go in Drime has its own Folder….
 function destBlock(st, which) {
   const id = which === "primary" ? "p" : "s";
-  return '<div class="item"><div class="t"><b>' + esc(st.label) + '</b><span title="' + esc(st.hint) + '">' + esc(st.hint) + "</span></div>" +
-    '<button class="mini" id="ac-' + id + '-change">Change…</button></div>' +
-    '<div class="item"><div class="t"><b>Pack small files</b><span>' + (st.bundle ? "Fewer uploads, lower per-request costs" : "Each file uploaded on its own") + "</span></div>" +
-    '<button class="toggle" id="ac-' + id + '-pack" role="switch" aria-checked="' + !!st.bundle + '" aria-label="Pack small files at ' + esc(st.label) + '"></button></div>';
+  const drime = st.provider === "drime";
+  let h = '<div class="item"><div class="t"><b>' + esc(st.label) + '</b><span title="' + esc(st.hint) + '">' + esc(st.hint) + "</span></div>" +
+    (drime && which === "primary" ? '<button class="mini" id="ac-p-loc">Folder…</button>' : "") +
+    '<button class="mini" id="ac-' + id + '-change">Change…</button></div>';
+  if (!drime) {
+    h += '<div class="item"><div class="t"><b>Pack small files</b><span>' + (st.bundle ? "Fewer uploads, lower per-request costs" : "Each file uploaded on its own") + "</span></div>" +
+      '<button class="toggle" id="ac-' + id + '-pack" role="switch" aria-checked="' + !!st.bundle + '" aria-label="Pack small files at ' + esc(st.label) + '"></button></div>';
+  }
+  return h;
+}
+
+// The destinations: Drime and its secondary backup, or (a secondary backup
+// only) Drime's own app and the S3 storage its folders are copied to.
+function acDestHTML(a) {
+  const p = a.primary, s = a.second, pur = a.purpose || "";
+  let html = "";
+  if (pur === "copy") {
+    const d = a.drime || { sources: [] };
+    html += '<div class="sect">Primary backup</div><div class="group"><div class="item"><div class="t"><b>Drime</b><span>' +
+      esc("Backed up with Drime’s app" + (a.drimeToken ? " · " + a.drimeToken : "")) + "</span></div>" +
+      '<button class="mini" id="ac-d-token">' + (a.drimeToken ? "Change…" : "Add token…") + "</button></div></div>";
+    html += '<div class="sect">Secondary backup</div><div class="group">' + (p ? destBlock(p, "primary") + ultraItem(U.info)
+      : '<div class="item"><div class="t"><b>Not connected</b><span>The S3 storage your Drime backups are copied to.</span></div><button class="mini" id="ac-p-change">Connect…</button></div>') + "</div>";
+    if (p) html += acSourcesHTML(d, true);
+    return html;
+  }
+  html += '<div class="sect">Primary backup</div><div class="group">' + (p ? destBlock(p, "primary")
+    : '<div class="item"><div class="t"><b>Not connected</b></div><button class="mini" id="ac-p-change">Connect…</button></div>') + "</div>";
+  // S3 storage only (older computers) has no secondary backup to offer.
+  if (pur === "s3" && !s) return html;
+  html += '<div class="sect">Secondary backup</div><div class="group">';
+  if (s) {
+    // Copied after every backup, always.
+    html += destBlock(s, "second") + ultraItem(U.info) +
+      '<button class="item link" id="ac-copy"><div class="t"><b>Copy now…</b></div></button>';
+  } else {
+    html += '<div class="item"><div class="t"><b>None</b><span>' + (p ? "Keep a copy of your backups with a second company too." : "Connect your primary backup first.") + "</span></div>" +
+      '<button class="mini" id="ac-s-change"' + (p ? "" : " disabled") + ">Set up…</button></div>";
+  }
+  html += "</div>";
+  // Drime folders chosen before, still copied: listed so they can be stopped.
+  const d = a.drime || { sources: [] };
+  if (d.sources.length) html += acSourcesHTML(d, false);
+  return html;
+}
+
+// The Drime folders copied to S3 storage, each with Copy now and Stop; add
+// offers another.
+function acSourcesHTML(d, add) {
+  return '<div class="sect">Drime folders copied</div><div class="group">' + d.sources.map((x, i) =>
+    '<div class="item"><div class="t"><b>' + esc(x.name) + "</b><span>" + esc(x.folder + (x.lastRun ? " · copied " + dayName(x.lastRun).toLowerCase() : " · not copied yet")) + "</span></div>" +
+    '<button class="mini" data-acdfrun="' + i + '">Copy now</button>' +
+    '<button class="icon-btn bk-del" data-acdfrm="' + i + '" title="Stop copying ' + esc(x.name) + '" aria-label="Stop copying ' + esc(x.name) + '">' + ICON_TRASH + "</button></div>").join("") +
+    (add ? '<button class="item link" id="ac-df-add"><div class="t"><b>Add a Drime folder…</b></div></button>' : "") +
+    (d.sources.length > 1 ? '<button class="item link" id="ac-df-all"><div class="t"><b>Copy all now</b></div></button>' : "") + "</div>";
 }
 
 function acDraw() {
@@ -1907,28 +2158,7 @@ function acDraw() {
     (account ? '<button class="mini" id="ac-out">Sign out</button>' : '<button class="mini" id="ac-in">Sign in…</button>') + "</div></div>";
   if (a.err) html += '<div class="alert"><div class="t"><p>' + esc(a.err) + "</p></div></div>";
 
-  const pur = a.purpose || "";
-  html += '<div class="sect" id="ac-pur-t">Using r2backup for</div><div class="group" role="radiogroup" aria-labelledby="ac-pur-t">' +
-    ["both", "s3"].map((k) => '<button class="opt" data-acpurpose="' + k + '" role="radio" aria-checked="' + (pur === k) + '"><div class="dot-r"></div><div><b>' +
-      esc(PURPOSE[k].title) + "</b><span>" + esc(PURPOSE[k].text) + "</span></div></button>").join("") + "</div>";
-
-  html += '<div class="sect">Where backups go</div><div class="group">' + (p ? destBlock(p, "primary")
-    : '<div class="item"><div class="t"><b>Not connected</b></div><button class="mini" id="ac-p-change">Connect…</button></div>') + "</div>";
-
-  // S3 storage only has no second copy to offer.
-  const showSecond = pur !== "s3" || !!s;
-  if (showSecond) html += '<div class="sect">Second copy</div><div class="group">';
-  if (!showSecond) { /* nothing to show */ } else if (s) {
-    html += destBlock(s, "second") +
-      '<div class="item"><div class="t"><b>Copy after every backup</b></div><button class="toggle" id="ac-auto" role="switch" aria-checked="' + !!a.auto + '" aria-label="Copy after every backup"></button></div>' +
-      ultraItem(U.info) +
-      '<button class="item link" id="ac-copy"><div class="t"><b>Copy now…</b></div></button>' +
-      '<button class="item link danger" id="ac-s-off"><div class="t"><b>Stop keeping a second copy</b></div></button>';
-  } else {
-    html += '<div class="item"><div class="t"><b>None</b><span>' + (p ? "Keep your backups with a second company too." : "Connect where backups go first.") + "</span></div>" +
-      '<button class="mini" id="ac-s-change"' + (p ? "" : " disabled") + ">Set up…</button></div>";
-  }
-  if (showSecond) html += "</div>";
+  html += acDestHTML(a);
 
   if (p && account && !a.needsPin) {
     html += a.saved
@@ -1944,9 +2174,9 @@ function acDraw() {
       (d.this ? '<button class="icon-btn" id="ac-ren" title="Rename this computer" aria-label="Rename this computer">' + ICON_PEN + "</button>" : "") + "</span></div>").join("") + "</div>";
   m.innerHTML = html;
 
-  m.querySelectorAll("[data-acpurpose]").forEach((b) => { b.onclick = () => { if (b.dataset.acpurpose !== pur) changePurpose(b.dataset.acpurpose); }; });
-  $("ac-p-change").onclick = () => changePrimary();
-  // Change… on the second copy picks a new place; it replaces the old one.
+  if ($("ac-p-change")) $("ac-p-change").onclick = () => changePrimary();
+  if ($("ac-p-loc")) $("ac-p-loc").onclick = () => changeDrimeLocation(p);
+  // Change… on the secondary backup picks a new place; it replaces the old one.
   if ($("ac-s-change")) $("ac-s-change").onclick = () => openSecond(null, openAccount);
   [["p", "primary", p], ["s", "second", s]].forEach(([id, which, st]) => {
     const sw = $("ac-" + id + "-pack");
@@ -1963,17 +2193,24 @@ function acDraw() {
       } catch (e) { sw.disabled = false; toast(e.message); }
     };
   });
-  if ($("ac-auto")) $("ac-auto").onclick = async () => {
-    const on = $("ac-auto").getAttribute("aria-checked") !== "true";
-    try { await call("mirrorAuto", { on }); $("ac-auto").setAttribute("aria-checked", on); AC.info.auto = on; toast(on ? "Copying after every backup." : "Copying after every backup is off."); }
-    catch (e) { toast(e.message); }
-  };
   bindUltra(m, openAccount);
   if ($("ac-copy")) $("ac-copy").onclick = () => openMirror();
-  if ($("ac-s-off")) $("ac-s-off").onclick = () => ask({
-    title: "Stop keeping a second copy?", go: "Stop", danger: false,
-    text: "What’s in " + s.label + " stays. Nothing more is copied.",
-    run: async () => { await call("mirrorForget"); await openAccount(); return "Second copy off."; },
+  // A secondary backup only: the Drime token, and the Drime folders copied.
+  if ($("ac-d-token")) $("ac-d-token").onclick = () => openDrimePicker({
+    needToken: true, title: "Drime API token",
+    tokenOnly: async (token) => { await call("drimeSourceToken", { token }); await openAccount(); return "Drime token saved."; },
+  });
+  if ($("ac-df-add")) $("ac-df-add").onclick = () => addDrimeFolder(openAccount);
+  if ($("ac-df-all")) $("ac-df-all").onclick = () => runDrimeCopy("");
+  const srcs = (a.drime && a.drime.sources) || [];
+  m.querySelectorAll("[data-acdfrun]").forEach((b) => { b.onclick = () => runDrimeCopy(srcs[+b.dataset.acdfrun].name); });
+  m.querySelectorAll("[data-acdfrm]").forEach((b) => {
+    const x = srcs[+b.dataset.acdfrm];
+    b.onclick = () => ask({
+      title: "Stop copying " + x.name + "?", go: "Stop", danger: false,
+      text: "Nothing is deleted: what is in Drime and the copy on " + (p ? p.label : "your S3 storage") + " both stay.",
+      run: async () => { await call("drimeSourceRemove", { name: x.name }); await openAccount(); return "No longer copying " + x.name + "."; },
+    });
   });
   if ($("ac-ren")) $("ac-ren").onclick = () => { AC.renaming = true; acDraw(); const i = $("ac-ren-in"); i.focus(); i.select(); };
   if ($("ac-ren-in")) {
@@ -2011,6 +2248,50 @@ function acDraw() {
   };
 }
 
+// Copying Drime folders now, followed in the secondary backup's sheet; Done
+// comes back to the account screen.
+async function runDrimeCopy(name) {
+  const done = async () => { clearInterval(jobPoll); try { await call("mirrorDismiss"); } catch (e) { /* nothing */ } closeSheet("sheet-mirror"); openAccount(); };
+  try {
+    await call("drimeSourceRun", { name });
+    openSheet("sheet-mirror"); mShow("run");
+    jobDraw($("m-run"), { percent: 0, to: name ? "Drime folder " + name : "Drime folders" }, done);
+    watchJob($("m-run"), done);
+  } catch (e) { toast(e.message); }
+}
+
+// addDrimeFolder chooses a Drime folder for a secondary backup only to copy,
+// asking for the Drime token first if there is none. then runs once it is
+// added.
+async function addDrimeFolder(then) {
+  let haveToken = true;
+  try { haveToken = (await call("drimeSources")).haveToken; } catch (e) { /* asked for below if missing */ }
+  openDrimePicker({
+    title: "Add a Drime folder", go: "Copy this folder", needToken: !haveToken,
+    lead: "Choose a folder Drime’s app backs up to. r2backup copies it to your S3 storage after every backup.",
+    use: async (ws, path, token) => {
+      await call("drimeSourceAdd", { token, folder: path, workspace: ws, name: "", auto: true });
+      if (then) then();
+      return "Copying " + path + " to S3 storage.";
+    },
+  });
+}
+
+// Where backups go in Drime: another workspace or folder. What is in the old
+// one stays.
+function changeDrimeLocation(p) {
+  openDrimePicker({
+    which: "primary", title: "Where backups go in Drime", go: "Back up here", ws: p.workspace || "", path: p.folder || "",
+    lead: "New backups go to the folder you choose. What’s in " + p.label + " stays.",
+    use: async (ws, path) => {
+      if (ws === (p.workspace || "") && path === p.folder) return "";
+      const r = await call("setDrimeLocation", { workspace: ws, folder: path });
+      await openAccount();
+      return "Backups go to " + r.label + " now.";
+    },
+  });
+}
+
 function seen(iso) {
   const d = new Date(iso);
   if (isNaN(d) || d.getFullYear() < 2000) return "";
@@ -2018,14 +2299,17 @@ function seen(iso) {
   return n === "Today" || n === "Yesterday" ? n : "Seen " + n;
 }
 
-// Moving where backups go asks first: what is already there stays there.
+// Moving where backups go asks first: what is already there stays there. A
+// new Drime token for the same Drime keeps the folder chosen.
 function changePrimary() {
-  const p = AC.info && AC.info.primary;
-  const o = { s3only: !!AC.info && AC.info.purpose === "s3" };
+  const a = AC.info || {}, p = a.primary;
+  const copy = a.purpose === "copy";
+  const o = { s3only: a.purpose === "s3" || copy, title: copy ? "Secondary backup" : "" };
   if (!p) { openConnect(null, openAccount, "primary", o); return; }
+  if (p.provider === "drime" && !o.s3only) { openConnect("drime", openAccount, "primary", o); return; }
   ask({
-    title: "Back up somewhere else?", go: "Continue", danger: false,
-    text: "New backups go to the new place. What’s in " + p.label + " stays.",
+    title: copy ? "Copy somewhere else?" : "Back up somewhere else?", go: "Continue", danger: false,
+    text: (copy ? "New copies go to the new place. " : "New backups go to the new place. ") + "What’s in " + p.label + " stays.",
     run: async () => { openConnect(null, openAccount, "primary", o); },
   });
 }
@@ -2217,13 +2501,17 @@ function signedIn(r) {
 }
 
 // --- what r2backup is for ----------------------------------------------------------------------
-// Asked right after getting started, with an account or without one. It
-// decides what comes next: Drime and then a second copy on S3-compatible
-// storage, or S3-compatible storage alone. Changed later under Account.
+// Asked right after getting started, with an account or without one, and
+// changed later at the top of Settings. Primary and secondary backup: Drime,
+// then a secondary backup on S3 storage. Secondary backup only: Drime's own
+// app backs up to Drime, and r2backup copies the Drime folders chosen to S3
+// storage. S3 storage only is no longer offered; a computer set up for it
+// keeps it.
 
 const PURPOSE = {
-  both: { title: "Drime, with a second copy", text: "Back up to Drime, and keep a second copy on S3-compatible storage: Cloudflare R2, Backblaze B2, Amazon S3 or another." },
-  s3: { title: "S3 storage only", text: "Back up straight to S3-compatible storage, without Drime." },
+  both: { title: "Primary and secondary backup", text: "Back up to Drime, with a secondary backup on S3 storage." },
+  copy: { title: "Secondary backup only", text: "You back up to Drime with Drime’s app. r2backup copies those backups to S3 storage." },
+  s3: { title: "S3 storage only", text: "Back up straight to S3 storage, without Drime." },
 };
 const gPurposeOpts = () => [...document.querySelectorAll("#g-purpose [data-purpose]")];
 function pickPurpose(p) {
@@ -2250,49 +2538,167 @@ $("g-purpose-go").onclick = () => working($("g-purpose-go"), "One moment…", as
   purposeSetup(p);
 });
 
-// purposeSetup asks for what a purpose needs: Drime, then the second copy on
-// S3 storage; or the S3 storage backups go to.
+// purposeSetup asks for what a purpose needs: Drime, then the secondary
+// backup on S3 storage; or the S3 storage Drime is copied to, then the Drime
+// folders to copy.
 function purposeSetup(p) {
   const done = () => findRemoteBackups();
   if (p === "s3") {
-    openConnect(null, done, "primary", { s3only: true, lead: "Choose the S3-compatible storage backups go to." });
+    openConnect(null, done, "primary", { s3only: true, lead: "Choose the S3 storage backups go to." });
+    return;
+  }
+  if (p === "copy") {
+    openConnect(null, () => addDrimeFolder(done), "primary", {
+      s3only: true, title: "Secondary backup", lead: "Choose the S3 storage your Drime backups are copied to.",
+    });
     return;
   }
   openConnect("drime", () => openConnect(null, done, "second", {
-    s3only: true, lead: "Now the second copy. Choose the S3-compatible storage it goes to.",
-    skip: () => { toast("No second copy for now. Add one under Account."); done(); },
+    s3only: true, lead: "Now your secondary backup. Choose the S3 storage it goes to.",
+    skip: () => { toast("No secondary backup for now. Add one under Account."); done(); },
   }));
 }
 
-// changePurpose switches between the two from the account screen. Whatever
-// a purpose still needs is set up first; what is already in storage stays.
-function changePurpose(to) {
-  const a = AC.info || {}, p = a.primary, s = a.second;
+// Settings: the purpose, with S3 storage only shown only to a computer that
+// has it.
+let PUR = "";
+async function purDraw() {
+  try { PUR = (await call("purposeGet")).purpose || ""; } catch (e) { /* drawn as it was */ }
+  const box = $("pur-opts");
+  box.innerHTML = ["both", "copy"].concat(PUR === "s3" ? ["s3"] : []).map((k) =>
+    '<button class="opt" data-purpose-to="' + k + '" role="radio" aria-checked="' + (PUR === k) + '"><div class="dot-r"></div><div><b>' +
+    esc(PURPOSE[k].title) + "</b><span>" + esc(PURPOSE[k].text) + "</span></div></button>").join("");
+  box.querySelectorAll("[data-purpose-to]").forEach((b) => { b.onclick = () => { if (b.dataset.purposeTo !== PUR) changePurpose(b.dataset.purposeTo); }; });
+}
+
+// changePurpose switches from Settings. Whatever a purpose still needs is
+// set up first; what is already in storage stays.
+async function changePurpose(to) {
+  let a = AC.info || {};
+  try { a = await call("accountConfig"); AC.info = a; } catch (e) { /* the last one read */ }
+  const p = a.primary, s = a.second;
+  const refresh = () => { purDraw(); if ($("sheet-account").classList.contains("open")) openAccount(); };
+  const said = (r) => (r.moved ? "Your secondary backup is on " + r.moved + " now." : "Using r2backup for: " + PURPOSE[to].title + ".");
+  // Once what was needed is set up: apply it again.
   const again = async () => {
-    try { await call("purposeSet", { purpose: to }); toast("Using r2backup for: " + PURPOSE[to].title + "."); }
-    catch (e) { toast(e.message); }
-    openAccount();
+    try {
+      const r = await call("purposeSet", { purpose: to });
+      if (r.saved) toast(said(r));
+      if (r.need === "folders") addDrimeFolder(refresh);
+    } catch (e) { toast(e.message); }
+    refresh();
   };
   const apply = async () => {
     const r = await call("purposeSet", { purpose: to });
     if (r.need === "second") { openSecond(null, again); return ""; }
-    if (r.need === "s3") {
-      openConnect(null, again, "primary", { s3only: true, lead: "Choose the S3-compatible storage backups go to. What’s in Drime stays." });
+    if (r.need === "drime" && !r.saved) { openConnect("drime", again, "primary", { keepAsSecond: true }); return ""; }
+    if (r.need === "s3" && !r.saved) {
+      openConnect(null, again, "primary", { s3only: true, title: "Secondary backup", lead: "Choose the S3 storage your Drime backups are copied to. What’s in Drime stays." });
       return "";
     }
-    await openAccount();
-    return r.moved ? "Backups go to " + r.moved + " now." : "Using r2backup for: " + PURPOSE[to].title + ".";
+    refresh();
+    if (r.need === "folders") addDrimeFolder(refresh);
+    return said(r);
   };
-  // Nothing to move or drop: no Drime here.
-  if (to === "both" || (p && p.provider !== "drime" && !(s && s.provider === "drime"))) {
-    apply().then((msg) => { if (msg) toast(msg); }, (e) => toast(e.message));
+  const go = () => apply().then((msg) => { if (msg) toast(msg); }, (e) => toast(e.message));
+  if (to === "both") {
+    if (p && p.provider !== "drime" && !s) {
+      ask({
+        title: "Back up to Drime?", go: "Continue", danger: false,
+        text: "Drime becomes your primary backup. " + p.label + " becomes your secondary backup, copied to after every backup.", run: apply,
+      });
+    } else go();
     return;
   }
-  let text = "Next, choose the S3 storage backups go to. What’s in Drime stays.";
-  if (p && p.provider === "drime" && s && s.provider !== "drime") text = "Backups go to " + s.label + " from now on, with no second copy. What’s in Drime stays. If the copy there is behind, copy now first.";
-  else if (s && s.provider === "drime") text = "Nothing more is copied to " + s.label + ". What’s there stays.";
-  ask({ title: "Use S3 storage only?", go: "Continue", danger: false, text, run: apply });
+  // Nothing to move or drop: no Drime here.
+  if (!p || (p.provider !== "drime" && !(s && s.provider === "drime"))) { go(); return; }
+  let text = "Next, choose the S3 storage your Drime backups are copied to. r2backup stops backing up to Drime. What’s in Drime stays.";
+  if (p.provider === "drime" && s && s.provider !== "drime") {
+    text = "r2backup stops backing up to Drime. " + s.label + " keeps your secondary backup, and gets the Drime folders you choose. What’s in Drime stays. If the copy there is behind, copy now first.";
+  } else if (s && s.provider === "drime") text = "Nothing more is copied to " + s.label + ". What’s there stays.";
+  if (to === "s3" && p.provider === "drime" && s && s.provider !== "drime") text = "Backups go to " + s.label + " from now on, with no secondary backup. What’s in Drime stays.";
+  ask({ title: to === "copy" ? "Use r2backup for a secondary backup only?" : "Use S3 storage only?", go: "Continue", danger: false, text, run: apply });
 }
+
+// --- choosing a folder in Drime --------------------------------------------------------------
+// Clicking through folders instead of typing a path: the workspace, then the
+// folder. For where backups go in Drime (which "primary"), and for the Drime
+// folders a secondary backup only copies (with a token typed here when none
+// is saved). o.use(workspace, path, token) runs on the button and returns
+// what to say; o.tokenOnly(token) asks for the token alone.
+const DP = { which: "", token: "", ws: "", path: "", folders: [], workspaces: null, use: null, tokenOnly: null };
+function dpShow(v) {
+  document.querySelectorAll("#sheet-dpick [data-dppane]").forEach((x) => { x.hidden = x.dataset.dppane !== v; });
+  $("dp-main").scrollTop = 0;
+}
+function openDrimePicker(o) {
+  Object.assign(DP, { which: o.which || "", token: "", ws: o.ws || "", path: o.path || "", folders: [], workspaces: null, use: o.use || null, tokenOnly: o.tokenOnly || null });
+  $("dp-title").textContent = o.title || "Choose a folder in Drime";
+  $("dp-use").querySelector("span").textContent = o.go || "Use this folder";
+  $("dp-lead").textContent = o.lead || ""; $("dp-lead").hidden = !o.lead;
+  showErr("dp-err", ""); showErr("dp-token-err", "");
+  openSheet("sheet-dpick");
+  if (o.needToken) { $("dp-token").value = ""; dpShow("token"); setTimeout(() => $("dp-token").focus(), 0); return; }
+  dpShow("browse");
+  dpLoad(true);
+}
+const dpArgs = (more) => Object.assign({ which: DP.which, token: DP.token, workspace: DP.ws }, more || {});
+const dpWsName = () => ((DP.workspaces || []).find((w) => w.id === DP.ws) || { name: "My workspace" }).name;
+async function dpLoad(workspaces) {
+  $("dp-list").innerHTML = '<div class="note">Loading…</div>';
+  $("dp-use").disabled = true;
+  showErr("dp-err", "");
+  try {
+    if (workspaces || !DP.workspaces) {
+      DP.workspaces = await call("drimeWorkspaces", dpArgs());
+      if (DP.ws && !DP.workspaces.some((w) => w.id === DP.ws)) DP.workspaces.push({ id: DP.ws, name: "Workspace " + DP.ws });
+      $("dp-ws").innerHTML = DP.workspaces.map((w) => '<option value="' + esc(w.id) + '">' + esc(w.name) + "</option>").join("");
+      $("dp-ws").value = DP.ws;
+      $("dp-ws-f").hidden = DP.workspaces.length < 2;
+    }
+    let r;
+    try { r = await call("drimeFolders", dpArgs({ path: DP.path })); }
+    catch (e) { if (!DP.path) throw e; DP.path = ""; r = await call("drimeFolders", dpArgs({ path: "" })); } // gone: from the top
+    DP.path = r.path; DP.folders = r.folders || [];
+    dpDraw();
+  } catch (e) { $("dp-list").innerHTML = ""; showErr("dp-err", e.message); }
+}
+function dpDraw() {
+  const parts = DP.path ? DP.path.split("/") : [];
+  $("dp-path").textContent = [dpWsName()].concat(parts).join(" › ");
+  let html = parts.length ? '<button class="item link" id="dp-up"><div class="t"><b>Up</b><span>' + esc(parts.length > 1 ? parts[parts.length - 2] : dpWsName()) + "</span></div></button>" : "";
+  html += DP.folders.length ? DP.folders.map((f, i) => '<button class="item link" data-dpdir="' + i + '"><div class="t"><b>' + esc(f) + "</b></div></button>").join("")
+    : '<div class="note">No folders in here.</div>';
+  $("dp-list").innerHTML = html;
+  if ($("dp-up")) $("dp-up").onclick = () => { DP.path = parts.slice(0, -1).join("/"); dpLoad(false); };
+  $("dp-list").querySelectorAll("[data-dpdir]").forEach((b) => { b.onclick = () => { DP.path = parts.concat(DP.folders[+b.dataset.dpdir]).join("/"); dpLoad(false); }; });
+  // The very top of a drive is not a folder to use.
+  $("dp-use").disabled = !DP.path;
+}
+$("dp-ws").onchange = () => { DP.ws = $("dp-ws").value; DP.path = ""; dpLoad(false); };
+$("dp-use").onclick = () => working($("dp-use"), "Checking…", async () => {
+  showErr("dp-err", "");
+  try {
+    const msg = DP.use ? await DP.use(DP.ws, DP.path, DP.token) : "";
+    closeSheet("sheet-dpick");
+    if (msg) toast(msg);
+  } catch (e) { showErr("dp-err", e.message); }
+});
+$("dp-token-go").onclick = () => working($("dp-token-go"), "Checking…", async () => {
+  showErr("dp-token-err", "");
+  const token = $("dp-token").value.trim();
+  if (!token) { showErr("dp-token-err", "Paste the Drime API token."); $("dp-token").focus(); return; }
+  try {
+    if (DP.tokenOnly) { const msg = await DP.tokenOnly(token); closeSheet("sheet-dpick"); if (msg) toast(msg); return; }
+    DP.token = token;
+    await call("drimeWorkspaces", dpArgs());
+  } catch (e) { DP.token = ""; showErr("dp-token-err", e.message); return; }
+  dpShow("browse");
+  dpLoad(true);
+});
+$("dp-token").addEventListener("keydown", (e) => { if (e.key === "Enter" && !$("dp-token-go").disabled) $("dp-token-go").click(); });
+$("dp-token-l").onclick = () => send("open", "https://app.drime.cloud/account-settings");
+$("dp-back").onclick = () => closeSheet("sheet-dpick");
 
 ["g-email", "g-code", "g-pin", "g-new"].forEach((id) => $(id).addEventListener("keydown", (e) => {
   if (e.key !== "Enter") return;
@@ -2309,21 +2715,30 @@ const MD = { where: "primary", run: null };
 function ask(o) {
   $("md-title").textContent = o.title;
   $("md-text").textContent = o.text || "";
-  const choose = !!o.choose && !!(S && S.second);
-  MD.where = choose ? "both" : "primary";
+  // Choices, when there are any: [value, title, line, danger]. The first
+  // is picked to start with, and run gets the one picked. A choice's own
+  // danger, when given, colours Go while it is picked.
+  let choices = o.opts || null;
+  if (!choices && o.choose && S && S.second) {
+    choices = [["both", "Both", primaryName() + " and " + S.second], ["primary", "Only " + primaryName(), "The second copy keeps it"]];
+  }
+  MD.where = choices ? choices[0][0] : "primary";
   const opts = $("md-opts");
-  opts.hidden = !choose;
+  opts.hidden = !choices;
   opts.innerHTML = "";
-  if (choose) {
-    const opt = (w, b, sub) => '<button class="opt" data-w="' + w + '" role="radio" aria-checked="' + (w === MD.where) + '"><div class="dot-r"></div><div><b>' + esc(b) + "</b><span>" + esc(sub) + "</span></div></button>";
-    opts.innerHTML = opt("both", "Both", primaryName() + " and " + S.second) +
-      opt("primary", "Only " + primaryName(), "The second copy keeps it");
+  const goDanger = () => {
+    const c = choices && choices.find((x) => x[0] === MD.where);
+    $("md-go").classList.toggle("danger", c && c[3] !== undefined ? !!c[3] : o.danger !== false);
+  };
+  if (choices) {
+    const opt = ([w, b, sub]) => '<button class="opt" data-w="' + esc(w) + '" role="radio" aria-checked="' + (w === MD.where) + '"><div class="dot-r"></div><div><b>' + esc(b) + "</b><span>" + esc(sub) + "</span></div></button>";
+    opts.innerHTML = choices.map(opt).join("");
     opts.querySelectorAll("[data-w]").forEach((b) => {
-      b.onclick = () => { MD.where = b.dataset.w; opts.querySelectorAll("[data-w]").forEach((x) => x.setAttribute("aria-checked", x === b)); };
+      b.onclick = () => { MD.where = b.dataset.w; opts.querySelectorAll("[data-w]").forEach((x) => x.setAttribute("aria-checked", x === b)); goDanger(); };
     });
   }
   $("md-go").querySelector("span").textContent = o.go || "Delete";
-  $("md-go").classList.toggle("danger", o.danger !== false);
+  goDanger();
   showErr("md-err", "");
   MD.run = o.run;
   $("modal").hidden = false;
@@ -2348,7 +2763,7 @@ $("md-go").onclick = () => {
 // --- second copy (mirror) ------------------------------------------------------------------
 
 const M = { view: "home", info: null, poll: 0, armed: "" };
-const MTITLES = { home: "Second copy", run: "Copying" };
+const MTITLES = { home: "Secondary backup", run: "Copying" };
 function mShow(v) {
   M.view = v;
   document.querySelectorAll("#sheet-mirror [data-mpane]").forEach((p) => { p.hidden = p.dataset.mpane !== v; });
@@ -2366,19 +2781,19 @@ async function openMirror() {
     U.info = await call("ultraInfo").catch(() => null);
     if (!M.info.job.idle) { mShow("run"); watchJob($("m-run"), finishMirror); return; }
     mDraw();
-  } catch (e) { pane.innerHTML = '<div class="empty"><b>Could not load the second copy</b><p>' + esc(e.message) + "</p></div>"; }
+  } catch (e) { pane.innerHTML = '<div class="empty"><b>Could not load the secondary backup</b><p>' + esc(e.message) + "</p></div>"; }
 }
 function mDraw() {
   const m = M.info, pane = document.querySelector('[data-mpane="home"]');
   M.armed = "";
   let html = "";
   if (!m.set) {
-    // The same choice as where backups go, with the other family suggested.
-    html = '<p class="lead">Keep your backups with a second company too. Choose where.</p>' + kindList(S && S.provider === "drime" ? "r2" : "drime", "Suggested");
+    // S3 storage, with another company than Drime.
+    html = '<p class="lead">Keep a copy of your backups with a second company too. Choose where.</p>' + kindList("r2", "Suggested", true);
   } else {
-    html = '<div class="group"><div class="stat"><span>Backups</span><b>' + esc(m.main) + '</b></div><div class="stat"><span>Second copy</span><b>' + esc(m.dest) + "</b></div></div>";
-    html += '<div class="group"><div class="item"><div class="t"><b>Copy after every backup</b><span>' + esc(m.last ? "Last copied " + dayName(m.last).toLowerCase() + " at " + new Date(m.last).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : "Not copied yet") + "</span></div>" +
-      '<button class="toggle" id="m-auto" role="switch" aria-checked="' + m.auto + '" aria-label="Copy after every backup"></button></div></div>';
+    // Copied after every backup, always.
+    html = '<div class="group"><div class="stat"><span>Primary backup</span><b>' + esc(m.main) + '</b></div><div class="stat"><span>Secondary backup</span><b>' + esc(m.dest) + "</b></div>" +
+      '<div class="stat"><span>Last copied</span><b>' + esc(m.last ? dayName(m.last) + " at " + new Date(m.last).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" }) : "Not yet") + "</b></div></div>";
     html += '<div class="group"><button class="item link" id="m-now"' + (m.haveFolders ? "" : " disabled") + '><div class="t"><b>Copy now</b></div></button>' +
       '<button class="item link" id="m-all"><div class="t"><b>Copy all computers’ backups</b></div></button></div>';
     html += ultraRow(U.info);
@@ -2387,11 +2802,6 @@ function mDraw() {
   pane.innerHTML = html;
   bindKinds(pane, (k) => openSecond(k, openMirror));
   bindUltra(pane, openMirror);
-  if ($("m-auto")) $("m-auto").onclick = async () => {
-    const on = $("m-auto").getAttribute("aria-checked") !== "true";
-    try { await call("mirrorAuto", { on }); $("m-auto").setAttribute("aria-checked", on); M.info.auto = on; toast(on ? "Copying after every backup." : "Copying after every backup is off."); }
-    catch (e) { toast(e.message); }
-  };
   if ($("m-now")) $("m-now").onclick = () => runMirror(false, false);
   if ($("m-all")) $("m-all").onclick = () => runMirror(true, false);
   if ($("m-back-copy")) $("m-back-copy").onclick = () => mTwice("back", "m-back-t", "Press again to copy back", () => runMirror(true, true));
@@ -2436,8 +2846,8 @@ function jobDraw(box, st, done) {
   } else if (st.done) {
     box.innerHTML = '<div class="bigicon bad"><svg viewBox="0 0 24 24"><path d="M12 7.5v5m0 3.5h.01"/></svg></div><h2>Could not finish</h2><p>' + esc(st.error) + '</p><div class="btns"><button class="mini" data-jdone>Close</button></div>';
   } else {
-    box.innerHTML = "<h2>" + (st.reverse ? "Copying back from " : /→/.test(st.to || "") ? "Copying " : "Copying to ") + esc(st.to || "the second copy") + "</h2><p>" + (st.files ? esc(st.files) + " files" : "Comparing the two…") + '</p><div class="bar' + (st.percent > 0 ? "" : " indet") + '"><i style="width:' + Math.min(100, st.percent || 0) + '%"></i></div>' +
-      "<p>" + (st.bytesAll ? esc(st.bytesDone) + " of " + esc(st.bytesAll) : "&nbsp;") + '</p><div class="btns"><button class="mini" data-jstop>Stop</button></div>';
+    box.innerHTML = "<h2>" + (st.reverse ? "Copying back from " : /→/.test(st.to || "") ? "Copying " : "Copying to ") + esc(st.to || "the secondary backup") + "</h2><p>" + (st.files ? esc(st.files) + " files" : "Comparing the two…") + '</p><div class="bar' + (st.percent > 0 ? "" : " indet") + '"><i style="width:' + Math.min(100, st.percent || 0) + '%"></i></div>' +
+      "<p>" + (st.bytesAll ? esc(st.bytesDone) + " of " + esc(st.bytesAll) : "&nbsp;") + (st.offline ? " · Waiting for the network…" : "") + '</p><div class="btns"><button class="mini" data-jstop>Stop</button></div>';
     box.querySelector("[data-jstop]").onclick = () => { call("mirrorCancel").catch(() => {}); };
     return;
   }
@@ -2532,7 +2942,6 @@ async function runDrime(name) {
 }
 async function finishDrime() { clearInterval(jobPoll); try { await call("mirrorDismiss"); } catch (e) { /* nothing */ } openDrimeFolders(); }
 $("df-back").onclick = () => { if (DF.view === "add") { dfShow("home"); dfDraw(); } else { clearInterval(jobPoll); closeSheet("sheet-dfold"); } };
-$("b-dfold").onclick = () => openDrimeFolders();
 
 // --- Ultra fast mode (experimental) ----------------------------------------------------------------
 // Drime to S3 storage cloud to cloud, through a Worker in the person's own
@@ -2728,20 +3137,21 @@ let updBusy = false;
 $("b-update").onclick = async () => {
   if (updBusy) return;
   updBusy = true;
-  const t = $("update-t"), sub = $("update-sub");
+  const t = $("update-t"), b = $("b-update");
   try {
     if (S && S.update) {
-      t.textContent = "Updating…"; sub.textContent = "";
+      t.textContent = "Updating…";
       const r = await call("updateApply");
-      t.textContent = "Updated to " + r.version; sub.textContent = "Restarting…";
+      b.classList.remove("ready");
+      t.textContent = "Updated to " + r.version + ". Restarting…";
       return;
     }
     t.textContent = "Checking…";
     const r = await call("updateCheck");
     updChecked = true;
-    if (r.version) { if (S) S.update = r.version; t.textContent = "Update to " + r.version; sub.textContent = "Restarts by itself"; $("upd-dot").hidden = false; }
-    else { t.textContent = "Up to date"; sub.textContent = "v" + r.current; }
-  } catch (e) { t.textContent = S && S.update ? "Update to " + S.update : "Check for updates"; sub.textContent = e.message; }
+    if (r.version) { if (S) S.update = r.version; t.textContent = "Update to " + r.version; b.classList.add("ready"); $("upd-dot").hidden = false; }
+    else { t.textContent = "Up to date"; b.classList.remove("ready"); }
+  } catch (e) { t.textContent = S && S.update ? "Update to " + S.update : "Check for updates"; toast(e.message); }
   finally { updBusy = false; }
 };
 $("b-set").insertAdjacentHTML("beforeend", '<span class="dot" id="upd-dot" hidden></span>');

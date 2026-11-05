@@ -157,6 +157,7 @@ func runSet(ctx context.Context, opts Options, prefix, target string, rep *Repor
 	if tickEvery == 0 {
 		tickEvery = time.Second
 	}
+	tracker.WatchForSleep(tickEvery)
 	stopTicker := make(chan struct{})
 	tickerDone := make(chan struct{})
 	go func() {

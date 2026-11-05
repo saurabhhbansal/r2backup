@@ -13,6 +13,7 @@ package engine
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -20,6 +21,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/saurabhhbansal/r2backup/internal/netwait"
+	"github.com/saurabhhbansal/r2backup/internal/pause"
 	"github.com/saurabhhbansal/r2backup/internal/plan"
 	"github.com/saurabhhbansal/r2backup/internal/scan"
 )
@@ -42,6 +45,14 @@ type Uploader interface {
 type Reporter interface {
 	AddBytes(n int64)
 	CompleteFile(size int64)
+}
+
+// InFlightReporter is an optional extra a Reporter can have: it is told as
+// each file starts and stops being sent (+1, -1), so a run can say how many are
+// mid-transfer. That is what a pause is waiting on: files already being sent
+// finish, and the pause is complete when there are none.
+type InFlightReporter interface {
+	InFlight(delta int)
 }
 
 // nopReporter is used when Options.Reporter is nil, so call sites never have
@@ -118,9 +129,10 @@ type Options struct {
 	// Now overrides the clock used for Result.Elapsed. Nil uses time.Now.
 	Now func() time.Time
 
-	// OnUploaded is called once for every object that genuinely landed, in
-	// the order results are drained (single-threaded, so it needs no locking
-	// of its own). This is how the caller records only what succeeded: a run
+	// OnUploaded is called once for every object that genuinely landed, as
+	// it lands, in the order results are drained (from one goroutine, so it
+	// needs no locking of its own against itself; it must be quick, since
+	// it runs while uploads continue). This is how the caller records only what succeeded: a run
 	// that fails halfway must not mark the failures done, and must not
 	// discard the successes either.
 	OnUploaded func(entry scan.Entry, etag string)
@@ -304,29 +316,39 @@ func (r *runner) execute(ctx context.Context, p *plan.Plan) (*Result, error) {
 			r.worker(runCtx, jobs, lim, results)
 		}()
 	}
+	// Results are drained as they arrive, not once the pool is done, so
+	// OnUploaded hears about each file as it lands and the caller can note it
+	// in the index straight away: a run cut off halfway keeps what it
+	// finished. One goroutine drains, so the callbacks stay single-threaded,
+	// and result is only touched by it until drained is closed.
+	drained := make(chan struct{})
+	go func() {
+		defer close(drained)
+		for out := range results {
+			switch {
+			case out.success && out.isMove:
+				result.Moved++
+				result.moveSources = append(result.moveSources, out.from)
+				if r.opts.OnMoved != nil {
+					r.opts.OnMoved(out.from, out.key, out.bytes)
+				}
+			case out.success:
+				result.Uploaded++
+				result.UploadedBytes += out.bytes
+				if r.opts.OnUploaded != nil {
+					r.opts.OnUploaded(out.entry, out.etag)
+				}
+			default:
+				result.Failed = append(result.Failed, Failure{Key: out.key, Err: out.err})
+			}
+		}
+	}()
+
 	uploadWG.Wait() // phase 1 (uploads + moves) fully drained, or abandoned by cancellation
 	govCancel()
 	wg.Wait() // governor joined before we touch its state again
 	close(results)
-
-	for out := range results {
-		switch {
-		case out.success && out.isMove:
-			result.Moved++
-			result.moveSources = append(result.moveSources, out.from)
-			if r.opts.OnMoved != nil {
-				r.opts.OnMoved(out.from, out.key, out.bytes)
-			}
-		case out.success:
-			result.Uploaded++
-			result.UploadedBytes += out.bytes
-			if r.opts.OnUploaded != nil {
-				r.opts.OnUploaded(out.entry, out.etag)
-			}
-		default:
-			result.Failed = append(result.Failed, Failure{Key: out.key, Err: out.err})
-		}
-	}
+	<-drained
 
 	// Deletes run last, and are skipped entirely on a cancelled run rather
 	// than issued against a possibly-incomplete set of replacement uploads.
@@ -361,25 +383,117 @@ func (r *runner) execute(ctx context.Context, p *plan.Plan) (*Result, error) {
 	return result, runCtx.Err()
 }
 
+// maxNetRetries is how many times one file is sent again after failing for
+// want of a network. Each retry happens only once the network has been seen
+// to be back, so this is only reached by a file that keeps failing on a
+// network that otherwise works.
+const maxNetRetries = 8
+
 func (r *runner) worker(ctx context.Context, jobs <-chan job, lim *limiter, results chan<- outcome) {
 	for j := range jobs {
+		if out, ok := r.run(ctx, j, lim); ok {
+			results <- out
+		}
+	}
+}
+
+// run does one job, waiting out pauses and network outages. ok is false when
+// the run ended before the job could be done: it is then left unreported.
+func (r *runner) run(ctx context.Context, j job, lim *limiter) (outcome, bool) {
+	sent := &highWater{forward: r.addBytes}
+	for tries := 0; ; tries++ {
+		sent.restart()
+		// Paused: hold here, between files. Whatever this worker was
+		// sending has already finished; nothing new starts until the run is
+		// resumed or ended. A run ended while paused leaves the job
+		// unreported, exactly like one still queued below.
+		if pause.Wait(ctx) != nil {
+			return outcome{}, false
+		}
+		// Offline: the same, until the network is back. A run that has
+		// given up waiting fails what is left at once, saying why.
+		if g := netwait.FromContext(ctx); g != nil {
+			if err := g.Wait(ctx); err != nil {
+				if ctx.Err() != nil {
+					return outcome{}, false
+				}
+				return outcome{key: j.key(), isMove: j.kind == jobMove, err: fmt.Errorf("%s: %w", j.key(), err)}, true
+			}
+		}
 		if !lim.acquire(ctx) {
 			// Run ended while this job was still queued. Leave it
 			// unreported rather than guessing at success or failure: the
 			// caller only persists what Result says succeeded, so an
 			// unprocessed key is simply retried whole on the next run.
-			continue
+			return outcome{}, false
 		}
 		var out outcome
+		flight, _ := r.opts.Reporter.(InFlightReporter)
+		if flight != nil {
+			flight.InFlight(1)
+		}
 		switch j.kind {
 		case jobUpload:
-			out = r.processUpload(ctx, j.entry)
+			out = r.processUpload(ctx, j.entry, sent.add)
 		case jobMove:
 			out = r.processMove(ctx, j.move)
 		}
+		if flight != nil {
+			flight.InFlight(-1)
+		}
 		lim.release()
-		results <- out
+		if out.success || tries >= maxNetRetries {
+			return out, true
+		}
+		// It failed because the network went, not because of the file or
+		// the storage: hold until the network is back, then send it again,
+		// rather than fail a file that had nothing wrong with it.
+		switch herr := netwait.Hold(ctx, out.err); {
+		case herr == nil:
+			continue
+		case ctx.Err() != nil:
+			return outcome{}, false
+		case errors.Is(herr, netwait.ErrNoNetwork) && !errors.Is(out.err, netwait.ErrNoNetwork):
+			out.err = fmt.Errorf("%w (%v)", netwait.ErrNoNetwork, out.err)
+		}
+		return out, true
 	}
+}
+
+// highWater passes on the bytes of a file's upload, across tries, only past
+// the most any earlier try reached: a file sent again after an outage does
+// not count its first part twice.
+type highWater struct {
+	forward    func(int64)
+	mu         sync.Mutex
+	sent, high int64
+}
+
+func (h *highWater) restart() {
+	h.mu.Lock()
+	h.sent = 0
+	h.mu.Unlock()
+}
+
+func (h *highWater) add(n int64) {
+	h.mu.Lock()
+	h.sent += n
+	var more int64
+	if h.sent > h.high {
+		more, h.high = h.sent-h.high, h.sent
+	}
+	h.mu.Unlock()
+	if more > 0 {
+		h.forward(more)
+	}
+}
+
+// key is what a job's outcome is reported under.
+func (j job) key() string {
+	if j.kind == jobMove {
+		return j.move.To
+	}
+	return j.entry.Key
 }
 
 func (r *runner) addBytes(n int64) {
@@ -400,23 +514,23 @@ func (r *runner) noteIfThrottle(err error) {
 	}
 }
 
-func (r *runner) processUpload(ctx context.Context, entry scan.Entry) outcome {
+func (r *runner) processUpload(ctx context.Context, entry scan.Entry, onBytes func(int64)) outcome {
 	switch entry.Kind {
 	case scan.KindSymlink:
 		// A symlink is stored as its target string, never followed -- there
 		// is nothing on disk to stream, so it bypasses FileSystem entirely.
-		return r.uploadBytes(ctx, entry, []byte(entry.Target))
+		return r.uploadBytes(ctx, entry, []byte(entry.Target), onBytes)
 	case scan.KindEmptyDir:
 		// Object storage has no directories; an empty one needs a zero-byte
 		// marker object or it simply disappears on restore.
-		return r.uploadBytes(ctx, entry, nil)
+		return r.uploadBytes(ctx, entry, nil, onBytes)
 	default:
-		return r.uploadFile(ctx, entry, false)
+		return r.uploadFile(ctx, entry, false, onBytes)
 	}
 }
 
-func (r *runner) uploadBytes(ctx context.Context, entry scan.Entry, data []byte) outcome {
-	etag, err := r.opts.Uploader.Put(ctx, entry.Key, bytes.NewReader(data), int64(len(data)), r.metadataFor(entry), r.addBytes)
+func (r *runner) uploadBytes(ctx context.Context, entry scan.Entry, data []byte, onBytes func(int64)) outcome {
+	etag, err := r.opts.Uploader.Put(ctx, entry.Key, bytes.NewReader(data), int64(len(data)), r.metadataFor(entry), onBytes)
 	if err != nil {
 		r.noteIfThrottle(err)
 		return outcome{key: entry.Key, err: fmt.Errorf("upload %s: %w", entry.Key, err)}
@@ -427,7 +541,7 @@ func (r *runner) uploadBytes(ctx context.Context, entry scan.Entry, data []byte)
 
 // uploadFile streams one regular file. retried is true on the one allowed
 // re-attempt after a mid-upload change was detected.
-func (r *runner) uploadFile(ctx context.Context, entry scan.Entry, retried bool) outcome {
+func (r *runner) uploadFile(ctx context.Context, entry scan.Entry, retried bool, onBytes func(int64)) outcome {
 	path := filepath.Join(r.opts.Root, filepath.FromSlash(entry.Key))
 
 	pre, err := r.opts.FS.Stat(path)
@@ -454,7 +568,7 @@ func (r *runner) uploadFile(ctx context.Context, entry scan.Entry, retried bool)
 		return outcome{key: entry.Key, err: fmt.Errorf("open %s: %w", entry.Key, err)}
 	}
 
-	etag, err := r.opts.Uploader.Put(ctx, entry.Key, f, pre.Size(), r.metadataFor(entry), r.addBytes)
+	etag, err := r.opts.Uploader.Put(ctx, entry.Key, f, pre.Size(), r.metadataFor(entry), onBytes)
 	closeErr := f.Close()
 	if err != nil {
 		r.noteIfThrottle(err)
@@ -492,7 +606,7 @@ func (r *runner) uploadFile(ctx context.Context, entry scan.Entry, retried bool)
 		// One retry handles the common case -- a save that finishes a moment
 		// later -- without looping forever against a file under constant,
 		// unrelated churn.
-		return r.uploadFile(ctx, entry, true)
+		return r.uploadFile(ctx, entry, true, onBytes)
 	}
 
 	r.opts.Reporter.CompleteFile(pre.Size())

@@ -72,6 +72,15 @@ var tuiSurface = map[string]surface{
 	"r2b mirror drime run":             {NA: "part of r2b mirror drime."},
 	"r2b mirror drime run --dry-run":   {NA: "part of r2b mirror drime."},
 	"r2b mirror drime rm":              {NA: "part of r2b mirror drime."},
+	"r2b drime": {NA: "choosing a Drime workspace and folder by browsing is the taskbar panel's folder browser " +
+		"(Account: Folder… on Drime, and Add a Drime folder…) and here."},
+	"r2b drime workspaces":          {NA: "part of r2b drime."},
+	"r2b drime workspaces --source": {NA: "part of r2b drime."},
+	"r2b drime folders":             {NA: "part of r2b drime."},
+	"r2b drime folders --workspace": {NA: "part of r2b drime."},
+	"r2b drime folders --source":    {NA: "part of r2b drime."},
+	"r2b drime use":                 {NA: "part of r2b drime."},
+	"r2b drime use --workspace":     {NA: "part of r2b drime."},
 	"r2b mirror ultra": {NA: "Ultra fast mode is a one-time, prompt-driven setup with a pasted token, " +
 		"in the taskbar panel's second copy and here; like r2b mirror setup, it is set once and forgotten."},
 	"r2b mirror ultra --account":  {NA: "part of r2b mirror ultra."},
@@ -101,6 +110,8 @@ var tuiSurface = map[string]surface{
 	"r2b restore --deleted":   {Keys: []string{"enter"}, Where: "Trash: enter recovers the highlighted file"},
 	"r2b restore --machine":   {Keys: []string{"c"}, Where: "Folders: c lists every backup in the bucket; enter restores another computer's"},
 
+	"r2b pause":          {Keys: []string{"w", "p"}, Where: "the progress screen (w reopens it, for a scheduled run too): p pauses"},
+	"r2b resume":         {Keys: []string{"w", "p"}, Where: "the progress screen: p again carries on"},
 	"r2b status":         {Keys: []string{"1"}, Where: "Folders is the status screen, and the header and footer carry the rest"},
 	"r2b status --watch": {Keys: []string{"w"}, Where: "w reopens the progress screen, including for a run the scheduler started"},
 
@@ -118,6 +129,10 @@ var tuiSurface = map[string]surface{
 	"r2b schedule --every":  {Keys: []string{"e"}, Where: "Schedule: e changes how often"},
 	"r2b schedule --remove": {Keys: []string{"s"}, Where: "Schedule: s turns automatic backups off"},
 	"r2b schedule --repair": {Keys: []string{"p"}, Where: "Schedule: p re-points the task at this copy of r2b"},
+	"r2b schedule every":    {Keys: []string{"e"}, Where: "Schedule: e changes how often"},
+	"r2b schedule daily": {NA: "backing up once a day at a set time is in the taskbar panel's Settings (Back up automatically, Custom) and here on the command line; " +
+		"the terminal interface does not offer it yet."},
+	"r2b schedule off": {Keys: []string{"s"}, Where: "Schedule: s turns automatic backups off"},
 
 	"r2b rename": {Keys: []string{"n"}, Where: "Folders: n renames"},
 	"r2b relink": {Keys: []string{"m"}, Where: "Folders: m says where a folder went"},
@@ -162,6 +177,11 @@ var tuiSurface = map[string]surface{
 		"the terminal interface does not offer it yet."},
 	"r2b pack --second-copy": {NA: "part of r2b pack."},
 	"r2b mirror off":         {NA: "part of r2b mirror, which the interface does not yet offer."},
+	"r2b mirror folder": {NA: "leaving one folder out of the second copy is the Secondary backup switch in the taskbar " +
+		"panel's folder settings and here; the terminal interface does not offer it yet."},
+	"r2b mirror folder --delete": {NA: "part of r2b mirror folder."},
+	"r2b activity clear": {NA: "clearing the list of recent runs is the taskbar panel's Activity tab and this command; " +
+		"the full-screen view keeps no such list."},
 }
 
 func TestEveryCommandAndFlagIsReachableFromTheInterface(t *testing.T) {

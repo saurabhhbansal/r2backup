@@ -15,6 +15,8 @@ import (
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/aws/smithy-go"
+
+	"github.com/saurabhhbansal/r2backup/internal/pause"
 )
 
 // Resumable uploads.
@@ -279,6 +281,17 @@ func (c *Client) uploadParts(ctx context.Context, u Upload, src io.Reader, size 
 	}
 	for _, n := range todo {
 		if stopped.Load() {
+			break
+		}
+		// Paused: parts already sending finish, the next one waits. The
+		// unbuffered channel means a part is only handed over once a sender
+		// is free, so this is exactly "between parts".
+		if err := pause.Wait(ctx); err != nil {
+			mu.Lock()
+			if firstErr == nil {
+				firstErr = err
+			}
+			mu.Unlock()
 			break
 		}
 		work <- n

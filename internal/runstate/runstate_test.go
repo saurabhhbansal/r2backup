@@ -121,6 +121,30 @@ func TestHistoryKeepsNewestFirstAndBounded(t *testing.T) {
 	}
 }
 
+func TestClearHistoryEmptiesIt(t *testing.T) {
+	p := tmp(t, "history.json")
+	if err := ClearHistory(p); err != nil {
+		t.Fatalf("clearing a history that was never written: %v", err)
+	}
+	if err := Record(p, Past{Set: "one", FinishedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ClearHistory(p); err != nil {
+		t.Fatal(err)
+	}
+	h, err := ReadHistory(p)
+	if err != nil || len(h.Runs) != 0 {
+		t.Fatalf("after clearing: %d runs, err %v", len(h.Runs), err)
+	}
+	// A run that finishes afterwards is recorded as usual.
+	if err := Record(p, Past{Set: "one", FinishedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if h, _ := ReadHistory(p); len(h.Runs) != 1 {
+		t.Fatalf("after a new run: %d runs", len(h.Runs))
+	}
+}
+
 func TestLastFindsThePerSetRun(t *testing.T) {
 	p := tmp(t, "history.json")
 	base := time.Date(2026, 8, 28, 12, 0, 0, 0, time.UTC)

@@ -450,7 +450,9 @@ func printStatus(a *app, opts *Options) error {
 	}
 
 	if st, err := scheduleCurrent(scheduleName()); err == nil && st.Registered {
-		if st.Interval > 0 {
+		if st.DailyAt != "" {
+			fmt.Fprintf(opts.Out, "Scheduled: once a day at %s\n", st.DailyAt)
+		} else if st.Interval > 0 {
 			fmt.Fprintf(opts.Out, "Scheduled: every %s\n", progress.FormatInterval(st.Interval))
 		} else {
 			// The crontab fallback (internal/schedule/schedule_linux.go)
@@ -466,11 +468,21 @@ func printStatus(a *app, opts *Options) error {
 	return nil
 }
 
+// etaText is a live run's remaining time in words: "about 3 hours left".
+// ETASeconds is already the shown value (see runstate.Live), so this only
+// words it.
 func etaText(l *runstate.Live) string {
-	if !l.ETAKnown {
+	switch {
+	case l.Paused:
+		return "paused"
+	case l.Offline:
+		return "waiting for the network..."
+	case l.Phase == runstate.PhaseFinding:
+		return "finding files..."
+	case !l.ETAKnown:
 		return "estimating..."
 	}
-	return progress.FormatDuration(time.Duration(l.ETASeconds*float64(time.Second))) + " remaining"
+	return progress.FormatETA(time.Duration(l.ETASeconds*float64(time.Second))) + " left"
 }
 
 func humanAgo(d time.Duration) string {
@@ -674,6 +686,21 @@ func repairMinutes(st schedule.Status) int {
 // are signed out and one that does not, and between a silent run and one that
 // flashes a console window.
 func installSchedule(opts *Options, every int) error {
+	return installScheduleEntry(opts, every, "")
+}
+
+// whenText is how a schedule reads in a sentence: "every 30 minutes" or
+// "once a day at 21:30".
+func whenText(every int, dailyAt string) string {
+	if dailyAt != "" {
+		return "once a day at " + dailyAt
+	}
+	return fmt.Sprintf("every %d minutes", every)
+}
+
+// installScheduleEntry is installSchedule for either shape: a repeating
+// interval, or once a day at dailyAt ("HH:MM") when that is set.
+func installScheduleEntry(opts *Options, every int, dailyAt string) error {
 	self, err := os.Executable()
 	if err != nil {
 		return err
@@ -682,18 +709,20 @@ func installSchedule(opts *Options, every int) error {
 	if err := scheduleInstall(schedule.Entry{
 		Name:       scheduleName(),
 		Interval:   time.Duration(every) * time.Minute,
+		DailyAt:    dailyAt,
 		BinaryPath: binary,
 		Args:       scheduledRunArgs(runtime.GOOS, config.DataDirArgs()),
 	}); err != nil {
 		return err
 	}
+	when := whenText(every, dailyAt)
 	if windowless {
-		fmt.Fprintf(opts.Out, "Registered. Backups run every %d minutes, out of sight, and survive a reboot.\n", every)
+		fmt.Fprintf(opts.Out, "Registered. Backups run %s, out of sight, and survive a reboot.\n", when)
 	} else {
 		// Said plainly rather than left to be discovered. A console window
 		// appearing every half hour on a tool sold as invisible is exactly
 		// the sort of thing a user assumes is broken.
-		fmt.Fprintf(opts.Out, "Registered. Backups run every %d minutes and survive a reboot.\n", every)
+		fmt.Fprintf(opts.Out, "Registered. Backups run %s and survive a reboot.\n", when)
 		fmt.Fprintf(opts.Out,
 			"Note: a console window will appear briefly on each run. %s is missing\n"+
 				"      from %s; reinstall r2backup to get it back.\n",
@@ -751,7 +780,9 @@ func askYesNo(out io.Writer, in io.Reader, question string, def bool) bool {
 // re-time the first one.
 func offerSchedule(opts *Options, every int) {
 	if st, err := scheduleCurrent(scheduleName()); err == nil && st.Registered {
-		if st.Interval > 0 {
+		if st.DailyAt != "" {
+			fmt.Fprintf(opts.Out, "\nBackups already run once a day at %s. This folder is included from now on.\n", st.DailyAt)
+		} else if st.Interval > 0 {
 			fmt.Fprintf(opts.Out, "\nBackups already run every %s. This folder is included from now on.\n",
 				progress.FormatInterval(st.Interval))
 		} else {
@@ -1146,6 +1177,9 @@ func newRemoveCmd(opts *Options) *cobra.Command {
 				// describing an event that did not happen.
 				fmt.Fprintf(opts.Out, "Removed %q. There was nothing in the bucket under %s to delete.\n",
 					s.Name, s.KeyScope())
+			case purge && deleted.Objects < 0:
+				// Drime deletes the set's folder whole, without counting it.
+				fmt.Fprintf(opts.Out, "Removed %q and deleted its backup from the bucket. This cannot be undone.\n", s.Name)
 			case purge:
 				fmt.Fprintf(opts.Out, "Removed %q and deleted %s (%s) from the bucket. This cannot be undone.\n",
 					s.Name, countOf(int64(deleted.Objects), "object", "objects"), progress.FormatBytes(deleted.Bytes))
@@ -1342,16 +1376,96 @@ func newScheduleCmd(opts *Options) *cobra.Command {
 					fmt.Fprintln(opts.Out, "Nothing scheduled; nothing to repair.")
 					return nil
 				}
-				return installSchedule(opts, repairMinutes(st))
+				return installScheduleEntry(opts, repairMinutes(st), st.DailyAt)
+			}
+			if err := schedule.ValidateIntervalMinutes(every); err != nil {
+				return err
 			}
 			return installSchedule(opts, every)
 		},
 	}
+	cmd.AddCommand(newScheduleEveryCmd(opts), newScheduleDailyCmd(opts), newScheduleOffCmd(opts))
 	cmd.Flags().IntVar(&every, "every", schedule.DefaultIntervalMinutes, "minutes between runs")
 	cmd.Flags().BoolVar(&remove, "remove", false, "unregister instead")
 	cmd.Flags().BoolVar(&repair, "repair", false,
 		"re-point an existing schedule at this copy of the program, keeping its interval")
 	return cmd
+}
+
+// ParseEvery reads how often backups should run: "45m", "2h", "90" (minutes)
+// or "1h30m". It returns whole minutes, within what a schedule allows.
+func ParseEvery(s string) (int, error) {
+	s = strings.ToLower(strings.TrimSpace(s))
+	if s == "" {
+		return 0, errors.New("say how often, like 45m or 2h")
+	}
+	if n, err := strconv.Atoi(s); err == nil {
+		s = fmt.Sprintf("%dm", n)
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil || d%time.Minute != 0 {
+		return 0, fmt.Errorf("%q isn't a time I can read. Try 45m or 2h", s)
+	}
+	n := int(d / time.Minute)
+	if err := schedule.ValidateIntervalMinutes(n); err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+func newScheduleEveryCmd(opts *Options) *cobra.Command {
+	return &cobra.Command{
+		Use:   "every <time>",
+		Short: "Back up on a repeat, like 45m or 2h",
+		Long:  "Backs up again and again, this long apart. From 5 minutes to 24 hours.",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !schedule.Supported() {
+				return errors.New("no scheduler is available on this platform")
+			}
+			n, err := ParseEvery(args[0])
+			if err != nil {
+				return err
+			}
+			return installSchedule(opts, n)
+		},
+	}
+}
+
+func newScheduleDailyCmd(opts *Options) *cobra.Command {
+	return &cobra.Command{
+		Use:   "daily <time>",
+		Short: "Back up once a day at a time, like 21:30",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !schedule.Supported() {
+				return errors.New("no scheduler is available on this platform")
+			}
+			h, m, err := schedule.ParseDailyAt(args[0])
+			if err != nil {
+				return err
+			}
+			return installScheduleEntry(opts, 0, schedule.FormatDailyAt(h, m))
+		},
+	}
+}
+
+func newScheduleOffCmd(opts *Options) *cobra.Command {
+	return &cobra.Command{
+		Use:   "off",
+		Short: "Stop backing up automatically",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if !schedule.Supported() {
+				return errors.New("no scheduler is available on this platform")
+			}
+			if err := schedule.Remove(scheduleName()); err != nil {
+				return err
+			}
+			fmt.Fprintln(opts.Out, "Automatic backups are off. Backups will only run when you run them.")
+			return nil
+		},
+	}
 }
 
 // newRenameCmd builds `rename`, which changes the display name and nothing

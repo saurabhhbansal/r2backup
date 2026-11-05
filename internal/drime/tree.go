@@ -212,11 +212,27 @@ func (t *tree) resolve(ctx context.Context, p string, create bool) (*dir, error)
 
 func (t *tree) resolveLocked(ctx context.Context, p string, create bool) (*dir, error) {
 	p = strings.Trim(p, "/")
-	if d, ok := t.dirs[p]; ok {
-		return d, nil
-	}
-	if !create && t.missing[p] {
-		return nil, nil
+	for {
+		if d, ok := t.dirs[p]; ok {
+			return d, nil
+		}
+		if !create && t.missing[p] {
+			return nil, nil
+		}
+		// Being listed or made by another caller right now: wait for that
+		// rather than asking again, then look once more.
+		wait, busy := t.inflight[p]
+		if !busy {
+			break
+		}
+		t.mu.Unlock()
+		select {
+		case <-wait:
+		case <-ctx.Done():
+			t.mu.Lock()
+			return nil, ctx.Err()
+		}
+		t.mu.Lock()
 	}
 	if p == "" {
 		return t.load(ctx, "", t.rootID)
@@ -229,6 +245,14 @@ func (t *tree) resolveLocked(ctx context.Context, p string, create bool) (*dir, 
 		}
 		return nil, err
 	}
+	// Finding the parent may have let go of the lock, and another caller
+	// may have started on p meanwhile -- or finished it.
+	if _, ok := t.dirs[p]; ok {
+		return t.resolveLocked(ctx, p, create)
+	}
+	if _, busy := t.inflight[p]; busy {
+		return t.resolveLocked(ctx, p, create)
+	}
 	if id, ok := parent.folders[name]; ok {
 		return t.load(ctx, p, id)
 	}
@@ -236,7 +260,17 @@ func (t *tree) resolveLocked(ctx context.Context, p string, create bool) (*dir, 
 		t.missing[p] = true
 		return nil, nil
 	}
+	// The lock is let go while the folder is made, as it is for a listing:
+	// on a first backup every folder is new, and holding it would make every
+	// upload, into every folder, wait for each creation in turn. Marking p in
+	// flight is what still stops two callers making it twice.
+	done := make(chan struct{})
+	t.inflight[p] = done
+	t.mu.Unlock()
 	f, err := t.api.createFolder(ctx, parent.id, encodeName(name))
+	t.mu.Lock()
+	delete(t.inflight, p)
+	close(done)
 	if err != nil {
 		return nil, err
 	}
@@ -330,6 +364,24 @@ func (t *tree) forgetDir(p string) {
 		delete(parent.folders, name)
 	}
 	t.missing[p] = true
+}
+
+// unknowDir forgets everything cached about p and its parent's listing,
+// including that p was missing, so the next resolve asks Drime again.
+func (t *tree) unknowDir(p string) {
+	p = strings.Trim(p, "/")
+	parentPath := strings.Trim(path.Dir(p), "/.")
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for k := range t.dirs {
+		if k == p || strings.HasPrefix(k, p+"/") {
+			delete(t.dirs, k)
+		}
+	}
+	delete(t.missing, p)
+	// "" is the backup root: dropping it makes resolve list it afresh too.
+	delete(t.dirs, parentPath)
+	delete(t.missing, parentPath)
 }
 
 // fileEntry is one file found by walk.

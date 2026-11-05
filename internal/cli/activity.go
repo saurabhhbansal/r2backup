@@ -15,7 +15,7 @@ import (
 // newActivityCmd is the panel's Activity tab: recent runs, and one run's
 // own page.
 func newActivityCmd(opts *Options) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "activity [number]",
 		Short: "Recent backups, and what one of them did",
 		Long: "Lists the latest backups, newest first. Give a run's number for what\n" +
@@ -41,6 +41,35 @@ func newActivityCmd(opts *Options) *cobra.Command {
 			}
 			printActivity(opts.Out, runs)
 			return nil
+		},
+	}
+	cmd.AddCommand(newActivityClearCmd(opts))
+	return cmd
+}
+
+// newActivityClearCmd is the Activity tab's Clear.
+func newActivityClearCmd(opts *Options) *cobra.Command {
+	return &cobra.Command{
+		Use:   "clear",
+		Short: "Clear the list of recent backups",
+		Long:  "Forgets the list of recent backups. Your backups and files are not touched.",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return withBackend(opts, func(t *trayBackend) error {
+				ok, err := decide(opts, newPrompter(opts), "Clear activity? Your backups are not touched. [y/N]", false)
+				if err != nil {
+					return err
+				}
+				if !ok {
+					fmt.Fprintln(opts.Out, "Nothing cleared.")
+					return nil
+				}
+				if _, err := t.Call(cmd.Context(), "clearActivity", nil); err != nil {
+					return err
+				}
+				fmt.Fprintln(opts.Out, "Activity cleared.")
+				return nil
+			})
 		},
 	}
 }

@@ -96,7 +96,9 @@ func Current(name string) (Status, error) {
 	// missing XML leaves Interval at zero rather than failing Current.
 	if xmlOut, err := run(ctx, "schtasks", "/query", "/tn", name, "/xml", "ONE"); err == nil {
 		st.RunsWhenSignedOut = windowsParseTaskLogonType(string(xmlOut)) == logonS4U
-		if d, perr := windowsParseTaskInterval(string(xmlOut)); perr == nil {
+		if at := windowsParseTaskDailyAt(string(xmlOut)); at != "" {
+			st.DailyAt = at
+		} else if d, perr := windowsParseTaskInterval(string(xmlOut)); perr == nil {
 			st.Interval = d
 		}
 	}

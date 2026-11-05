@@ -71,9 +71,9 @@ func newSetupCmd(opts *Options) *cobra.Command {
 	cmd.Flags().StringVar(&provider, "provider", "",
 		"where backups go: drime, r2, b2, s3 or s3-custom (asked if not given)")
 	cmd.Flags().StringVar(&purpose, "purpose", "",
-		"what r2backup is for here: both (Drime plus a second copy on S3 storage) or s3 (S3 storage only); asked if not given")
+		"what r2backup is for here: both (Drime, with a secondary backup on S3 storage) or copy (copy Drime's own backups to S3 storage); asked if not given")
 	cmd.Flags().StringVar(&second, "second", "",
-		"with --purpose both, where the second copy goes: r2, b2, s3, s3-custom, or none to add it later (asked if not given)")
+		"with --purpose both, where the secondary backup goes: r2, b2, s3, s3-custom, or none to add it later (asked if not given)")
 	cmd.AddCommand(newPurposeCmd(opts))
 	return cmd
 }
@@ -82,7 +82,7 @@ func newSetupCmd(opts *Options) *cobra.Command {
 type setupFlags struct {
 	keysOnly bool
 	provider string // where backups go, "" to ask
-	purpose  string // purposeBoth, purposeS3, or "" to ask
+	purpose  string // purposeBoth, purposeCopy, purposeS3, or "" to ask
 	second   string // S3 kind for the second copy, "" to ask
 }
 
@@ -105,17 +105,19 @@ func parseSetupFlags(provider, purpose, second string) (setupFlags, error) {
 	if purpose != "" {
 		pp, ok := parsePurpose(purpose)
 		if !ok {
-			return f, fmt.Errorf("unknown --purpose %q: use both or s3", purpose)
+			return f, fmt.Errorf("unknown --purpose %q: use both or copy", purpose)
 		}
 		f.purpose = pp
 	}
 	switch {
 	case f.purpose == purposeS3 && provider == creds.ProviderDrime:
 		return f, errors.New("--purpose s3 backs up to S3 storage, not Drime: leave out --provider drime, or use --purpose both")
+	case f.purpose == purposeCopy && provider == creds.ProviderDrime:
+		return f, errors.New("--purpose copy copies Drime to S3 storage: --provider names the S3 storage, not Drime")
 	case f.purpose == purposeBoth && provider != "" && provider != creds.ProviderDrime:
 		return f, errors.New("--purpose both backs up to Drime first: use --provider drime, or leave --provider out")
 	case second != "" && f.purpose != purposeBoth:
-		return f, errors.New("--second goes with --purpose both: S3 storage only has no second copy")
+		return f, errors.New("--second goes with --purpose both")
 	}
 	return f, nil
 }
@@ -235,6 +237,8 @@ func runSetup(ctx context.Context, a *app, opts *Options, f setupFlags) error {
 		c, err = askForKind(ctx, p, creds.ProviderDrime)
 	case purposeS3:
 		c, err = askForS3Destination(ctx, p, provider, "Where should backups go?")
+	case purposeCopy:
+		c, err = askForS3Destination(ctx, p, provider, "Which S3 storage should Drime be copied to?")
 	default:
 		c, err = askForDestination(ctx, p, provider)
 	}
@@ -255,7 +259,7 @@ func runSetup(ctx context.Context, a *app, opts *Options, f setupFlags) error {
 			return setupFinish(ctx, a, opts, p)
 		}
 	}
-	if err := a.creds.Save(c); err != nil {
+	if err := a.saveCreds(c); err != nil {
 		return err
 	}
 	fmt.Fprintln(p.out, "\nSaved.")
@@ -274,6 +278,18 @@ func runSetup(ctx context.Context, a *app, opts *Options, f setupFlags) error {
 		if err := setUpSecondCopy(ctx, a, p, f.second); err != nil {
 			return err
 		}
+	case purposeCopy:
+		// A Drime secondary backup from before stops below; its token is
+		// kept to read the Drime folders with.
+		if mc, err := a.mirror.Load(); err == nil && mc.IsDrime() {
+			if err := keepDrimeToRead(a, mc); err != nil {
+				return err
+			}
+		}
+		if err := setUpDrimeFolders(ctx, a, p); err != nil {
+			return err
+		}
+		fallthrough
 	case purposeS3:
 		// S3 storage only, on a computer set up before: a Drime second copy
 		// left from then stops, as switching in the panel does.
@@ -539,7 +555,7 @@ func pullCredentials(ctx context.Context, a *app, p *prompter, client *account.C
 	case err != nil:
 		return false, err
 	}
-	if err := a.creds.Save(*k.Primary); err != nil {
+	if err := a.saveCreds(*k.Primary); err != nil {
 		return false, err
 	}
 	if k.Second != nil && !a.mirror.Exists() {
@@ -847,12 +863,12 @@ func askPurpose(p *prompter) (string, error) {
 	fmt.Fprintln(p.out)
 	fmt.Fprintln(p.out, purposeQuestion)
 	fmt.Fprintf(p.out, "  1. %s\n     %s\n", purposeBothTitle, purposeBothText)
-	fmt.Fprintf(p.out, "  2. %s\n     %s\n", purposeS3Title, purposeS3Text)
+	fmt.Fprintf(p.out, "  2. %s\n     %s\n", purposeCopyTitle, purposeCopyText)
 	i, err := askIndex(p, "Choose 1 or 2", 2)
 	if err != nil {
 		return "", err
 	}
-	return []string{purposeBoth, purposeS3}[i], nil
+	return []string{purposeBoth, purposeCopy}[i], nil
 }
 
 // askForS3Destination asks which S3-compatible storage (unless kind says),
@@ -864,7 +880,7 @@ func askForS3Destination(ctx context.Context, p *prompter, kind, question string
 		fmt.Fprintln(p.out, "  1. Cloudflare R2          -- an account, a bucket and a key pair")
 		fmt.Fprintln(p.out, "  2. Backblaze B2           -- a bucket, its region and an application key")
 		fmt.Fprintln(p.out, "  3. Amazon S3              -- a bucket, its region and an access key")
-		fmt.Fprintln(p.out, "  4. Other S3-compatible    -- an endpoint URL, a bucket and a key pair")
+		fmt.Fprintln(p.out, "  4. Other S3 storage       -- an endpoint URL, a bucket and a key pair")
 		i, err := askIndex(p, "Choose 1 to 4", 4)
 		if err != nil {
 			return creds.Credentials{}, err
@@ -887,7 +903,7 @@ func askSecondKind(p *prompter) (string, error) {
 	fmt.Fprintln(p.out, "  1. Cloudflare R2          -- an account, a bucket and a key pair")
 	fmt.Fprintln(p.out, "  2. Backblaze B2           -- a bucket, its region and an application key")
 	fmt.Fprintln(p.out, "  3. Amazon S3              -- a bucket, its region and an access key")
-	fmt.Fprintln(p.out, "  4. Other S3-compatible    -- an endpoint URL, a bucket and a key pair")
+	fmt.Fprintln(p.out, "  4. Other S3 storage       -- an endpoint URL, a bucket and a key pair")
 	fmt.Fprintln(p.out, "  5. Not now                -- back up to Drime only, add a second copy later")
 	i, err := askIndex(p, "Choose 1 to 5", 5)
 	if err != nil {

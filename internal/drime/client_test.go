@@ -259,12 +259,17 @@ func TestDeletePrefixRemovesFolder(t *testing.T) {
 	if err := c.Flush(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	before := f.calls["GET /api/v1/drive/file-entries"]
 	res, err := c.DeletePrefix(context.Background(), set+"/")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Objects != 2 || res.Bytes != 7 {
+	// A whole folder goes in one request, uncounted: no listing first.
+	if res.Objects != -1 {
 		t.Fatalf("deletion = %+v", res)
+	}
+	if n := f.calls["GET /api/v1/drive/file-entries"] - before; n > 1 {
+		t.Fatalf("deleting a folder listed %d times; it should only resolve the path", n)
 	}
 	for p := range f.files() {
 		if strings.Contains(p, "/Docs/") {
@@ -281,6 +286,63 @@ func TestDeletePrefixRemovesFolder(t *testing.T) {
 	if _, ok := f.files()["r2backup/"+set+"/"+ManifestName]; ok {
 		t.Fatal("manifest came back")
 	}
+}
+
+// Drime answers a big folder delete only once it is done, which can take
+// minutes. Past folderDeleteWait the client stops waiting for the answer and
+// looks for the folder instead: gone means deleted.
+func TestDeletePrefixDoesNotWaitForeverOnASlowAnswer(t *testing.T) {
+	slowDeleteWaits(t)
+	f := newFake(t)
+	c := newClient(t, f, nil)
+	put(t, c, set+"/current/a.txt", []byte("12345"), remote.Metadata{})
+	if err := c.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	f.slowDelete = time.Minute
+	start := time.Now()
+	res, err := c.DeletePrefix(context.Background(), set+"/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(start); d > 10*time.Second {
+		t.Fatalf("waited %v for an answer it no longer needed", d)
+	}
+	if res.Objects != -1 {
+		t.Fatalf("deletion = %+v", res)
+	}
+	for p := range f.files() {
+		if strings.Contains(p, "/Docs/") {
+			t.Fatalf("left behind: %s", p)
+		}
+	}
+}
+
+// A delete that never happens is an error, after a bounded wait, not a hang
+// and not a false success.
+func TestDeletePrefixReportsAFolderThatStays(t *testing.T) {
+	slowDeleteWaits(t)
+	f := newFake(t)
+	c := newClient(t, f, nil)
+	put(t, c, set+"/current/a.txt", []byte("12345"), remote.Metadata{})
+	if err := c.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	f.slowDelete, f.stuckDelete = time.Minute, true
+	start := time.Now()
+	if _, err := c.DeletePrefix(context.Background(), set+"/"); err == nil {
+		t.Fatal("reported a folder that is still there as deleted")
+	}
+	if d := time.Since(start); d > 10*time.Second {
+		t.Fatalf("took %v to give up", d)
+	}
+}
+
+func slowDeleteWaits(t *testing.T) {
+	t.Helper()
+	w, g, e := folderDeleteWait, folderGoneWait, folderGoneEvery
+	folderDeleteWait, folderGoneWait, folderGoneEvery = 200*time.Millisecond, 600*time.Millisecond, 50*time.Millisecond
+	t.Cleanup(func() { folderDeleteWait, folderGoneWait, folderGoneEvery = w, g, e })
 }
 
 func TestLargeUploadResumes(t *testing.T) {
@@ -405,5 +467,90 @@ func TestConcurrentPutsCreateEachFolderOnce(t *testing.T) {
 	got, err := newClient(t, f, nil).List(context.Background(), set+"/current/")
 	if err != nil || len(got) != 60 {
 		t.Fatalf("listed %d files, err %v", len(got), err)
+	}
+}
+
+// A folder being made must not hold up uploads into folders that are already
+// there. On a first backup every folder is new, and when creation held the
+// tree's lock each one stopped every upload in the run for a round trip.
+func TestMakingAFolderDoesNotHoldUpOtherUploads(t *testing.T) {
+	f := newFake(t)
+	c := newClient(t, f, nil)
+	put(t, c, set+"/current/a/one.txt", []byte("1"), remote.Metadata{})
+
+	gate := make(chan struct{})
+	f.folderGate = gate
+	slow := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func(i int) {
+			key := fmt.Sprintf("%s/current/b/f%d.txt", set, i)
+			slow <- c.Put(context.Background(), remote.PutInput{Key: key, Body: strings.NewReader("x"), Size: 1})
+		}(i)
+	}
+	time.Sleep(50 * time.Millisecond) // let both reach the folder creation
+
+	quick := make(chan error, 1)
+	go func() {
+		quick <- c.Put(context.Background(), remote.PutInput{Key: set + "/current/a/two.txt", Body: strings.NewReader("2"), Size: 1})
+	}()
+	select {
+	case err := <-quick:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		close(gate)
+		t.Fatal("an upload into an existing folder waited for another folder to be made")
+	}
+	close(gate)
+	for i := 0; i < 2; i++ {
+		if err := <-slow; err != nil {
+			t.Fatal(err)
+		}
+	}
+	f.mu.Lock()
+	made := 0
+	for _, e := range f.entries {
+		if e.Type == itemTypeFolder && e.Name == "b" {
+			made++
+		}
+	}
+	f.mu.Unlock()
+	if made != 1 {
+		t.Fatalf("folder b made %d times, want 1", made)
+	}
+	got, err := newClient(t, f, nil).List(context.Background(), set+"/current/")
+	if err != nil || len(got) != 4 {
+		t.Fatalf("listed %d files, err %v", len(got), err)
+	}
+}
+
+// An upload whose set is due a save does not wait behind a save already
+// under way: that one, or the next checkpoint, takes its changes.
+func TestDueSaveDoesNotWaitBehindOneUnderWay(t *testing.T) {
+	f := newFake(t)
+	c := newClient(t, f, nil)
+	put(t, c, set+"/current/a.txt", []byte("a"), remote.Metadata{ModTime: time.Unix(1700000000, 0)})
+
+	c.meta.flushing.Lock()
+	done := make(chan error, 1)
+	go func() { done <- c.meta.flushSoon(context.Background(), set) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("flushSoon waited for the save under way")
+	}
+	c.meta.flushing.Unlock()
+	if !c.Pending() {
+		t.Fatal("the skipped save lost the pending change")
+	}
+	if err := c.meta.flushSoon(context.Background(), set); err != nil {
+		t.Fatal(err)
+	}
+	if c.Pending() {
+		t.Fatal("flushSoon with nothing under way did not save")
 	}
 }

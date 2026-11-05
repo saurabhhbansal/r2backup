@@ -77,6 +77,8 @@ type mirrorStatusOut struct {
 	Failed    int     `json:"failed"`
 	Bytes     string  `json:"bytes,omitempty"`
 	Held      int     `json:"held"`
+	// Offline is true while the copy is waiting for the network to come back.
+	Offline bool `json:"offline,omitempty"`
 	// Relayed counts files Ultra fast mode copied cloud to cloud, and
 	// RelayNote says what to know about it: that it stopped, and why.
 	Relayed   int    `json:"relayed"`
@@ -86,7 +88,7 @@ type mirrorStatusOut struct {
 func (j *mirrorJob) status() mirrorStatusOut {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	st := mirrorStatusOut{Reverse: j.reverse, To: j.to, Done: j.done, Error: j.err}
+	st := mirrorStatusOut{Reverse: j.reverse, To: j.to, Done: j.done, Error: j.err, Offline: !j.done && j.p.Offline}
 	if j.p.FilesTotal > 0 {
 		st.Files = progress.FormatCount(int64(j.p.FilesDone)) + " of " + progress.FormatCount(int64(j.p.FilesTotal))
 	}
@@ -139,7 +141,7 @@ func (t *trayBackend) mirrorInfo() (mirrorInfoOut, error) {
 		out.Set, out.Dest, out.Provider = true, destLabel(mc), mc.Kind()
 	}
 	if s, err := config.LoadSettings(); err == nil {
-		out.Auto = s.MirrorAuto && out.Set
+		out.Auto = out.Set // always copied after every backup
 		var last int64
 		for _, v := range s.MirrorLast {
 			if v > last {
@@ -172,6 +174,9 @@ func (t *trayBackend) mirrorSetup(ctx context.Context, c creds.Credentials, auto
 	if samePlace(main, c) {
 		return errors.New("that is where your backups already go. A second copy has to be somewhere else")
 	}
+	if c.IsDrime() {
+		return errors.New("a secondary backup goes to S3 storage, with a company other than Drime")
+	}
 	store, err := openStore(ctx, c, nil)
 	if err != nil {
 		return err
@@ -183,7 +188,9 @@ func (t *trayBackend) mirrorSetup(ctx context.Context, c creds.Credentials, auto
 	if err := a.mirror.Save(c); err != nil {
 		return err
 	}
-	return setMirrorAuto(auto)
+	// Always copied after every backup now; auto is kept for older callers.
+	_ = auto
+	return setMirrorAuto(true)
 }
 
 func (t *trayBackend) startMirror(everything, reverse bool) error {
@@ -198,10 +205,21 @@ func (t *trayBackend) startMirror(everything, reverse bool) error {
 	_ = a.sets.Reload()
 	var list []sets.Set
 	prefixes := []string{"machines/"}
+	// A folder turned off for the secondary backup is left alone there,
+	// unless this is a copy back, which is for getting files back.
+	var skip []string
+	if everything && !reverse {
+		skip = secondarySkips(a.sets.List())
+	}
 	if !everything {
 		list = a.sets.List()
 		if len(list) == 0 {
 			return errors.New("add a folder first")
+		}
+		if !reverse {
+			if list = forSecondary(list); len(list) == 0 {
+				return errors.New("every folder is turned off for the secondary backup")
+			}
 		}
 		prefixes = nil
 		for _, s := range list {
@@ -233,7 +251,7 @@ func (t *trayBackend) startMirror(everything, reverse bool) error {
 	go func() {
 		defer cancel()
 		rep, err := mirror.Run(ctx, mirror.Options{
-			Src: src, Dst: dst, Prefixes: prefixes,
+			Src: src, Dst: dst, Prefixes: prefixes, Skip: skip,
 			// Copying back never removes anything from where backups go:
 			// it is for getting files back, and a mirror that is behind
 			// must not be able to take them away.
@@ -263,6 +281,10 @@ func (t *trayBackend) startMirror(everything, reverse bool) error {
 
 // mirrorCall serves the panel's second-copy requests.
 func (t *trayBackend) mirrorCall(ctx context.Context, method string, raw []byte) (out any, ok bool, err error) {
+	// Browsing Drime for a folder. See drime_browse.go.
+	if out, ok, err := t.drimeCall(ctx, method, raw); ok {
+		return out, true, err
+	}
 	switch method {
 	case "mirrorInfo":
 		res, err := t.mirrorInfo()
