@@ -72,6 +72,7 @@ type api struct {
 	workspace   string
 	hc          *http.Client
 	maxAttempts int
+	thr         throttle // shared by every API request; see throttle.go
 }
 
 // apiError is a non-2xx answer from Drime.
@@ -176,8 +177,15 @@ const maxHeld = 8
 // its body closed; a 2xx response is the caller's to close.
 func (a *api) send(ctx context.Context, r request) (*http.Response, error) {
 	var lastErr error
-	held, tried := 0, false
+	held, throttled, tried := 0, 0, false
 	for attempt := 1; attempt <= a.maxAttempts; attempt++ {
+		// Presigned part uploads go to Drime's storage, not its API, so
+		// they are not held by the API's pause.
+		if !r.noAuth {
+			if err := a.thr.wait(ctx); err != nil {
+				return nil, err
+			}
+		}
 		if tried && r.rewind != nil {
 			if err := r.rewind(); err != nil {
 				return nil, err
@@ -245,9 +253,33 @@ func (a *api) send(ctx context.Context, r request) (*http.Response, error) {
 			continue
 		}
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			if !r.noAuth {
+				a.thr.ok(began)
+			}
 			return resp, nil
 		}
 		apiErr := decodeError(resp)
+		if isThrottleStatus(resp.StatusCode) {
+			// "Slow down" is not the request's fault: wait it out without
+			// spending an attempt, up to maxThrottled times.
+			lastErr = apiErr
+			if !r.noAuth {
+				a.thr.hit(resp)
+			} else {
+				a.thr.hits.Add(1)
+			}
+			if throttled < maxThrottled {
+				throttled++
+				attempt--
+				if r.noAuth {
+					if serr := sleepCtx(ctx, backoff(throttled, resp)); serr != nil {
+						return nil, serr
+					}
+				}
+				continue
+			}
+			return nil, apiErr
+		}
 		if !isRetryable(resp.StatusCode) || attempt == a.maxAttempts {
 			return nil, apiErr
 		}
@@ -507,7 +539,11 @@ func (a *api) downloadLink(ctx context.Context, it item) (string, time.Time, err
 	hc := *a.hc
 	hc.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
 	var lastErr error
+	throttled := 0
 	for attempt := 1; attempt <= a.maxAttempts; attempt++ {
+		if err := a.thr.wait(ctx); err != nil {
+			return "", time.Time{}, err
+		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 		if err != nil {
 			return "", time.Time{}, err
@@ -531,12 +567,23 @@ func (a *api) downloadLink(ctx context.Context, it item) (string, time.Time, err
 				if err != nil {
 					return "", time.Time{}, fmt.Errorf("drime: download link: %w", err)
 				}
+				a.thr.ok(began)
 				return loc.String(), linkExpiry(loc, began), nil
 			case resp.StatusCode >= 200 && resp.StatusCode < 300:
 				resp.Body.Close()
 				return "", time.Time{}, errNoRedirect
 			}
 			apiErr := decodeError(resp)
+			if isThrottleStatus(resp.StatusCode) {
+				lastErr = apiErr
+				a.thr.hit(resp)
+				if throttled < maxThrottled {
+					throttled++
+					attempt--
+					continue
+				}
+				return "", time.Time{}, apiErr
+			}
 			if !isRetryable(resp.StatusCode) {
 				return "", time.Time{}, apiErr
 			}

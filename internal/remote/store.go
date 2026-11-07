@@ -146,6 +146,23 @@ func EndpointOf(s Store) string {
 	return ""
 }
 
+// ThrottlesOf is s's count of slow-down answers from storage, or nil when s
+// does not keep one. A store wrapping another answers for the one
+// underneath. The engine reads it to send fewer files at once.
+func ThrottlesOf(s Store) func() int64 {
+	for i := 0; s != nil && i < 8; i++ {
+		if t, ok := s.(interface{ Throttles() int64 }); ok {
+			return t.Throttles
+		}
+		b, ok := s.(interface{ Base() Store })
+		if !ok {
+			return nil
+		}
+		s = b.Base()
+	}
+	return nil
+}
+
 // CloseStore is for a Store that is done with: it saves anything held back,
 // then lets go of what the store keeps on disk (a bundling store's cached
 // packs are temporary files that otherwise stay behind). It is safe on any
