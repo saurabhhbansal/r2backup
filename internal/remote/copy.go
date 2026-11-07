@@ -29,6 +29,9 @@ func (c *Client) Copy(ctx context.Context, srcKey, dstKey string) error {
 		// to resupply it: it is the same object, just at a new key.
 		MetadataDirective: types.MetadataDirectiveCopy,
 	})
+	if isNotFound(err) {
+		return fmt.Errorf("remote: copy %q to %q: %w", srcKey, dstKey, ErrNotFound)
+	}
 	if err != nil {
 		return fmt.Errorf("remote: copy %q to %q: %w", srcKey, dstKey, err)
 	}

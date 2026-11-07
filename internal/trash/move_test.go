@@ -181,3 +181,18 @@ func TestEstimateMoveOpsMatchesActualCopies(t *testing.T) {
 		t.Errorf("EstimateMoveOps with retention 0 = %d, want 0", got)
 	}
 }
+
+func TestMoveSkipsSourcesAlreadyGone(t *testing.T) {
+	fb := newFakeBackend()
+	fb.seed("myset/current/kept.txt", 10)
+	// "gone.txt" was deleted in the storage's own app, outside r2backup.
+
+	tr := New(fb, fixedClock(time.Date(2026, 11, 7, 12, 0, 0, 0, time.UTC)))
+	res, err := tr.Move(context.Background(), "myset", []string{"gone.txt", "kept.txt"}, 30)
+	if err != nil {
+		t.Fatalf("Move: %v (a missing live copy has nothing to keep and must not fail the run)", err)
+	}
+	if len(res.Moved) != 1 || res.Moved[0].RelPath != "kept.txt" {
+		t.Errorf("Moved = %v, want only kept.txt", res.Moved)
+	}
+}
