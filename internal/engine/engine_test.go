@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -937,4 +939,66 @@ func TestGovernor_EasesOffWhenStorageCountsThrottles(t *testing.T) {
 	}
 	cancel()
 	wg.Wait()
+}
+
+// A file deleted between the scan and its upload -- a test run cleaning up
+// its own output while the backup runs -- is skipped, not failed: there is
+// nothing left to back up, and the run should not end in an error for it.
+func TestRun_FileGoneBeforeUploadIsSkipped(t *testing.T) {
+	fsys := newFakeFS()
+	p := setupPlanWithFiles(t, fsys, 5)
+	fsys.mu.Lock()
+	fsys.statErr["file1.txt"] = fs.ErrNotExist
+	fsys.openErr["file3.txt"] = &fs.PathError{Op: "open", Path: "file3.txt", Err: fs.ErrNotExist}
+	fsys.mu.Unlock()
+
+	up := newFakeUploader()
+	var recorded []string
+	eng := New(Options{Uploader: up, FS: fsys, OnUploaded: func(e scan.Entry, _ string) { recorded = append(recorded, e.Key) }})
+	res, err := eng.Run(context.Background(), p)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(res.Failed) != 0 {
+		t.Fatalf("Failed = %v, want none", res.Failed)
+	}
+	if res.Vanished != 2 || res.Uploaded != 3 {
+		t.Fatalf("Vanished = %d, Uploaded = %d, want 2 and 3", res.Vanished, res.Uploaded)
+	}
+	for _, k := range recorded {
+		if k == "file1.txt" || k == "file3.txt" {
+			t.Fatalf("%s recorded as uploaded", k)
+		}
+	}
+}
+
+// The same on a real disk, with the file's whole folder gone: Windows says
+// "path not found" for that, not "file not found", and it must count too.
+func TestRun_FolderGoneBeforeUploadIsSkipped(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "test-results")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "keep.txt"), []byte("keep"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := &plan.Plan{
+		Uploads: []scan.Entry{
+			{Key: "keep.txt", Size: 4, Kind: scan.KindFile},
+			{Key: "test-results/trace.mp4", Size: 10, Kind: scan.KindFile},
+		},
+		UploadBytes: 14,
+	}
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	eng := New(Options{Root: root, Uploader: newFakeUploader()})
+	res, err := eng.Run(context.Background(), p)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(res.Failed) != 0 || res.Vanished != 1 || res.Uploaded != 1 {
+		t.Fatalf("Failed = %v, Vanished = %d, Uploaded = %d, want none, 1, 1", res.Failed, res.Vanished, res.Uploaded)
+	}
 }

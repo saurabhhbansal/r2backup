@@ -76,6 +76,10 @@ func TestLockedFileIsReportedAndRunCompletes(t *testing.T) {
 // the engine opens a single file -- to delete the file at exactly that
 // boundary, deterministically rather than racing a background goroutine
 // against real disk and network I/O.
+//
+// There is nothing left to back up, so the file is skipped rather than
+// failed: a test run cleaning its own output mid-backup once turned a clean
+// run into 229 failures.
 func TestFileVanishesBetweenScanAndUpload(t *testing.T) {
 	h := newHarness(t, "Vanishes")
 	manifest, err := fixtures.Build(h.root, fixtures.Spec{
@@ -95,17 +99,16 @@ func TestFileVanishesBetweenScanAndUpload(t *testing.T) {
 	if !obs.deleted {
 		t.Fatal("test bug: the observer never fired, so the file was never removed")
 	}
-	if rep.Succeeded() {
-		t.Fatal("backup reported success, but the vanished file should have failed")
+	if !rep.Succeeded() {
+		t.Fatalf("backup failed over a file that was simply gone: %+v", rep.Failures)
 	}
-	var found bool
+	if rep.Vanished != 1 {
+		t.Fatalf("Vanished = %d, want 1", rep.Vanished)
+	}
 	for _, f := range rep.Failures {
 		if f.Key == victim {
-			found = true
+			t.Fatalf("vanished file %q reported as a failure", victim)
 		}
-	}
-	if !found {
-		t.Fatalf("vanished file %q was not reported among the failures: %+v", victim, rep.Failures)
 	}
 	wantUploaded := len(manifest.Files) - 1
 	if rep.Uploaded != wantUploaded {

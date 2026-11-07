@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -80,7 +81,12 @@ type Result struct {
 	Moved         int
 	Deleted       int
 	Failed        []Failure
-	Elapsed       time.Duration
+	// Vanished counts files deleted from disk after the scan found them and
+	// before their upload began: a build or test run cleaning up while the
+	// backup ran. There is nothing left to back up, so they are not
+	// failures; the next scan does not find them.
+	Vanished int
+	Elapsed  time.Duration
 
 	// moveSources are the "From" keys of successfully-copied moves, staged
 	// here so they can be appended to the delete list. Deleting them earlier
@@ -246,6 +252,9 @@ type outcome struct {
 	success bool
 	isMove  bool
 	err     error
+	// vanished: the file was gone before it could be read. See
+	// Result.Vanished.
+	vanished bool
 
 	// entry and etag describe what actually landed, so the caller can record
 	// it in the index. Counts alone are not enough: after a partly-failed run
@@ -337,6 +346,8 @@ func (r *runner) execute(ctx context.Context, p *plan.Plan) (*Result, error) {
 				if r.opts.OnMoved != nil {
 					r.opts.OnMoved(out.from, out.key, out.bytes)
 				}
+			case out.vanished:
+				result.Vanished++
 			case out.success:
 				result.Uploaded++
 				result.UploadedBytes += out.bytes
@@ -447,7 +458,7 @@ func (r *runner) run(ctx context.Context, j job, lim *limiter) (outcome, bool) {
 			flight.InFlight(-1)
 		}
 		lim.release()
-		if out.success || tries >= maxNetRetries {
+		if out.success || out.vanished || tries >= maxNetRetries {
 			return out, true
 		}
 		// It failed because the network went, not because of the file or
@@ -551,6 +562,9 @@ func (r *runner) uploadFile(ctx context.Context, entry scan.Entry, retried bool,
 
 	pre, err := r.opts.FS.Stat(path)
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return r.gone(entry)
+		}
 		return outcome{key: entry.Key, err: fmt.Errorf("stat %s: %w", entry.Key, err)}
 	}
 	// entry carries whatever scan.Walk saw when the plan was built, which on
@@ -567,6 +581,9 @@ func (r *runner) uploadFile(ctx context.Context, entry scan.Entry, retried bool,
 	entry.ModTime = pre.ModTime()
 	f, err := r.opts.FS.Open(path)
 	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return r.gone(entry)
+		}
 		// Locked by another process, permission denied, deleted since the
 		// scan -- none of these are worth retrying here; they either persist
 		// or will be picked up fresh on the next scan.
@@ -616,6 +633,13 @@ func (r *runner) uploadFile(ctx context.Context, entry scan.Entry, retried bool,
 
 	r.opts.Reporter.CompleteFile(pre.Size())
 	return outcome{key: entry.Key, bytes: pre.Size(), success: true, entry: entry, etag: etag}
+}
+
+// gone is the outcome for a file deleted since the scan: done, as far as the
+// bar is concerned, and neither uploaded nor failed.
+func (r *runner) gone(entry scan.Entry) outcome {
+	r.opts.Reporter.CompleteFile(0)
+	return outcome{key: entry.Key, vanished: true}
 }
 
 func (r *runner) processMove(ctx context.Context, mv plan.Move) outcome {
