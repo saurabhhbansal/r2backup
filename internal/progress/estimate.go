@@ -37,9 +37,13 @@ import "math"
 //
 // Two fits are kept: one over the whole run, which is steady, and one over the
 // recent past (about two minutes on a long run, shorter on a short one), which
-// sees a real change of speed. They are averaged, except that when the recent
-// past says things have got slower it is believed sooner -- running out of
-// time is worse than finishing early.
+// sees a real change of speed. The whole run decides how a file's cost splits
+// between overhead and bytes, which needs all the history it can get; the
+// recent past decides how fast the work is going now, and the estimate is
+// that alone. Averaging in the whole run's speed kept a slow start -- Drime
+// creating folders, workers ramping up, a burst of "slow down" -- in the
+// estimate long after it was over: a run that had sped up fivefold was still
+// told it had twice as long left as it did.
 
 // estimator is guarded by the Tracker's mutex. Times are seconds of active
 // (unpaused) time since the run started.
@@ -225,9 +229,5 @@ func (e *estimator) remaining(now float64) (float64, bool) {
 		recent = whole * (1 + open/tau)
 	}
 
-	w := 0.5
-	if whole > 0 && recent > whole {
-		w = math.Min(1, 0.5+0.5*(recent/whole-1))
-	}
-	return safeFloat(w*recent + (1-w)*whole), true
+	return safeFloat(recent), true
 }

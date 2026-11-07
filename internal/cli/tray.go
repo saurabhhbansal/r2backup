@@ -49,6 +49,7 @@ func runTray(ctx context.Context, opts *Options) error {
 		return err
 	}
 	defer d.close()
+	d.scheduleTTL = trayScheduleTTL
 	t := &trayBackend{d: d, checkUpdates: true}
 	defer t.endCF()
 	cctx, cancel := context.WithCancel(ctx)
