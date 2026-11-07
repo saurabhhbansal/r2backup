@@ -615,6 +615,7 @@ input:focus-visible { border-color: var(--accent); outline: 1px solid var(--acce
   </main>
   <footer class="sheetfoot" id="d-foot" hidden>
     <button class="wide" id="d-empty"><span>Empty trash…</span></button>
+    <button class="wide" id="d-drime-empty" hidden><span>Clear Drime trash…</span></button>
   </footer>
 </section>
 
@@ -1632,7 +1633,12 @@ function dShow(v) {
   D.view = v; D.armed = "";
   document.querySelectorAll("#sheet-trash [data-dpane]").forEach((p) => { p.hidden = p.dataset.dpane !== v; });
   $("d-title").textContent = v === "detail" ? "Deleted file" : "Deleted files";
-  $("d-foot").hidden = !(v === "list" && D.rows.length);
+  // Drime keeps a trash of its own -- a deleted backup goes there first --
+  // so a Drime user can clear it here even when this one is empty.
+  const drime = !!(S && S.provider === "drime");
+  $("d-foot").hidden = !(v === "list" && (D.rows.length || drime));
+  $("d-empty").hidden = !D.rows.length;
+  $("d-drime-empty").hidden = !drime;
   $("d-main").scrollTop = 0;
 }
 function disarm() { D.armed = ""; $("d-del").querySelector("span").textContent = "Delete forever"; $("d-empty").querySelector("span").textContent = "Empty trash…"; }
@@ -1704,6 +1710,11 @@ $("d-del").onclick = () => askDelete({
 $("d-empty").onclick = () => askDelete({
   title: "Empty the trash?", text: trashWhere(), go: "Empty trash", choose: false,
   run: async () => { const r = await call("trashEmpty", { set: "", where: "both" }); await openTrash(); return "Trash emptied (" + r.deleted + (r.deleted === 1 ? " file)." : " files)."); },
+});
+$("d-drime-empty").onclick = () => askDelete({
+  title: "Clear the Drime trash?", go: "Clear Drime trash", choose: false,
+  text: "Everything in your Drime trash is deleted forever, including files you put there in the Drime app. Deleted backups go there first. This can’t be undone.",
+  run: async () => { await call("drimeTrashEmpty", {}); return "Drime trash cleared."; },
 });
 
 // --- folder settings ------------------------------------------------------------------
@@ -1863,7 +1874,9 @@ $("f-rm-go").onclick = () => {
     const name = F.name;
     askDelete({
       title: "Delete the backup of " + name + "?", go: "Delete backup",
-      text: "Every version is deleted. This can’t be undone. Files on this computer stay.",
+      text: S && S.provider === "drime"
+        ? "Every version is deleted. It goes to your Drime trash first and is emptied from there. Files on this computer stay."
+        : "Every version is deleted. This can’t be undone. Files on this computer stay.",
       run: async (where) => {
         await call("folderRemove", { name, purge: true, where });
         closeSheet("sheet-folder");

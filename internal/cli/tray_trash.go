@@ -182,6 +182,35 @@ func (t *trayBackend) trashCall(ctx context.Context, method string, raw []byte) 
 			}
 		}
 		return map[string]int{"deleted": total}, true, nil
+
+	case "drimeTrashEmpty":
+		// Drime's own trash, not the one above: where a deleted backup
+		// goes, and anything trashed in the Drime app.
+		a, err := t.d.connected(ctx)
+		if err != nil {
+			return nil, true, err
+		}
+		e := trashEmptier(a.client)
+		if e == nil {
+			return nil, true, errors.New("backups are not going to Drime")
+		}
+		return nil, true, e.EmptyTrash(ctx)
 	}
 	return nil, false, nil
+}
+
+// trashEmptier is s, or the store it wraps, when that can empty its
+// provider's own trash (Drime), or nil.
+func trashEmptier(s remote.Store) interface{ EmptyTrash(context.Context) error } {
+	for i := 0; s != nil && i < 8; i++ {
+		if e, ok := s.(interface{ EmptyTrash(context.Context) error }); ok {
+			return e
+		}
+		b, ok := s.(interface{ Base() remote.Store })
+		if !ok {
+			return nil
+		}
+		s = b.Base()
+	}
+	return nil
 }
