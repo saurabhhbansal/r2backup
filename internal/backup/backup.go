@@ -52,6 +52,9 @@ type Report struct {
 	Problems []scan.Problem
 	// Failures are objects the transfer itself could not place.
 	Failures []engine.Failure
+	// Vanished is how many files were deleted from disk between the scan
+	// and their upload. Not failures: there is nothing left to back up.
+	Vanished int
 	// Collisions are files that could not be stored because another file
 	// normalizes onto the same key. Always report these: they are the one
 	// way a backup can be incomplete without anything having failed.
@@ -389,6 +392,7 @@ func run(ctx context.Context, opts Options) (*Report, error) {
 	rep.Uploaded, rep.Moved, rep.Deleted = res.Uploaded, res.Moved, res.Deleted
 	rep.Bytes = res.UploadedBytes
 	rep.Failures = res.Failed
+	rep.Vanished = res.Vanished
 
 	// --- 5. Record ---------------------------------------------------------
 	//
