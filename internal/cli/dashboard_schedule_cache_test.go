@@ -159,3 +159,41 @@ func TestTurningTheScheduleOffInvalidatesTheCache(t *testing.T) {
 		t.Error("Scheduled = true right after Schedule removed the entry, want false -- the cache was not invalidated")
 	}
 }
+
+// The taskbar app reloads every fifteen seconds all day. With its longer
+// cache it asks the OS scheduler once in ten minutes, not forty times.
+func TestTrayAsksTheSchedulerRarely(t *testing.T) {
+	origCurrent := scheduleCurrent
+	t.Cleanup(func() { scheduleCurrent = origCurrent })
+	var calls int32
+	scheduleCurrent = func(string) (schedule.Status, error) {
+		atomic.AddInt32(&calls, 1)
+		return schedule.Status{Registered: true, Interval: 30 * time.Minute}, nil
+	}
+	t.Setenv("R2BACKUP_DATA_DIR", t.TempDir())
+	d, err := openDashboard(&Options{Out: os.Stderr, Err: os.Stderr})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.close()
+	d.scheduleTTL = trayScheduleTTL
+	now := time.Now()
+	d.now = func() time.Time { return now }
+	ctx := context.Background()
+	for i := 0; i < 40; i++ { // ten minutes of fifteen-second reloads, less one
+		if _, _, err := d.Load(ctx); err != nil {
+			t.Fatalf("Load #%d: %v", i, err)
+		}
+		now = now.Add(15 * time.Second)
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Errorf("scheduleCurrent called %d times in ten minutes of tray reloads, want 1", got)
+	}
+	now = now.Add(time.Minute)
+	if _, _, err := d.Load(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := atomic.LoadInt32(&calls); got != 2 {
+		t.Errorf("scheduleCurrent called %d times after the tray's cache expired, want 2", got)
+	}
+}

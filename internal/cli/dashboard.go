@@ -95,6 +95,9 @@ type dashboard struct {
 	scheduleState schedule.Status
 	scheduleErr   error
 	scheduleAt    time.Time
+	// scheduleTTL overrides scheduleCacheTTL. The taskbar app sets it much
+	// longer: see trayScheduleTTL.
+	scheduleTTL time.Duration
 
 	// now stands in for time.Now so the schedule cache's expiry can be
 	// tested without sleeping. Same pattern as index.DB's Now field, and for
@@ -109,6 +112,16 @@ type dashboard struct {
 // that an idle dashboard isn't spawning an OS process (two, on Windows)
 // every second the window is open.
 const scheduleCacheTTL = 30 * time.Second
+
+// trayScheduleTTL is scheduleCacheTTL for the taskbar app, which reloads
+// every fifteen seconds for as long as the computer is on. At 30 seconds it
+// started two schtasks.exe a minute, around the clock, from a hidden
+// process: wasteful, and exactly the pattern Windows Defender's behaviour
+// model flags (it quarantined r2b.exe 1.5.1 as Behavior:Win32/Execution.A!ml).
+// The schedule only changes when r2backup changes it, and the panel's own
+// changes clear the cache at once; one made with `r2b schedule` in a
+// terminal shows in the panel within this long.
+const trayScheduleTTL = 10 * time.Minute
 
 // openDashboard opens the state the interface needs, once.
 func openDashboard(opts *Options) (*dashboard, error) {
@@ -175,7 +188,11 @@ func (d *dashboard) currentSchedule() (schedule.Status, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	now := d.now()
-	if !d.scheduleAt.IsZero() && now.Sub(d.scheduleAt) < scheduleCacheTTL {
+	ttl := d.scheduleTTL
+	if ttl <= 0 {
+		ttl = scheduleCacheTTL
+	}
+	if !d.scheduleAt.IsZero() && now.Sub(d.scheduleAt) < ttl {
 		return d.scheduleState, d.scheduleErr
 	}
 	st, err := scheduleCurrent(scheduleName())
