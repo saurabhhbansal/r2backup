@@ -2,6 +2,7 @@ package trash
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -54,8 +55,9 @@ func (t *Trash) Move(ctx context.Context, prefix string, relPaths []string, rete
 	now := t.clock.now()
 
 	type outcome struct {
-		entry MovedEntry
-		err   error
+		entry   MovedEntry
+		err     error
+		skipped bool
 	}
 	results := make([]outcome, len(relPaths))
 
@@ -82,6 +84,13 @@ func (t *Trash) Move(ctx context.Context, prefix string, relPaths []string, rete
 			} else {
 				err = t.backend.Copy(ctx, src, dst)
 			}
+			// The live copy is already gone (deleted in the storage's own
+			// app, say): there is no old version to keep, and failing here
+			// would fail every later run of the set.
+			if errors.Is(err, remote.ErrNotFound) {
+				results[i] = outcome{skipped: true}
+				return
+			}
 			if err != nil {
 				results[i] = outcome{err: fmt.Errorf("trash: move %q: %w", relPath, err)}
 				return
@@ -98,6 +107,10 @@ func (t *Trash) Move(ctx context.Context, prefix string, relPaths []string, rete
 			if firstErr == nil {
 				firstErr = o.err
 			}
+			continue
+		}
+		if o.skipped {
+			res.ClassAOps++ // the request was still made
 			continue
 		}
 		res.Moved = append(res.Moved, o.entry)

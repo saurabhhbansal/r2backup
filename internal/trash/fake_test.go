@@ -64,7 +64,7 @@ func (f *fakeBackend) Copy(ctx context.Context, srcKey, dstKey string) error {
 	f.copyCalls++
 	size, ok := f.objects[srcKey]
 	if !ok {
-		return fmt.Errorf("fake: copy: source %q does not exist", srcKey)
+		return fmt.Errorf("fake: copy: source %q: %w", srcKey, remote.ErrNotFound)
 	}
 	f.objects[dstKey] = size
 	return nil

@@ -133,21 +133,23 @@ does.
 
 ### Measured against rclone on Drime
 
-Measured in October 2026 on an earlier version of r2backup (rclone 1.75.0), on
-the same data and connection ([details and caveats](docs/benchmark-rclone-drime.md)):
+Measured in November 2026 with r2backup 1.5.0 and rclone 1.75.0
+(`--transfers 16`, its fastest setting on Drime), on the same data and
+connection ([details and caveats](docs/benchmark-rclone-drime.md)):
 
 | | r2backup | rclone |
 |---|---:|---:|
-| First upload, 1,000 small files | **116 s** | 759 s (397 s with `--transfers 16`) |
-| First upload, 2 × 128 MB | 45 s | 46 s (38 s with `--transfers 16`) |
-| Re-run, nothing changed | **1.1 s** | 20.5 s |
-| Re-run after 40 edits, adds and deletes and a folder rename | **47 s** | 91 s |
-| Files edited without changing size, backed up | **5 of 5** | 0 of 5 |
+| First upload, 10,000 files of 1–16 KB | **5 min** | 2 h 2 min |
+| First upload, 1,000 files of 100 KB–5 MB (1.2 GB) | **1.5–2 min** | 8–12 min |
+| First upload, 200 photos (1.1 GB) | **92 s** | 113 s |
+| First upload, 2 × 512 MB | 103 s | **93 s** |
+| Re-run, nothing changed | **about 1 s** | 16–41 s |
+| Re-run after 40 edits, adds and deletes and a folder rename | **16 s** | 24 s |
+| Files edited without changing size, backed up | **20 of 20** | 0 of 20 |
 
-Large files are a tie: both are limited by Drime's bandwidth. Since then,
-Drime folder creation no longer holds up uploads; on real data a backup went
-from about 4–5 to about 27–35 files a second. The benchmark page has the
-method and what it does not cover.
+rclone is a bit faster with large files: both are limited by Drime's
+bandwidth. The more files, the further ahead r2backup is. The benchmark page
+has the method and what it does not cover.
 
 ## Features
 
