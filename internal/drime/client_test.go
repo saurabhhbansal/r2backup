@@ -328,7 +328,7 @@ func TestDeletePrefixReportsAFolderThatStays(t *testing.T) {
 	if err := c.Flush(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	f.slowDelete, f.stuckDelete = time.Minute, true
+	f.slowDelete, f.stuckDelete, f.noTrash = time.Minute, true, true
 	start := time.Now()
 	if _, err := c.DeletePrefix(context.Background(), set+"/"); err == nil {
 		t.Fatal("reported a folder that is still there as deleted")
@@ -552,5 +552,82 @@ func TestDueSaveDoesNotWaitBehindOneUnderWay(t *testing.T) {
 	}
 	if c.Pending() {
 		t.Fatal("flushSoon with nothing under way did not save")
+	}
+}
+
+// Deleting a backup moves its folder to Drime's trash, which is a moment
+// however big it is, and empties it from there without anyone waiting.
+func TestDeletePrefixTrashesAtOnceThenPurges(t *testing.T) {
+	slowDeleteWaits(t)
+	f := newFake(t)
+	c := newClient(t, f, nil)
+	put(t, c, set+"/current/a.txt", []byte("12345"), remote.Metadata{})
+	put(t, c, set+"/current/b/c.txt", []byte("678"), remote.Metadata{})
+	if err := c.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	f.slowDelete = 300 * time.Millisecond // deleting forever is slow; the trash is not
+	start := time.Now()
+	if _, err := c.DeletePrefix(context.Background(), set+"/"); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(start); d > 200*time.Millisecond {
+		t.Fatalf("took %v: waited for the slow delete instead of trashing", d)
+	}
+	for p := range f.files() {
+		if strings.Contains(p, "/Docs/") {
+			t.Fatalf("still in the drive: %s", p)
+		}
+	}
+	c.Close() // waits for the purge
+	if n := f.trashedFiles(); n != 0 {
+		t.Fatalf("%d files left in the trash after the purge", n)
+	}
+}
+
+// Without a trash, deleting falls back to deleting forever and waiting.
+func TestDeletePrefixWithoutTrashStillDeletes(t *testing.T) {
+	slowDeleteWaits(t)
+	f := newFake(t)
+	c := newClient(t, f, nil)
+	put(t, c, set+"/current/a.txt", []byte("12345"), remote.Metadata{})
+	if err := c.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	f.noTrash = true
+	if _, err := c.DeletePrefix(context.Background(), set+"/"); err != nil {
+		t.Fatal(err)
+	}
+	for p := range f.files() {
+		if strings.Contains(p, "/Docs/") {
+			t.Fatalf("left behind: %s", p)
+		}
+	}
+}
+
+// EmptyTrash clears Drime's trash.
+func TestEmptyTrash(t *testing.T) {
+	f := newFake(t)
+	c := newClient(t, f, nil)
+	put(t, c, set+"/current/a.txt", []byte("12345"), remote.Metadata{})
+	if err := c.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	for id, e := range f.entries {
+		if e.Name == "a.txt" {
+			f.trash(id)
+			break
+		}
+	}
+	f.mu.Unlock()
+	if f.trashedFiles() != 1 {
+		t.Fatal("test bug: nothing in the trash")
+	}
+	if err := c.EmptyTrash(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if n := f.trashedFiles(); n != 0 {
+		t.Fatalf("%d files left in the trash", n)
 	}
 }

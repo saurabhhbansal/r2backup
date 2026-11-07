@@ -447,6 +447,16 @@ func (a *api) deleteEntries(ctx context.Context, ids []string, forever bool) err
 	return nil
 }
 
+// emptyTrash deletes everything in the trash forever.
+func (a *api) emptyTrash(ctx context.Context) error {
+	req := struct {
+		EntryIDs      []string `json:"entryIds"`
+		DeleteForever bool     `json:"deleteForever"`
+		EmptyTrash    bool     `json:"emptyTrash"`
+	}{[]string{}, true, true}
+	return a.call(ctx, http.MethodPost, "/file-entries/delete", nil, req, nil, nil)
+}
+
 // duplicate makes a server-side copy of id inside destID and returns it. Drime
 // names the copy "name (1)" when destID already holds "name".
 func (a *api) duplicate(ctx context.Context, id, destID string) (item, error) {

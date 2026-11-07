@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/saurabhhbansal/r2backup/internal/netwait"
@@ -57,6 +59,7 @@ type Client struct {
 	resume    remote.ResumeStore
 	threshold int64
 	partSize  int64
+	bg        sync.WaitGroup // trashed folders being emptied; see purgeLater
 }
 
 var (
@@ -546,6 +549,49 @@ func defaultHTTPClient() *http.Client {
 	return &http.Client{Transport: tr}
 }
 
+// purgeWait bounds emptying one trashed folder from Drime's trash, and
+// closeWait how long Close waits for that before letting the program end.
+// Variables so tests can shorten them.
+var (
+	purgeWait = time.Hour
+	closeWait = folderDeleteWait
+)
+
+// purgeLater deletes a trashed folder forever, in the background. Nothing
+// waits on it but Close: a program about to end gives it a little while, so
+// a one-off `r2b remove --purge` does not cut it off at once. If it never
+// finishes, the folder stays in Drime's trash, where it can be emptied by
+// hand; the backup itself is already gone either way.
+func (c *Client) purgeLater(id string) {
+	c.bg.Add(1)
+	go func() {
+		defer c.bg.Done()
+		ctx, cancel := context.WithTimeout(context.Background(), purgeWait)
+		defer cancel()
+		if err := c.api.deleteEntries(ctx, []string{id}, true); err != nil && traceOn {
+			fmt.Fprintf(os.Stderr, "drime: empty folder %s from the trash: %v\n", id, err)
+		}
+	}()
+}
+
+// EmptyTrash deletes everything in Drime's trash forever: what r2backup put
+// there when a backup was deleted, and anything else trashed in the Drime
+// app.
+func (c *Client) EmptyTrash(ctx context.Context) error {
+	return c.api.emptyTrash(ctx)
+}
+
+// Close waits, up to closeWait, for folders still being emptied from
+// Drime's trash. remote.CloseStore calls it.
+func (c *Client) Close() {
+	done := make(chan struct{})
+	go func() { c.bg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(closeWait):
+	}
+}
+
 // folderDeleteWait is how long a folder delete waits for Drime's answer, and
 // folderGoneWait how long after that it keeps looking for the folder to
 // disappear. Variables so tests can shorten them.
@@ -592,10 +638,35 @@ func (c *Client) DeletePrefix(ctx context.Context, prefix string) (remote.Prefix
 		if d == nil {
 			return remote.PrefixDeletion{}, nil
 		}
-		// Drime answers a folder delete only once every file in it is gone:
-		// seconds for most, minutes for tens of thousands. Past folderDeleteWait
-		// the answer is not waited for any more; whether the folder is still
-		// there is.
+		// Into Drime's trash first. That only marks the folder, so it is
+		// gone from the drive in a moment however much is in it; deleting
+		// forever removes every stored file before Drime answers, which for
+		// a backup of a hundred thousand files is a quarter of an hour of
+		// someone watching a spinner. The trash is emptied of it after,
+		// without anyone waiting (see purgeLater).
+		tctx, cancel := context.WithTimeout(ctx, folderDeleteWait)
+		terr := c.api.deleteEntries(tctx, []string{d.id}, false)
+		cancel()
+		if terr == nil {
+			// Drime said yes; make sure the folder really left.
+			c.tree.unknowDir(p)
+			if still, rerr := c.tree.resolve(ctx, p, false); rerr == nil && still != nil {
+				terr = errors.New("drime: the folder is still there after moving it to the trash")
+			}
+		}
+		if terr == nil {
+			c.tree.forgetDir(p)
+			c.meta.forgetUnder(prefix)
+			c.purgeLater(d.id)
+			return remote.PrefixDeletion{Objects: -1}, nil
+		}
+		if ctx.Err() != nil {
+			return remote.PrefixDeletion{}, ctx.Err()
+		}
+		// Trashing did not work: delete forever and wait, as before. Drime
+		// answers that only once every file in it is gone. Past
+		// folderDeleteWait the answer is not waited for any more; whether
+		// the folder is still there is.
 		dctx, cancel := context.WithTimeout(ctx, folderDeleteWait)
 		err = c.api.deleteEntries(dctx, []string{d.id}, true)
 		cancel()

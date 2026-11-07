@@ -51,6 +51,11 @@ type fakeDrime struct {
 	// entries in place, as a delete that never happened.
 	slowDelete  time.Duration
 	stuckDelete bool
+	// trashed holds what a delete without deleteForever moved to the
+	// trash, by the id it was asked for with; noTrash makes such a delete
+	// fail, as a Drime without a trash would.
+	trashed map[string][]*fakeEntry
+	noTrash bool
 }
 
 type fakeEntry struct {
@@ -68,6 +73,7 @@ func newFake(t *testing.T) *fakeDrime {
 	f := &fakeDrime{
 		t: t, entries: map[string]*fakeEntry{}, uploads: map[string]*fakeUpload{},
 		token: "tok", failParts: map[int]int{}, calls: map[string]int{},
+		trashed: map[string][]*fakeEntry{},
 	}
 	f.srv = httptest.NewServer(http.HandlerFunc(f.serve))
 	t.Cleanup(f.srv.Close)
@@ -165,12 +171,55 @@ func writeJSON(w http.ResponseWriter, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-func (f *fakeDrime) serve(w http.ResponseWriter, r *http.Request) {
-	if f.slowDelete > 0 && r.Method == http.MethodPost && r.URL.Path == "/api/v1/file-entries/delete" {
-		var req struct {
-			EntryIDs []string `json:"entryIds"`
+// deleteReq is a /file-entries/delete body.
+type deleteReq struct {
+	EntryIDs      []string `json:"entryIds"`
+	DeleteForever bool     `json:"deleteForever"`
+	EmptyTrash    bool     `json:"emptyTrash"`
+}
+
+// trash moves id and everything under it out of the drive into the trash.
+func (f *fakeDrime) trash(id string) {
+	var sub []*fakeEntry
+	var walk func(string)
+	walk = func(id string) {
+		for _, c := range f.children(id) {
+			walk(c.ID.String())
 		}
+		sub = append(sub, f.entries[id])
+	}
+	walk(id)
+	f.trashed[id] = sub
+	f.removeTree(id)
+}
+
+// trashedFiles counts the files in the trash.
+func (f *fakeDrime) trashedFiles() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, sub := range f.trashed {
+		for _, e := range sub {
+			if e.Type != itemTypeFolder {
+				n++
+			}
+		}
+	}
+	return n
+}
+
+func (f *fakeDrime) serve(w http.ResponseWriter, r *http.Request) {
+	var slowReq *deleteReq
+	if f.slowDelete > 0 && r.Method == http.MethodPost && r.URL.Path == "/api/v1/file-entries/delete" {
+		var req deleteReq
 		_ = json.NewDecoder(r.Body).Decode(&req)
+		slowReq = &req
+		r.Body = io.NopCloser(bytes.NewReader(mustJSON(req)))
+	}
+	// Only deleting forever is slow: Drime removes every stored file
+	// before it answers. Into the trash is a moment.
+	if slowReq != nil && slowReq.DeleteForever && !slowReq.EmptyTrash {
+		req := *slowReq
 		f.mu.Lock()
 		f.calls[r.Method+" "+r.URL.Path]++
 		if !f.stuckDelete {
@@ -178,6 +227,11 @@ func (f *fakeDrime) serve(w http.ResponseWriter, r *http.Request) {
 				if f.entries[id] != nil {
 					f.removeTree(id)
 				}
+			}
+		}
+		for _, id := range req.EntryIDs {
+			if !f.stuckDelete {
+				delete(f.trashed, id)
 			}
 		}
 		f.mu.Unlock()
@@ -279,19 +333,34 @@ func (f *fakeDrime) serve(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(e.data)
 
 	case r.Method == http.MethodPost && p == "/api/v1/file-entries/delete":
-		var req struct {
-			EntryIDs []string `json:"entryIds"`
-		}
+		var req deleteReq
 		_ = json.NewDecoder(r.Body).Decode(&req)
+		if req.EmptyTrash {
+			f.trashed = map[string][]*fakeEntry{}
+			writeJSON(w, map[string]any{"status": "success"})
+			return
+		}
+		if !req.DeleteForever && f.noTrash {
+			w.WriteHeader(500)
+			writeJSON(w, map[string]string{"message": "no trash here"})
+			return
+		}
 		for _, id := range req.EntryIDs {
-			if f.entries[id] == nil {
+			if f.entries[id] == nil && (!req.DeleteForever || f.trashed[id] == nil) {
 				w.WriteHeader(422)
 				writeJSON(w, map[string]string{"message": "The selected entry ids is invalid."})
 				return
 			}
 		}
 		for _, id := range req.EntryIDs {
-			f.removeTree(id)
+			switch {
+			case !req.DeleteForever:
+				f.trash(id)
+			case f.trashed[id] != nil:
+				delete(f.trashed, id)
+			default:
+				f.removeTree(id)
+			}
 		}
 		writeJSON(w, map[string]any{"status": "success"})
 
@@ -476,4 +545,12 @@ func (f *fakeDrime) servePart(w http.ResponseWriter, r *http.Request) {
 	up.parts[n] = data
 	w.Header().Set("ETag", etagFor(uid, n))
 	w.WriteHeader(200)
+}
+
+func mustJSON(v any) []byte {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	return b
 }
