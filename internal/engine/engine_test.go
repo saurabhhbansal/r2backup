@@ -730,15 +730,15 @@ func TestRun_CancelledBeforeStartLeavesNothingUploaded(t *testing.T) {
 // ---- adaptive concurrency ------------------------------------------------
 
 func TestAdjustLimit_ThrottleHalvesDownToFloor(t *testing.T) {
-	got := adjustLimit(32, 1000, 1000, true, false, 4, 128)
+	got := adjustLimit(32, 1000, 1000, true, false, false, 4, 128)
 	if got != 16 {
 		t.Fatalf("adjustLimit throttled from 32 = %d, want 16", got)
 	}
-	got = adjustLimit(6, 1000, 1000, true, false, 4, 128)
+	got = adjustLimit(6, 1000, 1000, true, false, false, 4, 128)
 	if got != 4 {
 		t.Fatalf("adjustLimit throttled from 6 = %d, want floor 4", got)
 	}
-	got = adjustLimit(4, 1000, 1000, true, false, 4, 128)
+	got = adjustLimit(4, 1000, 1000, true, false, false, 4, 128)
 	if got != 4 {
 		t.Fatalf("adjustLimit throttled at floor = %d, want to stay at 4", got)
 	}
@@ -752,7 +752,7 @@ func TestAdjustLimit_SustainedGrowthRaisesLimit(t *testing.T) {
 	prev := int64(0)
 	grew := false
 	for i, bytes := range windows {
-		next := adjustLimit(current, bytes, prev, false, i == 0, 4, 128)
+		next := adjustLimit(current, bytes, prev, false, false, i == 0, 4, 128)
 		if i > 0 && next > current {
 			grew = true
 		}
@@ -768,7 +768,7 @@ func TestAdjustLimit_SustainedGrowthRaisesLimit(t *testing.T) {
 }
 
 func TestAdjustLimit_GrowthCappedAtMax(t *testing.T) {
-	got := adjustLimit(128, 2000, 1000, false, false, 4, 128)
+	got := adjustLimit(128, 2000, 1000, false, false, false, 4, 128)
 	if got != 128 {
 		t.Fatalf("adjustLimit at max = %d, want to stay at 128", got)
 	}
@@ -777,18 +777,18 @@ func TestAdjustLimit_GrowthCappedAtMax(t *testing.T) {
 func TestAdjustLimit_FirstWindowNeverGrows(t *testing.T) {
 	// prevWindow (0) is meaningless on the very first sample; growth must
 	// wait for a real baseline.
-	got := adjustLimit(32, 5000, 0, false, true, 4, 128)
+	got := adjustLimit(32, 5000, 0, false, false, true, 4, 128)
 	if got != 32 {
 		t.Fatalf("adjustLimit on first window = %d, want unchanged 32", got)
 	}
 }
 
 func TestAdjustLimit_FlatThroughputHoldsSteady(t *testing.T) {
-	got := adjustLimit(32, 1000, 1000, false, false, 4, 128)
+	got := adjustLimit(32, 1000, 1000, false, false, false, 4, 128)
 	if got != 32 {
 		t.Fatalf("adjustLimit on flat throughput = %d, want unchanged 32", got)
 	}
-	got = adjustLimit(32, 500, 1000, false, false, 4, 128)
+	got = adjustLimit(32, 500, 1000, false, false, false, 4, 128)
 	if got != 32 {
 		t.Fatalf("adjustLimit on degraded throughput (no throttle) = %d, want unchanged 32", got)
 	}
@@ -881,4 +881,60 @@ func TestLimiter_AcquireUnblocksOnContextCancel(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("acquire did not unblock after ctx cancellation")
 	}
+}
+
+func TestAdjustLimit_SlowedEasesOffByAQuarter(t *testing.T) {
+	if got := adjustLimit(32, 1000, 1000, false, true, false, 4, 128); got != 24 {
+		t.Fatalf("adjustLimit slowed from 32 = %d, want 24", got)
+	}
+	if got := adjustLimit(5, 1000, 1000, false, true, false, 4, 128); got != 4 {
+		t.Fatalf("adjustLimit slowed from 5 = %d, want floor 4", got)
+	}
+	// A failed file still wins over a mere slow-down.
+	if got := adjustLimit(32, 1000, 1000, true, true, false, 4, 128); got != 16 {
+		t.Fatalf("adjustLimit throttled+slowed from 32 = %d, want 16", got)
+	}
+	// Slowed wins over growth.
+	if got := adjustLimit(32, 2000, 1000, false, true, false, 4, 128); got != 24 {
+		t.Fatalf("adjustLimit slowed while growing = %d, want 24", got)
+	}
+}
+
+// Storage's own count of slow-downs, read each window, eases the limit off
+// even when no file failed.
+func TestGovernor_EasesOffWhenStorageCountsThrottles(t *testing.T) {
+	var count atomic.Int64
+	lim := newLimiter(32, 4, 128)
+	r := &runner{opts: Options{MinWorkers: 4, MaxWorkers: 128, Throttles: count.Load}}
+	ticker := NewManualTicker()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		r.governor(ctx, lim, ticker)
+	}()
+
+	// A first window with nothing new, so the governor has read its
+	// baseline before the count moves.
+	if !ticker.Tick(ctx) {
+		t.Fatal("tick 0 not consumed")
+	}
+	count.Add(3)
+	if !ticker.Tick(ctx) {
+		t.Fatal("tick 1 not consumed")
+	}
+	waitForLimit(t, lim, 24)
+
+	// No new slow-downs: holds steady on flat throughput.
+	if !ticker.Tick(ctx) {
+		t.Fatal("tick 2 not consumed")
+	}
+	time.Sleep(20 * time.Millisecond)
+	if got := lim.currentLimit(); got != 24 {
+		t.Fatalf("limit = %d with no new throttles, want 24", got)
+	}
+	cancel()
+	wg.Wait()
 }

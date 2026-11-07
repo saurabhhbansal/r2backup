@@ -538,6 +538,11 @@ var responseWait = 5 * time.Minute
 func defaultHTTPClient() *http.Client {
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	tr.ResponseHeaderTimeout = responseWait
+	// Every file is several short requests to the same host. Go keeps only
+	// two idle connections per host by default, so with dozens of files in
+	// flight most requests paid for a fresh TLS handshake.
+	tr.MaxIdleConns = 256
+	tr.MaxIdleConnsPerHost = 64
 	return &http.Client{Transport: tr}
 }
 

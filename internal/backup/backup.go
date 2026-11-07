@@ -331,6 +331,7 @@ func run(ctx context.Context, opts Options) (*Report, error) {
 		Reporter:   reporter{t: tracker},
 		Metadata:   metadataFor,
 		IsThrottle: isThrottle,
+		Throttles:  remote.ThrottlesOf(opts.Client),
 		OnUploaded: func(e scan.Entry, etag string) {
 			ckpt.add(index.Record{
 				Key:        e.Key,

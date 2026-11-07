@@ -77,10 +77,20 @@ func (m *ManualTicker) Tick(ctx context.Context) bool {
 // adds contention. bytesPrevWindow is meaningless on the very first window
 // (there is nothing to compare against), so firstWindow suppresses growth
 // until a real baseline exists.
-func adjustLimit(current int, bytesThisWindow, bytesPrevWindow int64, throttled, firstWindow bool, min, max int) int {
+//
+// slowed is the milder signal: storage asked to slow down but the requests
+// got through after waiting. The far end is at its cap, not refusing work,
+// so a quarter less is enough and keeps the run near full speed.
+func adjustLimit(current int, bytesThisWindow, bytesPrevWindow int64, throttled, slowed, firstWindow bool, min, max int) int {
 	switch {
 	case throttled:
 		next := current / 2
+		if next < min {
+			next = min
+		}
+		return next
+	case slowed:
+		next := current - current/4
 		if next < min {
 			next = min
 		}
@@ -103,12 +113,21 @@ func adjustLimit(current int, bytesThisWindow, bytesPrevWindow int64, throttled,
 // on runner only so it can read opts; all decision logic lives in
 // adjustLimit above.
 func (r *runner) governor(ctx context.Context, lim *limiter, ticker Ticker) {
-	var prevBytes int64
+	var prevBytes, prevThrottles int64
+	if r.opts.Throttles != nil {
+		prevThrottles = r.opts.Throttles()
+	}
 	first := true
 	for ticker.Wait(ctx) {
 		bytes := atomic.SwapInt64(&r.windowBytes, 0)
 		throttled := atomic.SwapInt64(&r.throttleHits, 0) > 0
-		next := adjustLimit(lim.currentLimit(), bytes, prevBytes, throttled, first, r.opts.MinWorkers, r.opts.MaxWorkers)
+		slowed := false
+		if r.opts.Throttles != nil {
+			n := r.opts.Throttles()
+			slowed = n > prevThrottles
+			prevThrottles = n
+		}
+		next := adjustLimit(lim.currentLimit(), bytes, prevBytes, throttled, slowed, first, r.opts.MinWorkers, r.opts.MaxWorkers)
 		lim.setLimit(next)
 		prevBytes = bytes
 		first = false

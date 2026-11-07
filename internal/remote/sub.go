@@ -104,6 +104,14 @@ func (v *sub) Bucket() string { return v.s.Bucket() }
 
 func (v *sub) Flush(ctx context.Context) error { return FlushStore(ctx, v.s) }
 
+// Throttles answers for the store underneath. See ThrottlesOf.
+func (v *sub) Throttles() int64 {
+	if f := ThrottlesOf(v.s); f != nil {
+		return f()
+	}
+	return 0
+}
+
 // Close lets go of what the store underneath keeps on disk. See CloseStore.
 func (v *sub) Close() {
 	if c, ok := v.s.(interface{ Close() }); ok {

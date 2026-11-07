@@ -121,6 +121,11 @@ type Options struct {
 	// backoff signal. The parent wires R2's actual error shapes here; nil
 	// means "never throttle," which simply disables backoff.
 	IsThrottle func(error) bool
+	// Throttles, if set, counts the times storage has said to slow down,
+	// including the ones a request waited out and then got through. A rise
+	// in a window eases concurrency off by a quarter; a file that failed on
+	// a throttle (IsThrottle) still halves it.
+	Throttles func() int64
 
 	// Metadata, if set, computes the object metadata passed to Put for one
 	// entry (e.g. original mtime, mode). Nil sends no metadata.
