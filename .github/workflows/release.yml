@@ -119,3 +119,31 @@ jobs:
           args: release --clean ${{ steps.notes.outputs.args }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Mirror the release on https://r2backup.pages.dev, where the app checks for
+  # updates first and people on networks that block GitHub download it. Needs
+  # a CLOUDFLARE_API_TOKEN repository secret (Account > Cloudflare Pages: Edit);
+  # without it this warns and the release stands, and the site is updated by
+  # running scripts/publish_site.sh by hand.
+  site:
+    needs: [release]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Publish to r2backup.pages.dev
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: cbfede9ea66a3477b3dab34db4b21ab8
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::warning title=Site not updated::Set the CLOUDFLARE_API_TOKEN repository secret so releases reach r2backup.pages.dev, or run scripts/publish_site.sh."
+            exit 0
+          fi
+          tag=""
+          case "$GITHUB_REF_NAME" in v*) tag="$GITHUB_REF_NAME" ;; esac
+          bash scripts/publish_site.sh "$tag"

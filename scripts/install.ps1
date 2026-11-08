@@ -16,12 +16,22 @@ $arch = switch ($env:PROCESSOR_ARCHITECTURE) {
   default { throw "Unsupported architecture: $env:PROCESSOR_ARCHITECTURE" }
 }
 
+# Releases are mirrored on r2backup.pages.dev, so this works on a network
+# that blocks GitHub. GitHub is only asked if the site cannot be reached.
+$site = if ($env:R2BACKUP_SITE) { $env:R2BACKUP_SITE.TrimEnd('/') } else { 'https://r2backup.pages.dev' }
+
 Write-Host 'Finding the latest release...'
-$release = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest"
-$tag     = $release.tag_name
+try {
+  $release = Invoke-RestMethod "$site/api/release/latest.json"
+  $tag     = $release.tag_name
+  $base    = "$site/download/$tag"
+} catch {
+  $release = Invoke-RestMethod "https://api.github.com/repos/$repo/releases/latest"
+  $tag     = $release.tag_name
+  $base    = "https://github.com/$repo/releases/download/$tag"
+}
 $version = $tag.TrimStart('v')
 $asset   = "r2backup_${version}_windows_${arch}.zip"
-$base    = "https://github.com/$repo/releases/download/$tag"
 
 $tmp = Join-Path $env:TEMP ("r2backup-" + [guid]::NewGuid())
 New-Item -ItemType Directory -Path $tmp -Force | Out-Null

@@ -35,14 +35,24 @@ mkdir -p "$INSTALL_DIR"
 
 command -v curl >/dev/null 2>&1 || fail "curl is required"
 
+# Releases are mirrored on r2backup.pages.dev, so this works on a network
+# that blocks GitHub. GitHub is only asked if the site cannot be reached.
+SITE="${R2BACKUP_SITE:-https://r2backup.pages.dev}"
+SITE=${SITE%/}
+
 printf 'Finding the latest release...\n'
-tag=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" \
-  | sed -n 's/.*"tag_name" *: *"\([^"]*\)".*/\1/p' | head -1)
+tag_of() { sed -n 's/.*"tag_name" *: *"\([^"]*\)".*/\1/p' | head -1; }
+tag=$(curl -fsSL "$SITE/api/release/latest.json" 2>/dev/null | tag_of || true)
+if [ -n "$tag" ]; then
+  base="$SITE/download/$tag"
+else
+  tag=$(curl -fsSL "https://api.github.com/repos/$REPO/releases/latest" | tag_of)
+  base="https://github.com/$REPO/releases/download/$tag"
+fi
 [ -n "$tag" ] || fail "could not determine the latest release"
 version=${tag#v}
 
 asset="r2backup_${version}_${os}_${arch}.tar.gz"
-base="https://github.com/$REPO/releases/download/$tag"
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT

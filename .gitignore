@@ -25,3 +25,4 @@ coverage.*
 # Local agent and design-tool state
 .claude/
 .impeccable/
+.wrangler/

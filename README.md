@@ -12,7 +12,7 @@
 [![Platforms](https://img.shields.io/badge/platforms-Windows%20%C2%B7%20macOS%20%C2%B7%20Linux-555?style=flat-square)](#install)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
 
-[Install](#install) · [Quick start](#quick-start) · [How it compares](#how-it-compares) · [Features](#features) · [Release notes](https://github.com/saurabhhbansal/r2backup/releases)
+[Website](https://r2backup.pages.dev) · [Install](#install) · [Quick start](#quick-start) · [How it compares](#how-it-compares) · [Features](#features) · [Release notes](https://github.com/saurabhhbansal/r2backup/releases)
 
 <br>
 
@@ -52,26 +52,29 @@ program with a full terminal app.
 ## Install
 
 **Windows** — download and run
-[**r2backup-setup.exe**](https://github.com/saurabhhbansal/r2backup/releases/latest/download/r2backup-setup.exe)
-([Arm64](https://github.com/saurabhhbansal/r2backup/releases/latest/download/r2backup-setup-arm64.exe)).
+[**r2backup-setup.exe**](https://r2backup.pages.dev/download/latest/r2backup-setup.exe)
+([Arm64](https://r2backup.pages.dev/download/latest/r2backup-setup-arm64.exe)).
 It installs the newest version for your account (no administrator prompt),
 adds it to the Start menu and to Installed apps, and updates an existing copy
 in place. Or from PowerShell:
 
 ```powershell
-irm https://github.com/saurabhhbansal/r2backup/releases/latest/download/install.ps1 | iex
+irm https://r2backup.pages.dev/install.ps1 | iex
 ```
 
 **macOS / Linux**
 
 ```sh
-curl -sSL https://github.com/saurabhhbansal/r2backup/releases/latest/download/install.sh | sh
+curl -sSL https://r2backup.pages.dev/install.sh | sh
 ```
 
 The installer and both scripts check the download against the published checksums. On Windows
 the installer also adds **r2backup** to the Start menu and offers to start it.
 To install by hand, download an archive for Windows, macOS or Linux (amd64 or
-arm64) from the [releases page](https://github.com/saurabhhbansal/r2backup/releases/latest).
+arm64) from [r2backup.pages.dev](https://r2backup.pages.dev/#download) or the
+[releases page](https://github.com/saurabhhbansal/r2backup/releases/latest).
+Every release is mirrored on r2backup.pages.dev, and the app checks for
+updates there first, so it installs and updates on networks that block GitHub.
 
 The taskbar app uses WebView2, which comes with Windows 11. On Windows 10,
 install the [WebView2 Runtime](https://go.microsoft.com/fwlink/p/?LinkId=2124703)

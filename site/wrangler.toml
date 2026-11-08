@@ -1,0 +1,11 @@
+# Cloudflare Pages project for https://r2backup.pages.dev: the product page,
+# downloads of the newest release, the release listing the app checks for
+# updates, and /api/account/* in front of the account Worker.
+# Built and deployed by scripts/publish_site.sh (or `npm run deploy` here).
+name = "r2backup"
+pages_build_output_dir = "./public"
+compatibility_date = "2026-08-01"
+
+[[services]]
+binding = "ACCOUNT"
+service = "r2backup-account"
