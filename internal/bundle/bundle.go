@@ -642,18 +642,29 @@ func (s *Store) DeletePrefix(ctx context.Context, prefix string) (remote.PrefixD
 	ns := Scope(prefix)
 	if ns == "" || len(prefix) <= len(ns) {
 		// A whole backup or more. Count what a person would count -- their
-		// files -- then let the base store delete every object.
+		// files -- then let the base store delete every object. A store
+		// that deletes a whole folder in one go (Drime) is not counted
+		// first: on Drime listing a backup is a request per folder, and
+		// counting a code project took longer than deleting it.
 		var out remote.PrefixDeletion
-		list, err := s.List(ctx, prefix)
-		if err != nil {
-			return out, err
-		}
-		for _, o := range list {
-			out.Objects++
-			out.Bytes += o.Size
-		}
-		if _, err := s.base.DeletePrefix(ctx, prefix); err != nil {
-			return remote.PrefixDeletion{}, err
+		if w, ok := s.base.(interface{ DeletesFoldersWhole() bool }); ok && w.DeletesFoldersWhole() {
+			res, err := s.base.DeletePrefix(ctx, prefix)
+			if err != nil {
+				return remote.PrefixDeletion{}, err
+			}
+			out = res
+		} else {
+			list, err := s.List(ctx, prefix)
+			if err != nil {
+				return out, err
+			}
+			for _, o := range list {
+				out.Objects++
+				out.Bytes += o.Size
+			}
+			if _, err := s.base.DeletePrefix(ctx, prefix); err != nil {
+				return remote.PrefixDeletion{}, err
+			}
 		}
 		s.mu.Lock()
 		for k, sp := range s.spaces {

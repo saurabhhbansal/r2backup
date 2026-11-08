@@ -670,3 +670,47 @@ func TestKeysOutsideABackupAreNeverBundled(t *testing.T) {
 		t.Fatal("a key outside machines/<m>/<set>/ was bundled")
 	}
 }
+
+// wholeMem is a store that deletes a folder in one request, as Drime does.
+type wholeMem struct{ *memStore }
+
+func (wholeMem) DeletesFoldersWhole() bool { return true }
+
+// Deleting a whole backup from a store like that does not list it first:
+// on Drime a listing is a request per folder, and counting a big backup took
+// longer than deleting it.
+func TestDeleteWholeBackupDoesNotListAStoreThatDeletesFolders(t *testing.T) {
+	ctx := context.Background()
+	m := newMem()
+	for i := 0; i < 5; i++ {
+		k := fmt.Sprintf("machines/pc/Docs/current/d%d/f.txt", i)
+		m.objects[k] = memObject{data: []byte("x"), at: time.Now()}
+	}
+	s := New(wholeMem{m}, Options{})
+	m.lists = 0
+	if _, err := s.DeletePrefix(ctx, "machines/pc/Docs/"); err != nil {
+		t.Fatal(err)
+	}
+	if m.lists != 1 { // memStore's own DeletePrefix lists once; the wrapper must not add to it
+		t.Fatalf("lists = %d, want 1", m.lists)
+	}
+	if len(m.objects) != 0 {
+		t.Fatalf("%d objects left", len(m.objects))
+	}
+}
+
+type closingMem struct {
+	*memStore
+	closed bool
+}
+
+func (c *closingMem) Close() { c.closed = true }
+
+// Closing passes on to the store underneath, which may have work to finish.
+func TestCloseClosesTheBase(t *testing.T) {
+	base := &closingMem{memStore: newMem()}
+	New(base, Options{}).Close()
+	if !base.closed {
+		t.Fatal("the store underneath was not closed")
+	}
+}
