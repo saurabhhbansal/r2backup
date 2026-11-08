@@ -1,0 +1,456 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>r2backup Setup</title>
+<style>
+:root {
+  --ground: #0d0d0f;
+  --hero: #111114;
+  --surface: #17171b;
+  --raised: #1f1f24;
+  --line: #26262c;
+  --line-strong: #34343c;
+  --ink: #ececf0;
+  --muted: #a6a6b0;
+  --faint: #8a8a94;
+  --signal: #ececf0;
+  --signal-ink: #111113;
+  --green: #34d399;
+  --red: #f87171;
+  --amber: #fbbf24;
+  --ease: cubic-bezier(.2, .8, .2, 1);
+  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --display: "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --mono: "Cascadia Mono", "Cascadia Code", Consolas, monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; overflow: hidden; }
+body {
+  background: var(--ground); color: var(--ink); font: 400 13px/1.45 var(--font);
+  -webkit-font-smoothing: antialiased; user-select: none; cursor: default;
+  display: grid; grid-template-columns: 340px 1fr; grid-template-rows: 100%;
+}
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+button:focus-visible, [role=switch]:focus-visible { outline: 2px solid rgba(236,236,240,.45); outline-offset: 3px; }
+
+/* --- the title bar: drawn here, the window has no frame -------------------------------- */
+.bar { position: fixed; inset: 0 0 auto 0; height: 40px; display: flex; align-items: center; z-index: 10; }
+.bar .grab { flex: 1; height: 100%; }
+.bar .ctl { width: 46px; height: 40px; display: grid; place-items: center; color: var(--muted); transition: background .12s, color .12s; }
+.bar .ctl:hover { background: rgba(255,255,255,.07); color: var(--ink); }
+.bar .ctl.x:hover { background: #c42b1c; color: #fff; }
+.bar .ctl svg { width: 10px; height: 10px; }
+.bar .ctl[disabled] { opacity: .35; pointer-events: none; }
+
+/* --- the brand side --------------------------------------------------------------------- */
+.hero {
+  position: relative; overflow: hidden; background: var(--hero);
+  border-right: 1px solid var(--line);
+  display: flex; flex-direction: column; padding: 28px 32px 26px;
+}
+.hero::before { /* a soft light behind the mark */
+  content: ""; position: absolute; width: 520px; height: 520px; left: -150px; top: -60px;
+  background: radial-gradient(closest-side, rgba(236,236,240,.10), rgba(236,236,240,.03) 55%, transparent 72%);
+  pointer-events: none;
+}
+.hero::after { /* a fine dot grid that fades out */
+  content: ""; position: absolute; inset: 0; pointer-events: none;
+  background-image: radial-gradient(rgba(255,255,255,.075) 1px, transparent 1.2px);
+  background-size: 18px 18px;
+  -webkit-mask-image: radial-gradient(ellipse 85% 70% at 30% 35%, #000 10%, transparent 75%);
+}
+.brand { position: relative; z-index: 1; display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: 12px; letter-spacing: .01em; }
+.brand i { width: 14px; height: 18px; background: var(--muted); -webkit-mask: url({{MARK}}) center / contain no-repeat; }
+
+.stage { position: relative; z-index: 1; flex: 1; display: flex; flex-direction: column; justify-content: center; }
+.mark-wrap { position: relative; width: 132px; height: 160px; margin-bottom: 30px; }
+.mark {
+  position: absolute; inset: 0; background: var(--ink);
+  -webkit-mask: url({{MARK}}) center / contain no-repeat;
+  animation: float 7s ease-in-out infinite;
+  filter: drop-shadow(0 18px 30px rgba(0,0,0,.6));
+}
+.mark-glow {
+  position: absolute; left: 50%; bottom: -26px; width: 150px; height: 26px; transform: translateX(-50%);
+  background: radial-gradient(closest-side, rgba(236,236,240,.16), transparent);
+  animation: glow 7s ease-in-out infinite;
+}
+body.working .mark { animation: float 2.4s ease-in-out infinite, breathe 2.4s ease-in-out infinite; }
+body.done .mark { animation: settle .7s var(--ease) both; }
+@keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }
+@keyframes glow { 0%, 100% { opacity: 1; width: 150px; } 50% { opacity: .65; width: 128px; } }
+@keyframes breathe { 0%, 100% { opacity: 1; } 50% { opacity: .78; } }
+@keyframes settle { 0% { transform: translateY(-7px); } 60% { transform: translateY(2px); } 100% { transform: translateY(0); } }
+
+.wordmark { width: 168px; height: 38px; background: var(--ink); -webkit-mask: url({{WORDMARK}}) left center / contain no-repeat; }
+.tag { margin-top: 14px; color: var(--muted); font-size: 13.5px; line-height: 1.5; max-width: 250px; }
+.foot { position: relative; z-index: 1; display: flex; align-items: center; gap: 8px; color: var(--faint); font-size: 11.5px; }
+.chip { padding: 3px 9px; border: 1px solid var(--line-strong); border-radius: 999px; color: var(--muted); font-family: var(--mono); font-size: 11px; }
+.foot .sep { flex: 1; }
+.link { color: var(--muted); text-decoration: none; border-bottom: 1px solid transparent; transition: color .12s, border-color .12s; }
+.link:hover { color: var(--ink); border-color: var(--line-strong); }
+
+/* --- the content side ------------------------------------------------------------------- */
+main { position: relative; padding: 64px 44px 28px 44px; display: flex; flex-direction: column; min-width: 0; }
+.screen { display: none; flex: 1; flex-direction: column; min-height: 0; }
+.screen.on { display: flex; animation: enter .38s var(--ease) both; }
+@keyframes enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+.meta { margin-top: 6px; color: var(--faint); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.meta:empty { display: none; }
+h1 { margin-top: 8px; font: 600 27px/1.2 var(--display); letter-spacing: -.015em; }
+.lede { margin-top: 10px; color: var(--muted); font-size: 13.5px; max-width: 400px; }
+
+.opts { margin-top: 26px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); overflow: hidden; }
+.opt { display: flex; align-items: center; gap: 14px; padding: 13px 16px; width: 100%; text-align: left; }
+.opt + .opt { border-top: 1px solid var(--line); }
+.opt:hover { background: rgba(255,255,255,.025); }
+.opt .t { flex: 1; min-width: 0; }
+.opt b { display: block; font-weight: 500; font-size: 13px; }
+.opt span { display: block; color: var(--faint); font-size: 12px; margin-top: 1px; }
+.sw { flex: none; width: 36px; height: 20px; border-radius: 999px; background: var(--raised); border: 1px solid var(--line-strong); position: relative; transition: background .18s, border-color .18s; }
+.sw::after { content: ""; position: absolute; top: 3px; left: 3px; width: 12px; height: 12px; border-radius: 50%; background: var(--muted); transition: transform .22s var(--ease), background .18s; }
+[aria-checked=true] > .sw { background: var(--signal); border-color: var(--signal); }
+[aria-checked=true] > .sw::after { transform: translateX(16px); background: var(--signal-ink); }
+.opt.warn[aria-checked=true] > .sw { background: var(--red); border-color: var(--red); }
+
+.where { margin-top: 14px; display: flex; gap: 8px; align-items: baseline; color: var(--faint); font-size: 12px; min-width: 0; }
+.where code { font: 11.5px var(--mono); color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.actions { margin-top: auto; padding-top: 22px; display: flex; align-items: center; gap: 10px; }
+.actions .grow { flex: 1; }
+.btn {
+  height: 38px; padding: 0 20px; border-radius: 9px; font-weight: 600; font-size: 13px;
+  display: inline-flex; align-items: center; gap: 8px; transition: transform .12s, background .15s, opacity .15s, box-shadow .2s;
+}
+.btn:active { transform: scale(.98); }
+.btn.primary { background: var(--signal); color: var(--signal-ink); box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 8px 24px -10px rgba(236,236,240,.45); }
+.btn.primary:hover { background: #fff; }
+.btn.danger { background: var(--red); color: #1a0a0a; }
+.btn.ghost { color: var(--muted); border: 1px solid var(--line-strong); }
+.btn.ghost:hover { color: var(--ink); background: rgba(255,255,255,.04); }
+.btn[disabled] { opacity: .45; pointer-events: none; }
+.btn svg { width: 14px; height: 14px; }
+.status { color: var(--faint); font-size: 12px; display: flex; align-items: center; gap: 8px; }
+.spin { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid var(--line-strong); border-top-color: var(--muted); animation: spin .8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* progress */
+.meter { margin-top: 34px; }
+.meter-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.step { color: var(--muted); font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pct { font: 600 13px var(--mono); color: var(--ink); font-variant-numeric: tabular-nums; }
+.track { margin-top: 10px; height: 6px; border-radius: 999px; background: var(--raised); overflow: hidden; position: relative; }
+.fill { position: absolute; inset: 0 auto 0 0; width: 0%; border-radius: 999px; background: var(--signal); transition: width .35s var(--ease); }
+.fill::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.9), transparent);
+  transform: translateX(-100%); animation: sheen 1.6s ease-in-out infinite; opacity: .5;
+}
+@keyframes sheen { to { transform: translateX(100%); } }
+.checks { margin-top: 28px; list-style: none; display: grid; gap: 12px; }
+.checks li { display: flex; align-items: center; gap: 12px; color: var(--faint); font-size: 13px; transition: color .2s; }
+.checks li .dot { width: 18px; height: 18px; border-radius: 50%; border: 1.5px solid var(--line-strong); display: grid; place-items: center; transition: all .25s var(--ease); flex: none; }
+.checks li.now { color: var(--ink); }
+.checks li.now .dot { border-color: var(--ink); border-top-color: transparent; animation: spin .9s linear infinite; }
+.checks li.ok { color: var(--muted); }
+.checks li.ok .dot { background: var(--ink); border-color: var(--ink); }
+.checks li.ok .dot::after { content: ""; width: 7px; height: 4px; border: 1.8px solid var(--signal-ink); border-top: 0; border-right: 0; transform: translateY(-1px) rotate(-45deg); }
+
+/* done */
+.badge { width: 52px; height: 52px; border-radius: 50%; display: grid; place-items: center; background: rgba(52,211,153,.12); border: 1px solid rgba(52,211,153,.35); }
+.badge svg { width: 24px; height: 24px; stroke: var(--green); fill: none; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+.badge path { stroke-dasharray: 30; stroke-dashoffset: 30; animation: draw .55s .15s var(--ease) forwards; }
+.badge.bad { background: rgba(248,113,113,.1); border-color: rgba(248,113,113,.35); }
+.badge.bad svg { stroke: var(--red); }
+@keyframes draw { to { stroke-dashoffset: 0; } }
+.screen .badge + h1 { margin-top: 22px; }
+.tips { margin-top: 24px; display: grid; gap: 10px; }
+.tip { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--muted); font-size: 12.5px; }
+.tip kbd { font: 11.5px var(--mono); color: var(--ink); background: var(--raised); border: 1px solid var(--line-strong); border-radius: 5px; padding: 1px 6px; }
+.tip .ic { flex: none; width: 18px; height: 18px; color: var(--ink); margin-top: 1px; }
+.err { margin-top: 18px; padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(248,113,113,.3); background: rgba(248,113,113,.07); color: #fca5a5; font: 12px/1.5 var(--mono); user-select: text; overflow-wrap: anywhere; max-height: 130px; overflow: auto; }
+.note { margin-top: 14px; color: var(--amber); font-size: 12px; display: none; }
+.note.on { display: block; }
+
+.toast { position: fixed; left: 50%; bottom: 20px; transform: translate(-50%, 20px); opacity: 0; background: var(--raised); border: 1px solid var(--line-strong); padding: 9px 14px; border-radius: 9px; font-size: 12.5px; transition: all .25s var(--ease); pointer-events: none; z-index: 20; }
+.toast.on { opacity: 1; transform: translate(-50%, 0); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <div class="grab" data-drag></div>
+  <button class="ctl" id="b-min" aria-label="Minimize"><svg viewBox="0 0 10 10"><path d="M0 5h10" stroke="currentColor" stroke-width="1"/></svg></button>
+  <button class="ctl x" id="b-close" aria-label="Close"><svg viewBox="0 0 10 10"><path d="M.5.5l9 9M9.5.5l-9 9" stroke="currentColor" stroke-width="1"/></svg></button>
+</div>
+
+<aside class="hero" data-drag>
+  <div class="brand"><i></i><span id="brand-t">Setup</span></div>
+  <div class="stage">
+    <div class="mark-wrap"><div class="mark"></div><div class="mark-glow"></div></div>
+    <div class="wordmark" role="img" aria-label="r2backup"></div>
+    <p class="tag">Fast, verified backups of your folders to Drime and S3&#8209;compatible storage.</p>
+  </div>
+  <div class="foot">
+    <span class="chip" id="chip">…</span>
+    <span class="sep"></span>
+    <a class="link" href="#" id="l-notes">Release notes</a>
+  </div>
+</aside>
+
+<main>
+  <!-- install: choose -->
+  <section class="screen" id="s-welcome">
+    <h1 id="w-title">Install r2backup</h1>
+    <p class="meta" id="w-meta"></p>
+    <p class="lede" id="w-lede">Lives in the taskbar by the clock, backs up on a schedule, and tells you when something needs a look.</p>
+    <div class="opts">
+      <button class="opt" role="switch" aria-checked="true" id="o-login">
+        <div class="t"><b>Start with Windows</b><span>Keeps your schedule running after you sign in</span></div><div class="sw"></div>
+      </button>
+      <button class="opt" role="switch" aria-checked="true" id="o-path">
+        <div class="t"><b>Add the r2b command</b><span>Use r2b from any terminal</span></div><div class="sw"></div>
+      </button>
+    </div>
+    <div class="where"><span>Installs to</span><code id="w-dir"></code></div>
+    <div class="actions">
+      <div class="status" id="w-status"><div class="spin"></div><span>Finding the newest version…</span></div>
+      <div class="grow"></div>
+      <button class="btn primary" id="b-install" disabled><span id="b-install-t">Install</span>
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg></button>
+    </div>
+  </section>
+
+  <!-- uninstall: confirm -->
+  <section class="screen" id="s-remove">
+    <h1>Remove r2backup?</h1>
+    <p class="lede">This takes r2backup off this computer and stops automatic backups. Your backups in Drime and S3 stay exactly where they are.</p>
+    <div class="opts">
+      <button class="opt warn" role="switch" aria-checked="false" id="o-data">
+        <div class="t"><b>Also delete settings and keys</b><span>Folders list, storage details and the backup index on this computer</span></div><div class="sw"></div>
+      </button>
+    </div>
+    <p class="note" id="n-data">Without your keys or account, this computer will not be able to restore those backups until you set r2backup up again.</p>
+    <div class="actions">
+      <div class="grow"></div>
+      <button class="btn ghost" id="b-cancel">Keep it</button>
+      <button class="btn danger" id="b-remove">Remove</button>
+    </div>
+  </section>
+
+  <!-- working -->
+  <section class="screen" id="s-work">
+    <h1 id="k-title">Installing r2backup</h1>
+    <div class="meter">
+      <div class="meter-top"><span class="step" id="k-step">Starting…</span><span class="pct" id="k-pct">0%</span></div>
+      <div class="track"><div class="fill" id="k-fill"></div></div>
+    </div>
+    <ul class="checks" id="k-checks"></ul>
+  </section>
+
+  <!-- done -->
+  <section class="screen" id="s-done">
+    <div class="badge"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+    <h1 id="d-title">r2backup is ready</h1>
+    <p class="lede" id="d-lede">It runs in the taskbar by the clock. Open it to pick the folders to back up.</p>
+    <div class="tips" id="d-tips">
+      <div class="tip"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2.5" y="3.5" width="13" height="11" rx="2"/><path d="M2.5 11.5h13"/><circle cx="12.5" cy="13" r=".6" fill="currentColor"/></svg>
+        <div>Look for the r2backup icon in the notification area. It is also in the Start menu.</div></div>
+      <div class="tip"><svg class="ic" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 6l3 3-3 3M9 12h5"/></svg>
+        <div>In a terminal, <kbd>r2b</kbd> opens the full interface. A new terminal picks up the command.</div></div>
+    </div>
+    <div class="actions">
+      <div class="grow"></div>
+      <button class="btn ghost" id="b-done-close">Close</button>
+      <button class="btn primary" id="b-open">Open r2backup</button>
+    </div>
+  </section>
+
+  <!-- failed -->
+  <section class="screen" id="s-fail">
+    <div class="badge bad"><svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></svg></div>
+    <h1 id="f-title">Could not install r2backup</h1>
+    <p class="lede" id="f-lede">Nothing on this computer was left half done. Check your connection and try again.</p>
+    <div class="err" id="f-err"></div>
+    <div class="actions">
+      <div class="grow"></div>
+      <button class="btn ghost" id="b-fail-close">Close</button>
+      <button class="btn primary" id="b-retry">Try again</button>
+    </div>
+  </section>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const send = (cmd, args) => window.chrome.webview.postMessage(JSON.stringify({ cmd, args: args === undefined ? null : args }));
+const RELEASES = "https://github.com/saurabhhbansal/r2backup/releases";
+
+const St = { mode: "install", installed: "", latest: "", phase: "", updating: false };
+
+const STEPS = {
+  install: [["Download", 0.70], ["Verify", 0.78], ["Install", 0.90], ["Finish", 1.01]],
+  uninstall: [["Close r2backup", 0.3], ["Stop automatic backups", 0.5], ["Remove shortcuts", 0.7], ["Remove files", 1.01]],
+};
+
+function show(id) {
+  document.querySelectorAll(".screen").forEach((s) => s.classList.toggle("on", s.id === id));
+  const working = id === "s-work";
+  document.body.classList.toggle("working", working);
+  document.body.classList.toggle("done", id === "s-done");
+  $("b-close").disabled = working;
+  $("b-min").disabled = false;
+}
+
+function toggle(el) { el.setAttribute("aria-checked", el.getAttribute("aria-checked") !== "true"); }
+const on = (id) => $(id).getAttribute("aria-checked") === "true";
+["o-login", "o-path"].forEach((id) => $(id).onclick = () => toggle($(id)));
+$("o-data").onclick = () => { toggle($("o-data")); $("n-data").classList.toggle("on", on("o-data")); };
+
+// The window has no frame: these do the frame's jobs.
+document.querySelectorAll("[data-drag]").forEach((el) => el.addEventListener("mousedown", (e) => {
+  if (e.button !== 0 || e.target.closest("a,button")) return;
+  send("drag");
+}));
+$("b-min").onclick = () => send("minimize");
+$("b-close").onclick = () => send("close");
+$("b-done-close").onclick = () => send("close");
+$("b-fail-close").onclick = () => send("close");
+$("b-cancel").onclick = () => send("close");
+$("l-notes").onclick = (e) => { e.preventDefault(); send("open", St.latest ? RELEASES + "/tag/v" + St.latest : RELEASES); };
+
+function cmpVer(a, b) {
+  const p = (v) => String(v).replace(/^v/, "").split(/[.-]/).map((x) => parseInt(x, 10) || 0);
+  const x = p(a), y = p(b);
+  for (let i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0); }
+  return 0;
+}
+
+function drawWelcome() {
+  const have = St.installed, v = St.latest;
+  let title = "Install r2backup", meta = "", btn = "Install";
+  if (have && v) {
+    const c = have === "installed" ? -1 : cmpVer(have, v);
+    if (c < 0) { title = "Update r2backup"; meta = (have === "installed" ? "An older version" : "v" + have) + " is installed. This updates it to v" + v + "."; btn = "Update"; }
+    else { title = "Reinstall r2backup"; meta = "v" + have + " is installed, the newest version."; btn = "Reinstall"; }
+  } else if (have) { title = "Update r2backup"; btn = "Update"; }
+  $("w-title").textContent = title;
+  $("w-meta").textContent = meta;
+  $("b-install-t").textContent = btn;
+}
+
+function checks(kind, frac) {
+  const list = STEPS[kind];
+  let now = list.findIndex(([, until]) => frac < until);
+  if (frac >= 1) now = list.length;
+  $("k-checks").innerHTML = list.map(([name], i) =>
+    '<li class="' + (i < now ? "ok" : i === now ? "now" : "") + '"><span class="dot"></span>' + name + "</li>").join("");
+}
+
+function startWork(kind) {
+  St.phase = kind;
+  const v = St.latest ? " " + St.latest : "";
+  if (kind === "install") {
+    const upd = St.installed && St.installed !== St.latest;
+    St.updating = !!upd;
+    $("k-title").textContent = (upd ? "Updating to r2backup" : "Installing r2backup") + v;
+  } else {
+    $("k-title").textContent = "Removing r2backup";
+  }
+  ui.progress({ step: "Starting…", frac: 0 });
+  show("s-work");
+}
+
+$("b-install").onclick = () => {
+  startWork("install");
+  send("install", { startAtLogin: on("o-login"), addToPath: on("o-path") });
+};
+$("b-remove").onclick = () => { startWork("uninstall"); send("uninstall", { removeData: on("o-data") }); };
+$("b-open").onclick = () => { $("b-open").disabled = true; send("launch"); };
+$("b-retry").onclick = () => {
+  if (St.mode === "uninstall") { show("s-remove"); return; }
+  if (!St.latest) { setStatus(true, "Finding the newest version…"); $("b-install").disabled = true; send("retry"); }
+  show("s-welcome");
+};
+
+function setStatus(busy, text) {
+  $("w-status").innerHTML = (busy ? '<div class="spin"></div>' : "") + "<span></span>";
+  $("w-status").querySelector("span").textContent = text;
+}
+
+let toastT = 0;
+const ui = {
+  init(s) {
+    St.mode = s.mode; St.installed = s.installed || "";
+    $("w-dir").textContent = s.dir; $("w-dir").title = s.dir;
+    $("brand-t").textContent = s.mode === "uninstall" ? "Remove" : "Setup";
+    $("chip").textContent = St.installed && St.installed !== "installed" ? "v" + St.installed : "…";
+    if (s.mode === "uninstall") { $("l-notes").hidden = true; show("s-remove"); setTimeout(() => $("b-cancel").focus(), 50); return; }
+    drawWelcome();
+    show("s-welcome");
+  },
+  latest(r) {
+    St.latest = r.version;
+    $("chip").textContent = "v" + r.version;
+    drawWelcome();
+    setStatus(false, "Version " + r.version + " · from GitHub, checked before install");
+    $("b-install").disabled = false;
+    $("b-install").focus();
+  },
+  latestFailed(msg) {
+    St.phase = "find";
+    $("f-title").textContent = "Could not reach GitHub";
+    $("f-lede").textContent = "The installer downloads the newest release from GitHub. Check your connection and try again.";
+    $("f-err").textContent = msg;
+    show("s-fail");
+  },
+  progress(p) {
+    const f = Math.max(0, Math.min(1, p.frac));
+    $("k-step").textContent = p.step;
+    $("k-pct").textContent = Math.round(f * 100) + "%";
+    $("k-fill").style.width = (f * 100).toFixed(1) + "%";
+    checks(St.phase === "uninstall" ? "uninstall" : "install", f);
+  },
+  finished(r) {
+    if (St.phase === "uninstall") {
+      $("d-title").textContent = "r2backup was removed";
+      $("d-lede").textContent = "Your backups in storage were not touched. Install r2backup again any time to restore them.";
+      $("d-tips").hidden = true; $("b-open").hidden = true;
+      $("b-done-close").className = "btn primary";
+    } else {
+      St.installed = r.installed || St.latest;
+      $("chip").textContent = "v" + St.installed;
+      const upd = St.updating;
+      $("d-title").textContent = upd ? "Updated to r2backup " + St.installed : "r2backup is ready";
+    }
+    show("s-done");
+    setTimeout(() => (St.phase === "uninstall" ? $("b-done-close") : $("b-open")).focus(), 50);
+  },
+  failed(msg) {
+    const rm = St.phase === "uninstall";
+    $("f-title").textContent = rm ? "Could not remove r2backup" : "Could not install r2backup";
+    $("f-lede").textContent = rm ? "Some parts may still be there. Try again, or close r2backup first." : "Your existing copy, if any, still works. Check your connection and try again.";
+    $("f-err").textContent = msg;
+    show("s-fail");
+  },
+  toast(msg) {
+    const t = $("toast"); t.textContent = msg; t.classList.add("on");
+    clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove("on"), 3200);
+  },
+};
+window.ui = ui;
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !document.body.classList.contains("working")) send("close");
+});
+send("ready");
+</script>
+</body>
+</html>

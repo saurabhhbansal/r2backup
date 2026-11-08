@@ -172,6 +172,7 @@ func Run(ctx context.Context, be Backend) error {
 		return err
 	}
 	go p.watchOpenRequests()
+	go p.watchQuitRequests()
 	go p.refreshLoop()
 	go p.watchForUpdate()
 	go func() { <-ctx.Done(); systray.Quit() }()
@@ -407,10 +408,18 @@ func (p *panel) show() {
 		_, _, _ = pSetForegroundWindow.Call(p.hwnd)
 		p.web.Focus()
 		p.visible.Store(true)
+		// A fresh open: the page may offer a newer release again, even one
+		// that was put off last time.
+		if p.ready.Load() {
+			p.web.Eval("r2b.opened && r2b.opened()")
+		}
 		// Only now: a refresh that ran before this would have seen the
 		// panel hidden, skipped drawing, and waited the hidden interval.
 		p.refreshNow()
 	})
+	// Someone is looking: ask whether there is a newer release, so the page
+	// can offer it now rather than a day later. The backend spaces these out.
+	go func() { _, _ = p.be.Call(p.ctx, "panelOpened", nil) }()
 }
 
 // --- where the panel goes ----------------------------------------------------------
@@ -687,6 +696,19 @@ func (p *panel) call(raw string) {
 	}
 	p.post(func() { p.web.Eval("r2b.reply(" + string(js) + ")") })
 	p.refreshNow()
+	if c.Method == "updateApply" && err == nil {
+		// The new program file is in place. Start it now rather than wait
+		// for watchForUpdate to notice: the page has just said "Restarting".
+		go func() {
+			select {
+			case <-p.ctx.Done():
+				return
+			case <-time.After(1500 * time.Millisecond):
+			}
+			p.updated.Store(true)
+			p.cancel()
+		}()
+	}
 }
 
 // pickFolderFor shows the folder picker for the page, with its own wording.
@@ -870,6 +892,27 @@ func (p *panel) watchOpenRequests() {
 		r, _ := windows.WaitForSingleObject(h, 1000)
 		if r == windows.WAIT_OBJECT_0 {
 			p.show()
+		}
+	}
+}
+
+// quitEventName is set by the Windows installer to close this app before it
+// replaces the program file. The installer starts the new copy when it is done.
+func quitEventName() string { return `Local\` + config.InstanceName() + `-tray-quit` }
+
+// watchQuitRequests ends the app when the installer asks.
+func (p *panel) watchQuitRequests() {
+	name, _ := windows.UTF16PtrFromString(quitEventName())
+	h, err := windows.CreateEvent(nil, 0, 0, name)
+	if err != nil {
+		return
+	}
+	defer windows.CloseHandle(h)
+	for p.ctx.Err() == nil {
+		r, _ := windows.WaitForSingleObject(h, 1000)
+		if r == windows.WAIT_OBJECT_0 {
+			p.cancel()
+			return
 		}
 	}
 }

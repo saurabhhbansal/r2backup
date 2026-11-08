@@ -16,15 +16,27 @@ import (
 // release on its own account: the same once a day as the command line.
 const trayUpdateEvery = updateCheckEvery
 
+// trayUpdateOnOpen is the least time between two checks made because the
+// panel was opened. Opening the panel is when someone is there to say yes to
+// an update, so it asks then; the gap keeps a burst of opens from spending
+// GitHub's 60-requests-an-hour allowance for unsigned-in callers.
+const trayUpdateOnOpen = 5 * time.Minute
+
 // maybeCheckUpdate starts a check for a newer release when the last one was
 // more than a day ago. It never waits on the network: State calls it, and
 // State must be cheap.
 func (t *trayBackend) maybeCheckUpdate(now time.Time) {
+	t.checkUpdateIfOlder(now, trayUpdateEvery)
+}
+
+// checkUpdateIfOlder starts a background check when the last one is at least
+// every old. It never waits on the network.
+func (t *trayBackend) checkUpdateIfOlder(now time.Time, every time.Duration) {
 	if !t.checkUpdates || os.Getenv(EnvNoUpdateCheck) != "" {
 		return
 	}
 	t.mu.Lock()
-	due := now.Sub(t.updateCheck) >= trayUpdateEvery
+	due := now.Sub(t.updateCheck) >= every
 	if due {
 		t.updateCheck = now
 	}
@@ -47,6 +59,12 @@ func (t *trayBackend) maybeCheckUpdate(now time.Time) {
 // sign-in itself.
 func (t *trayBackend) updateCall(ctx context.Context, method string, raw []byte) (out any, ok bool, err error) {
 	switch method {
+	case "panelOpened":
+		// The panel was just opened: look for a newer release so the page
+		// can offer it while someone is there to answer.
+		t.checkUpdateIfOlder(time.Now(), trayUpdateOnOpen)
+		return nil, true, nil
+
 	case "updateCheck":
 		v, err := t.d.CheckUpdate(ctx)
 		if err != nil {

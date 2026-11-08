@@ -51,7 +51,12 @@ program with a full terminal app.
 
 ## Install
 
-**Windows** — PowerShell
+**Windows** — download and run
+[**r2backup-setup.exe**](https://github.com/saurabhhbansal/r2backup/releases/latest/download/r2backup-setup.exe)
+([Arm64](https://github.com/saurabhhbansal/r2backup/releases/latest/download/r2backup-setup-arm64.exe)).
+It installs the newest version for your account (no administrator prompt),
+adds it to the Start menu and to Installed apps, and updates an existing copy
+in place. Or from PowerShell:
 
 ```powershell
 irm https://github.com/saurabhhbansal/r2backup/releases/latest/download/install.ps1 | iex
@@ -63,7 +68,7 @@ irm https://github.com/saurabhhbansal/r2backup/releases/latest/download/install.
 curl -sSL https://github.com/saurabhhbansal/r2backup/releases/latest/download/install.sh | sh
 ```
 
-Both scripts check the download against the published checksums. On Windows
+The installer and both scripts check the download against the published checksums. On Windows
 the installer also adds **r2backup** to the Start menu and offers to start it.
 To install by hand, download an archive for Windows, macOS or Linux (amd64 or
 arm64) from the [releases page](https://github.com/saurabhhbansal/r2backup/releases/latest).
@@ -71,6 +76,10 @@ arm64) from the [releases page](https://github.com/saurabhhbansal/r2backup/relea
 The taskbar app uses WebView2, which comes with Windows 11. On Windows 10,
 install the [WebView2 Runtime](https://go.microsoft.com/fwlink/p/?LinkId=2124703)
 first; if it is missing, the app tells you.
+
+Once installed, the taskbar app checks for a newer release each time you open
+its panel and offers to update. Updating replaces the program in place and
+restarts it; your folders and settings stay as they are.
 
 ## Quick start
 
