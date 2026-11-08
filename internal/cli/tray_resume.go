@@ -63,6 +63,11 @@ func (t *trayBackend) shouldCarryOn() bool {
 	if !ok || stoppedByHand(p, stopped) {
 		return false
 	}
+	// Its folder was removed since: nothing to carry on.
+	_ = t.d.app.sets.Reload()
+	if _, err := t.d.app.sets.Get(stopped.Set); err != nil {
+		return false
+	}
 	var ov ui.Overview
 	if applyLiveRun(&ov, now) || t.Busy() != "" {
 		return false

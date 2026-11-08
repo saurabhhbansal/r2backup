@@ -161,6 +161,9 @@ const recentLimit = 30
 // Summarize builds the panel's state from what the dashboard loads and the
 // run history.
 func Summarize(views []ui.SetView, ov ui.Overview, hist []runstate.Past, now time.Time) State {
+	// A run cut off for a folder that has since been removed is nothing to
+	// carry on: saying so would offer a button that cannot work.
+	ov = ui.WithoutGoneInterrupted(views, ov)
 	st := State{
 		Configured:  ov.Configured,
 		Provider:    ov.Provider,
