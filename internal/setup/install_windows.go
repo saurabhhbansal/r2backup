@@ -428,7 +428,7 @@ func registerUninstall(dir, version, icon, setupExe string, size int) error {
 		"Publisher":            "r2backup",
 		"DisplayIcon":          icon,
 		"InstallLocation":      dir,
-		"URLInfoAbout":         "https://github.com/" + Repo,
+		"URLInfoAbout":         selfupdate.SiteURL,
 		"UninstallString":      quoted + " --uninstall",
 		"QuietUninstallString": quoted + " --uninstall --quiet",
 		"InstallDate":          time.Now().Format("20060102"),

@@ -18,6 +18,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -82,33 +83,62 @@ func Cleanup() error {
 	}
 }
 
-// githubAPI is the API root Latest asks. A variable only so a test can point
-// it at an httptest server; nothing in the product ever changes it.
-var githubAPI = "https://api.github.com"
+// SiteURL is r2backup's own site. Every release is mirrored there (see
+// site/build.mjs), with a listing at /api/release/latest.json in the same
+// shape as GitHub's, so updates and installs work on a network that blocks
+// GitHub.
+const SiteURL = "https://r2backup.pages.dev"
 
-// Latest asks GitHub for the newest release.
+// siteAPI and githubAPI are the roots Latest asks. Variables only so a test
+// can point them at an httptest server; nothing in the product changes them.
+var (
+	siteAPI   = SiteURL
+	githubAPI = "https://api.github.com"
+)
+
+// Latest finds the newest release: on r2backup's site first, and on GitHub
+// only if the site cannot be reached or answers with something unusable.
 func Latest(ctx context.Context, repo string) (*Release, error) {
-	url := githubAPI + "/repos/" + repo + "/releases/latest"
+	rel, siteErr := latestFrom(ctx, siteAPI+"/api/release/latest.json", "", "no release listed on "+SiteURL)
+	if siteErr == nil && rel.Version != "" && len(rel.Assets) > 0 {
+		return rel, nil
+	}
+	// GitHub answers 404 both for a repository with no releases and for
+	// one this caller cannot see, and nothing in the response tells the
+	// two apart. Claiming the first is a guess, and it is the wrong one
+	// whenever the repository is private -- which is the case where a
+	// user is staring at a release page that plainly exists. Say both.
+	notFound := fmt.Sprintf("no release found for %s: either none has been published, or the repository is private and this build has no credentials to see it", repo)
+	rel, err := latestFrom(ctx, githubAPI+"/repos/"+repo+"/releases/latest", "application/vnd.github+json", notFound)
+	if err != nil {
+		if siteErr != nil {
+			return nil, fmt.Errorf("%w (and %s: %v)", err, SiteURL, siteErr)
+		}
+		return nil, err
+	}
+	return rel, nil
+}
+
+// latestFrom reads a release listing in GitHub's shape from url. notFound is
+// the error for a 404.
+func latestFrom(ctx context.Context, url, accept, notFound string) (*Release, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
+	if accept != "" {
+		req.Header.Set("Accept", accept)
+	}
 	resp, err := (&http.Client{Timeout: 30 * time.Second}).Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("check for updates: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode == http.StatusNotFound {
-		// GitHub answers 404 both for a repository with no releases and for
-		// one this caller cannot see, and nothing in the response tells the
-		// two apart. Claiming the first is a guess, and it is the wrong one
-		// whenever the repository is private -- which is the case where a
-		// user is staring at a release page that plainly exists. Say both.
-		return nil, fmt.Errorf("no release found for %s: either none has been published, or the repository is private and this build has no credentials to see it", repo)
+		return nil, errors.New(notFound)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("check for updates: github returned %s", resp.Status)
+		return nil, fmt.Errorf("check for updates: %s returned %s", req.URL.Host, resp.Status)
 	}
 
 	var payload struct {

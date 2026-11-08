@@ -14,10 +14,13 @@ import (
 // AccountAPI is where the account service lives. It is compiled in rather than
 // configured, so a user never types it and never has to know it exists.
 //
-// It is the Worker's own workers.dev address (see worker/wrangler.toml), so
-// it does not depend on any domain of ours. r2backup.flexpod.cc reaches the
-// same Worker and stays up for copies built before this changed.
-const AccountAPI = "https://r2backup-account.cloudflaredd.workers.dev"
+// It is r2backup's site, r2backup.pages.dev, which hands /api/account/* to the
+// account Worker (site/functions/api/account). The site is also where
+// downloads and updates come from, so a network that blocks GitHub or
+// workers.dev only has to allow this one address. The Worker's own
+// workers.dev address and r2backup.flexpod.cc still reach it for copies built
+// before this changed.
+const AccountAPI = "https://r2backup.pages.dev/api/account"
 
 // EnvAccountAPI points the client somewhere else. Tests use it; users do not.
 const EnvAccountAPI = "R2BACKUP_ACCOUNT_API"

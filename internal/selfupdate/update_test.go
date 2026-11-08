@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -183,9 +184,9 @@ func TestLatestDoesNotClaimThereAreNoReleasesWhenItCannotSee(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	restore := githubAPI
-	githubAPI = srv.URL
-	defer func() { githubAPI = restore }()
+	restore, restoreSite := githubAPI, siteAPI
+	githubAPI, siteAPI = srv.URL, srv.URL
+	defer func() { githubAPI, siteAPI = restore, restoreSite }()
 
 	_, err := Latest(context.Background(), "someone/private")
 	if err == nil {
@@ -196,5 +197,77 @@ func TestLatestDoesNotClaimThereAreNoReleasesWhenItCannotSee(t *testing.T) {
 		if !strings.Contains(msg, want) {
 			t.Errorf("error does not mention %q, so it states one cause as if it were certain: %s", want, msg)
 		}
+	}
+}
+
+const listingJSON = `{"tag_name":"v9.9.9","body":"notes","assets":[
+ {"name":"checksums.txt","browser_download_url":"%[1]s/download/v9.9.9/checksums.txt"},
+ {"name":"r2backup_9.9.9_windows_amd64.zip","browser_download_url":"%[1]s/download/v9.9.9/r2backup_9.9.9_windows_amd64.zip"},
+ {"name":"r2backup_9.9.9_linux_amd64.tar.gz","browser_download_url":"%[1]s/download/v9.9.9/r2backup_9.9.9_linux_amd64.tar.gz"}]}`
+
+// The site is asked first, so a network that blocks GitHub still gets updates,
+// and GitHub is not asked at all when the site answers.
+func TestLatestPrefersTheSite(t *testing.T) {
+	githubHits := 0
+	gh := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		githubHits++
+		http.Error(w, "should not be asked", http.StatusTeapot)
+	}))
+	defer gh.Close()
+	var site *httptest.Server
+	site = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/release/latest.json" {
+			http.NotFound(w, r)
+			return
+		}
+		fmt.Fprintf(w, listingJSON, site.URL)
+	}))
+	defer site.Close()
+
+	restore, restoreSite := githubAPI, siteAPI
+	githubAPI, siteAPI = gh.URL, site.URL
+	defer func() { githubAPI, siteAPI = restore, restoreSite }()
+
+	rel, err := Latest(context.Background(), "someone/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rel.Version != "v9.9.9" || rel.Checksums != site.URL+"/download/v9.9.9/checksums.txt" {
+		t.Errorf("got %+v", rel)
+	}
+	if got := rel.Assets["windows_amd64"]; got != site.URL+"/download/v9.9.9/r2backup_9.9.9_windows_amd64.zip" {
+		t.Errorf("windows asset = %q", got)
+	}
+	if githubHits != 0 {
+		t.Errorf("GitHub was asked %d times although the site answered", githubHits)
+	}
+}
+
+// A site that is down falls back to GitHub, as before the site existed.
+func TestLatestFallsBackToGitHub(t *testing.T) {
+	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "down", http.StatusBadGateway)
+	}))
+	defer site.Close()
+	var gh *httptest.Server
+	gh = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/repos/someone/repo/releases/latest" {
+			http.NotFound(w, r)
+			return
+		}
+		fmt.Fprintf(w, listingJSON, gh.URL)
+	}))
+	defer gh.Close()
+
+	restore, restoreSite := githubAPI, siteAPI
+	githubAPI, siteAPI = gh.URL, site.URL
+	defer func() { githubAPI, siteAPI = restore, restoreSite }()
+
+	rel, err := Latest(context.Background(), "someone/repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rel.Version != "v9.9.9" || !strings.HasPrefix(rel.Assets["linux_amd64"], gh.URL) {
+		t.Errorf("got %+v", rel)
 	}
 }

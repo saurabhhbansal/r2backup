@@ -292,7 +292,7 @@ h1 { margin-top: 8px; font: 600 27px/1.2 var(--display); letter-spacing: -.015em
 "use strict";
 const $ = (id) => document.getElementById(id);
 const send = (cmd, args) => window.chrome.webview.postMessage(JSON.stringify({ cmd, args: args === undefined ? null : args }));
-const RELEASES = "https://github.com/saurabhhbansal/r2backup/releases";
+const SITE = "https://r2backup.pages.dev";
 
 const St = { mode: "install", installed: "", latest: "", phase: "", updating: false };
 
@@ -325,7 +325,7 @@ $("b-close").onclick = () => send("close");
 $("b-done-close").onclick = () => send("close");
 $("b-fail-close").onclick = () => send("close");
 $("b-cancel").onclick = () => send("close");
-$("l-notes").onclick = (e) => { e.preventDefault(); send("open", St.latest ? RELEASES + "/tag/v" + St.latest : RELEASES); };
+$("l-notes").onclick = (e) => { e.preventDefault(); send("open", SITE + "/#download"); };
 
 function cmpVer(a, b) {
   const p = (v) => String(v).replace(/^v/, "").split(/[.-]/).map((x) => parseInt(x, 10) || 0);
