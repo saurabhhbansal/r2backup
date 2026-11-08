@@ -33,7 +33,7 @@ func TestFoldersBrowsesByPath(t *testing.T) {
 	if _, err := Folders(ctx, cfg, "Backups/Nope"); !errors.Is(err, ErrFolderNotFound) {
 		t.Fatalf("a missing folder: %v", err)
 	}
-	if f.calls["POST /api/v1/folders"] != 0 {
+	if f.callCount("POST /api/v1/folders") != 0 {
 		t.Fatal("browsing made a folder")
 	}
 	if _, err := Folders(ctx, Config{Token: "wrong", BaseURL: f.srv.URL}, ""); err == nil {

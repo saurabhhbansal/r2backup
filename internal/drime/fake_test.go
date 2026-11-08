@@ -154,6 +154,14 @@ func (f *fakeDrime) path(e *fakeEntry) string {
 }
 
 // files returns every file by path.
+// callCount reads f.calls under the lock: a client's background work (the
+// purge from the trash after a delete) can still be calling the fake.
+func (f *fakeDrime) callCount(key string) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.calls[key]
+}
+
 func (f *fakeDrime) files() map[string][]byte {
 	f.mu.Lock()
 	defer f.mu.Unlock()
