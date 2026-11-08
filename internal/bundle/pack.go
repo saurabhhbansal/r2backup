@@ -233,10 +233,15 @@ func (s *Store) Close() {
 	}
 	s.mu.Unlock()
 	s.cache.mu.Lock()
-	defer s.cache.mu.Unlock()
 	for k, name := range s.cache.files {
 		cleanupTemp(name)
 		delete(s.cache.files, k)
 	}
 	s.cache.order = nil
+	s.cache.mu.Unlock()
+	// The store underneath may have work of its own to finish (Drime
+	// emptying a deleted backup from its trash).
+	if c, ok := s.base.(interface{ Close() }); ok {
+		c.Close()
+	}
 }

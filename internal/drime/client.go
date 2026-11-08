@@ -574,6 +574,11 @@ func (c *Client) purgeLater(id string) {
 	}()
 }
 
+// DeletesFoldersWhole tells a store wrapping this one (bundling) that
+// DeletePrefix on a folder deletes it in one request, so there is no need to
+// list it first: on Drime that is a request per folder.
+func (c *Client) DeletesFoldersWhole() bool { return true }
+
 // EmptyTrash deletes everything in Drime's trash forever: what r2backup put
 // there when a backup was deleted, and anything else trashed in the Drime
 // app.
