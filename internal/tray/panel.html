@@ -1029,6 +1029,7 @@ function render(state) {
   else if (!updChecked) { $("update-t").textContent = "Check for updates"; $("b-update").classList.remove("ready"); }
   renderStatusActions(state);
   renderList();
+  offerUpdate();
 }
 
 let lastNotice = 0;
@@ -2751,6 +2752,7 @@ function ask(o) {
     });
   }
   $("md-go").querySelector("span").textContent = o.go || "Delete";
+  $("md-cancel").querySelector("span").textContent = o.cancel || "Cancel";
   goDanger();
   showErr("md-err", "");
   MD.run = o.run;
@@ -3169,7 +3171,33 @@ $("b-update").onclick = async () => {
 };
 $("b-set").insertAdjacentHTML("beforeend", '<span class="dot" id="upd-dot" hidden></span>');
 
-window.r2b = { render, toast, reply };
+// Each time the panel opens with a newer release found, it offers it once.
+// "Later" puts it off until the panel is next opened. It waits while a
+// backup runs: the update would be refused until that finishes anyway.
+let updOffered = "";
+function offerUpdate() {
+  const v = S && S.update;
+  if (!v || updOffered === v || updBusy) return;
+  if (S.running || S.busy || !$("modal").hidden) return;
+  updOffered = v;
+  ask({
+    title: "r2backup " + v + " is ready",
+    text: "You have " + (S.version || "an older version") + ". Updating downloads it, checks it, replaces this copy and restarts r2backup. Your folders and settings stay as they are.",
+    go: "Update now", cancel: "Later", danger: false,
+    run: async () => {
+      updBusy = true;
+      try {
+        const r = await call("updateApply");
+        $("update-t").textContent = "Updated to " + r.version + ". Restarting…";
+        $("b-update").classList.remove("ready");
+        return "Updated to " + r.version + ". Restarting…";
+      } finally { updBusy = false; }
+    },
+  });
+}
+function opened() { updOffered = ""; }
+
+window.r2b = { render, toast, reply, opened };
 send("ready");
 </script>
 </body>

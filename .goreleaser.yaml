@@ -37,7 +37,29 @@ builds:
       - -s -w -H=windowsgui
     mod_timestamp: "{{ .CommitTimestamp }}"
 
+  # Windows only: the installer. A window that downloads the newest release,
+  # checks it against checksums.txt and installs it -- see internal/setup.
+  # It installs whatever is newest, not its own version, so it carries none.
+  - id: r2bsetup
+    main: ./cmd/r2bsetup
+    binary: r2bsetup
+    env:
+      - CGO_ENABLED=0
+    goos: [windows]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -H=windowsgui
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
 archives:
+  # The installer goes up as a bare .exe: it is the one file a person
+  # downloads by hand. The name has no "windows" in it on purpose -- the
+  # updater picks archives by "windows" + arch, and must never pick this.
+  - id: setup
+    ids: [r2bsetup]
+    formats: [binary]
+    name_template: "r2backup-setup{{ if eq .Arch \"arm64\" }}-arm64{{ end }}"
+
   - id: default
     # Both builds. On Linux and macOS only r2b exists, so this is the
     # same single-binary archive it always was; a Windows archive gains the
@@ -89,7 +111,8 @@ release:
     Back up folders to Cloudflare R2 or Drime and restore them anywhere. One
     static binary, no background service.
 
-    On Windows, start **r2backup** from the Start menu for the taskbar app.
+    On Windows, download **r2backup-setup.exe** and run it. It installs the
+    newest version and puts **r2backup** in the Start menu.
     Everywhere, run `r2b` on its own for the full interface, or use any
     command directly.
 

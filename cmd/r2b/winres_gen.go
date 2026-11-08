@@ -33,6 +33,8 @@ func main() {
 		{".", "r2backup"},
 		// r2bw is what the Start menu shortcut and the sign-in entry run.
 		{"../r2bw", "r2backup launcher"},
+		// The Windows installer.
+		{"../r2bsetup", "r2backup Setup"},
 	} {
 		cmd := exec.Command("go", "run", "github.com/tc-hib/go-winres@v0.3.3", "simply",
 			"--icon", ico, "--manifest", "none", "--arch", "amd64,arm64",
