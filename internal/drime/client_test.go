@@ -227,11 +227,11 @@ func TestMoveIsAMoveNotACopy(t *testing.T) {
 	mt := time.Unix(1_650_000_000, 0)
 	src, dst := set+"/current/d/f.txt", set+"/trash/2024-01-01/d/f~000000-ab.txt"
 	put(t, c, src, []byte("data"), remote.Metadata{ModTime: mt, Mode: 0o600})
-	dups := f.calls["POST /api/v1/file-entries/duplicate"]
+	dups := f.callCount("POST /api/v1/file-entries/duplicate")
 	if err := c.Move(context.Background(), src, dst); err != nil {
 		t.Fatal(err)
 	}
-	if f.calls["POST /api/v1/file-entries/duplicate"] != dups {
+	if f.callCount("POST /api/v1/file-entries/duplicate") != dups {
 		t.Fatal("Move duplicated the content")
 	}
 	if _, err := c.Head(context.Background(), src); !errors.Is(err, remote.ErrNotFound) {
@@ -259,7 +259,7 @@ func TestDeletePrefixRemovesFolder(t *testing.T) {
 	if err := c.Flush(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	before := f.calls["GET /api/v1/drive/file-entries"]
+	before := f.callCount("GET /api/v1/drive/file-entries")
 	res, err := c.DeletePrefix(context.Background(), set+"/")
 	if err != nil {
 		t.Fatal(err)
@@ -268,7 +268,7 @@ func TestDeletePrefixRemovesFolder(t *testing.T) {
 	if res.Objects != -1 {
 		t.Fatalf("deletion = %+v", res)
 	}
-	if n := f.calls["GET /api/v1/drive/file-entries"] - before; n > 1 {
+	if n := f.callCount("GET /api/v1/drive/file-entries") - before; n > 1 {
 		t.Fatalf("deleting a folder listed %d times; it should only resolve the path", n)
 	}
 	for p := range f.files() {
