@@ -335,3 +335,19 @@ type Backend interface {
 	// ApplyUpdate downloads, verifies and swaps in the newest release.
 	ApplyUpdate(ctx context.Context) (string, error)
 }
+
+// WithoutGoneInterrupted returns ov without its interrupted run when that
+// run's folder is no longer among views: a removed folder has nothing to
+// carry on.
+func WithoutGoneInterrupted(views []SetView, ov Overview) Overview {
+	if ov.Interrupted == "" {
+		return ov
+	}
+	for _, v := range views {
+		if v.Name == ov.Interrupted {
+			return ov
+		}
+	}
+	ov.Interrupted, ov.InterruptedAt, ov.InterruptedDone, ov.InterruptedTotal = "", time.Time{}, 0, 0
+	return ov
+}

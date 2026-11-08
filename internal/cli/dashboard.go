@@ -314,6 +314,7 @@ func (d *dashboard) Load(ctx context.Context) ([]ui.SetView, ui.Overview, error)
 		ov.SchedulerAvailable = true
 	}
 	applyLiveRun(&ov, time.Now())
+	ov = ui.WithoutGoneInterrupted(views, ov)
 	// What the bucket is already holding of uploads that were cut off. Read
 	// from the index, so it costs nothing and survives the program being
 	// closed and reopened -- which is the point.
@@ -553,7 +554,42 @@ func (d *dashboard) Remove(ctx context.Context, name string, purge bool) error {
 	if err := idx.DropSetUploads(s.KeyScope()); err != nil {
 		return err
 	}
-	return a.sets.Remove(s.Name)
+	if err := a.sets.Remove(s.Name); err != nil {
+		return err
+	}
+	forgetInterruptedRun(s.Name)
+	// With nothing left to back up, a scheduled run would only fail every
+	// time it fires. Turned off, so the panel goes back to how it looks
+	// before any folder was added -- unless it still has Drime folders to
+	// copy, which is all some people schedule it for.
+	if len(a.sets.List()) == 0 && schedule.Supported() && !hasMirrorSources() {
+		if st, err := d.currentSchedule(); err == nil && st.Registered {
+			_ = d.Schedule(ctx, 0, true)
+		}
+	}
+	return nil
+}
+
+// hasMirrorSources reports whether Drime folders are set to be copied to
+// the second copy on each run, with or without any folder of this computer.
+func hasMirrorSources() bool {
+	st, err := config.LoadSettings()
+	return err == nil && len(st.MirrorSources) > 0
+}
+
+// forgetInterruptedRun drops the progress a cut-off run of this set left
+// behind. The set is gone, so there is nothing to carry on, and the panel
+// would otherwise keep saying it was interrupted. Only called while this
+// process holds the index, so that run cannot still be going.
+func forgetInterruptedRun(set string) {
+	p, err := config.ProgressPath()
+	if err != nil {
+		return
+	}
+	if l, err := runstate.ReadLive(p); err == nil && l.Set == set {
+		_ = runstate.ClearLive(p)
+		_ = os.Remove(stoppedMarker(p))
+	}
 }
 
 func (d *dashboard) Schedule(ctx context.Context, every int, off bool) error {

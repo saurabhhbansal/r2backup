@@ -9,6 +9,7 @@ import (
 	"github.com/saurabhhbansal/r2backup/internal/config"
 	"github.com/saurabhhbansal/r2backup/internal/runstate"
 	"github.com/saurabhhbansal/r2backup/internal/schedule"
+	"github.com/saurabhhbansal/r2backup/internal/sets"
 )
 
 // A backup cut off by a shutdown used to wait for someone to press "Carry
@@ -62,6 +63,8 @@ func TestThePanelCarriesOnAnInterruptedBackup(t *testing.T) {
 				markStoppedByHand()
 			}
 
+			seedSetForRemoveBusyTest(t, sets.Set{Name: "Documents", Root: t.TempDir(), Machine: "testpc",
+				Prefix: "machines/testpc/Documents", RetentionDays: 30})
 			d, err := openDashboard(&Options{})
 			if err != nil {
 				t.Fatal(err)

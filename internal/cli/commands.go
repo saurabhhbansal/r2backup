@@ -1170,6 +1170,7 @@ func newRemoveCmd(opts *Options) *cobra.Command {
 			if err := a.sets.Remove(s.Name); err != nil {
 				return err
 			}
+			forgetInterruptedRun(s.Name)
 
 			switch {
 			case purge && deleted.Objects == 0:
